@@ -974,11 +974,13 @@ function StepDuration({ seconds, startTime, live }: { seconds?: number; startTim
     const id = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(id);
   }, [live]);
+  // Intl formatting is costly and this renders on every streaming chunk; the title
+  // only changes with the start time or locale.
+  const title = useMemo(() => startTime !== undefined
+    ? t("chat.stepStartedAt", { time: new Date(startTime).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" }) })
+    : undefined, [locale, startTime, t]);
   const value = live && startTime !== undefined ? Math.max(0, Math.round((now - startTime) / 1000)) : seconds;
   if (value === undefined) return null;
-  const title = startTime !== undefined
-    ? t("chat.stepStartedAt", { time: new Date(startTime).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" }) })
-    : undefined;
   return (
     <span title={title} style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums", lineHeight: 1.35 }}>
       {formatDuration(value, t)}
@@ -1017,7 +1019,10 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent
   return <SafeMarkdownBody className="markdown-assistant-message" isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody>;
 }
 
-export function ThinkingBlock({ block, duration, startTime, live, sessionId, entryId, blockIndex }: {
+// Memoized: once a reply moves on to its answer, a finished thinking block keeps
+// the same block object and primitive props, so streaming chunks skip it (it
+// re-rendered and re-parsed its preview on every chunk before).
+export const ThinkingBlock = memo(function ThinkingBlock({ block, duration, startTime, live, sessionId, entryId, blockIndex }: {
   block: ThinkingContent;
   duration?: number;
   startTime?: number;
@@ -1128,7 +1133,7 @@ export function ThinkingBlock({ block, duration, startTime, live, sessionId, ent
       {expanded && <StepCollapseRail onCollapse={() => setExpanded(false)} />}
     </div>
   );
-}
+});
 
 /**
  * The left gutter of an open step: click anywhere along it to fold the step without
