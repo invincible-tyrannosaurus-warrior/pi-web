@@ -14,7 +14,7 @@ import { skillExpansionToCommand } from "./slash-display";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
-import { checkSessionMembership, listSessionsIncremental } from "./session-list-scanner";
+import { checkSessionMembership, listSessionsIncremental, type ScannedSessionInfo } from "./session-list-scanner";
 
 export { getAgentDir };
 
@@ -151,6 +151,44 @@ export function mergeSessionLists(
   return [...byId.values()].sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
+type ScannedRelation = {
+  subagent: ReturnType<typeof readSubagentRun>;
+  model?: { provider: string; id: string };
+};
+
+/**
+ * A fork's or subagent's relation, per scanned row. The scanner hands back the
+ * same row object while the file's size and mtime hold and a new one once they
+ * change, so the row is the cache key: otherwise every list rebuild re-reads
+ * every child file's head and tail synchronously, though only the session that
+ * just ran changed. A failed read is not cached.
+ */
+const scannedRelations = new WeakMap<ScannedSessionInfo, ScannedRelation>();
+
+function readScannedRelation(s: ScannedSessionInfo): ScannedRelation {
+  const cached = scannedRelations.get(s);
+  if (cached) return cached;
+  try {
+    const entries = readSessionRelationEntries(s.path);
+    let model: ScannedRelation["model"];
+    // The already-read tail usually holds the final assistant message, which names
+    // the model actually used; no extra read just for display.
+    for (const entry of entries) {
+      if (entry.type === "model_change") model = { provider: entry.provider, id: entry.modelId };
+      if (entry.type === "message" && entry.message.role === "assistant") {
+        const { provider, model: id } = entry.message as { provider?: unknown; model?: unknown };
+        if (typeof provider === "string" && typeof id === "string") model = { provider, id };
+      }
+    }
+    const relation = { subagent: readSubagentRun(entries, s.id, s.path), model };
+    scannedRelations.set(s, relation);
+    return relation;
+  } catch {
+    // Malformed or concurrently removed session: read it again next time.
+    return { subagent: null };
+  }
+}
+
 async function loadAllSessions(): Promise<SessionInfo[]> {
   const scanned = await listSessionsIncremental();
   const pathToId = new Map<string, string>();
@@ -159,23 +197,7 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
   const sessions = scanned.map((s) => {
     cacheSessionPath(s.id, s.path);
     const originSessionId = s.parentSessionPath ? pathToId.get(sessionPathKey(s.parentSessionPath)) : undefined;
-    let subagent = null;
-    let model: { provider: string; id: string } | undefined;
-    if (s.parentSessionPath) {
-      try {
-        const entries = readSessionRelationEntries(s.path);
-        subagent = readSubagentRun(entries, s.id, s.path);
-        // The already-read tail usually holds the final assistant message, which names
-        // the model actually used; no extra read just for display.
-        for (const entry of entries) {
-          if (entry.type === "model_change") model = { provider: entry.provider, id: entry.modelId };
-          if (entry.type === "message" && entry.message.role === "assistant") {
-            const { provider, model: id } = entry.message as { provider?: unknown; model?: unknown };
-            if (typeof provider === "string" && typeof id === "string") model = { provider, id };
-          }
-        }
-      } catch { /* malformed or concurrently removed session */ }
-    }
+    const { subagent, model } = s.parentSessionPath ? readScannedRelation(s) : { subagent: null, model: undefined };
     return {
       path: s.path,
       id: s.id,

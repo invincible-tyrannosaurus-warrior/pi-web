@@ -19,7 +19,12 @@ test("未命名会话在首轮结束后会静默生成标题", () => {
 
 test("会话落盘后会用服务端记录清除临时状态", () => {
   assert.match(source, /\{ \.\.\.prev, \.\.\.full, transient: full\.transient \?\? false \}/);
-  assert.match(source, /if \(selectedSession\) hydrateSelectedSession\(selectedSession\.id\)/);
+  // A run's end reloads the sidebar list; its row reaches the selected session
+  // through the sessionCatalog effect (mergeCatalogRow), not a fetch of its own.
+  const agentEnd = source.slice(source.indexOf("const handleAgentEnd = useCallback"), source.indexOf("const handleAttentionNeeded"));
+  assert.match(agentEnd, /setRefreshKey\(\(k\) => k \+ 1\)/);
+  assert.doesNotMatch(agentEnd, /hydrateSelectedSession/);
+  assert.match(source, /prev\?\.id === full\.id \? mergeCatalogRow\(prev, full\) : prev/);
 });
 
 test("独立完成的任务不会被固定时间窗口吞掉通知", () => {

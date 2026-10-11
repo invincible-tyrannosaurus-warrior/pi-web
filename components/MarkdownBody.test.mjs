@@ -215,3 +215,13 @@ test("table copy returns the table's Markdown without a quote or list prefix", (
   assert.match(html, /markdown-table-copy/);
   assert.doesNotMatch(renderMarkdown("| a |\n| - |\n| 1 |", { isStreaming: true }), /markdown-table-copy/);
 });
+
+test("a streaming reply rendered block by block matches its whole-message render", () => {
+  const markdown = [
+    "# Title", "", "Intro with `code` and $x^2$.", "", "- one", "", "- two", "  continued", "",
+    "$$", "a + b", "", "c", "$$", "", "> quote", "", "1. first", "2. second", "", "Closing **bold**.",
+  ].join("\n");
+  // Mermaid/code blocks render differently while streaming, so the sample has none.
+  const normalize = (html) => html.replace(/>\s+</g, "><");
+  assert.equal(normalize(renderMarkdown(markdown, { isStreaming: true })), normalize(renderMarkdown(markdown)));
+});

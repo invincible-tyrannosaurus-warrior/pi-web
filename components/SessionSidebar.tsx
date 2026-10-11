@@ -499,11 +499,11 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     return () => ro.disconnect();
   }, [sessionSearchActive]);
 
-  const loadSessions = useCallback(async (showLoading = false, force = false) => {
+  const loadSessions = useCallback(async (showLoading = false) => {
     const loadId = ++sessionLoadIdRef.current;
     try {
       if (showLoading) setLoading(true);
-      const res = await fetch(force ? "/api/sessions?force=1" : "/api/sessions", {
+      const res = await fetch("/api/sessions", {
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -680,7 +680,10 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   useEffect(() => {
     const isFirst = !initialLoadDone.current;
     initialLoadDone.current = true;
-    loadSessions(isFirst, !isFirst);
+    // Every refreshKey bump follows a change the server already invalidated the
+    // list for (agent_end, fork, delete, rename, new session). Forcing would
+    // rescan again and bump the version, so every other tab reloads once more.
+    void loadSessions(isFirst);
   }, [loadSessions, refreshKey]);
 
   // Browser storage is unavailable during server rendering. Restore the panel
@@ -799,8 +802,9 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     const hasUnlistedRunningSession = newlyRunning.some(
       (id) => !allSessions.some((session) => session.id === id),
     );
+    // Not forced: a run's agent_end already invalidated the server's list.
     if (completedInBackground.length > 0 || hasUnlistedRunningSession) {
-      loadSessions(false, true);
+      void loadSessions();
     }
     if (completedWithNotifications.length > 0) {
       onBackgroundTaskDone?.(completedWithNotifications);

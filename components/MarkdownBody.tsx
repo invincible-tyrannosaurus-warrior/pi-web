@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { iconStroke } from "./iconStroke";
@@ -9,6 +9,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import { pdfPageFromHref, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownAppUrlTransform, markdownRehypePlugins, markdownRemarkPlugins, markdownUserRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
+import { splitMarkdownBlocks } from "@/lib/markdown-blocks";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
 
@@ -23,9 +24,38 @@ interface MarkdownBodyProps {
   onOpenFile?: (filePath: string, page?: number) => void;
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
+interface MarkdownBlockProps {
+  markdown: string;
+  remarkPlugins: typeof markdownRemarkPlugins;
+  urlTransform: typeof markdownUrlTransform;
+  components: Components;
+}
+
+/** One parse; skipped while its text and renderers stay the same. */
+const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, urlTransform, components }: MarkdownBlockProps) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={markdownRehypePlugins}
+      urlTransform={urlTransform}
+      components={components}
+    >
+      {markdown}
+    </ReactMarkdown>
+  );
+});
+
+export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
   const sessionId = useContext(MarkdownSessionContext);
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
+  // A streaming reply grows by a few characters per chunk; parsing all of it each
+  // time made a long reply quadratic. Its finished blocks keep their parse and only
+  // the last is parsed again. A finished message is one block, so node offsets
+  // (table copy, shown only then) stay relative to the whole message.
+  const blocks = useMemo(
+    () => (isStreaming ? splitMarkdownBlocks(normalizedMarkdown) : [normalizedMarkdown]),
+    [isStreaming, normalizedMarkdown],
+  );
   // Read at click time so the renderers below keep their identity while text streams.
   const sourceRef = useRef(normalizedMarkdown);
   useEffect(() => { sourceRef.current = normalizedMarkdown; }, [normalizedMarkdown]);
@@ -122,17 +152,18 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
-      <ReactMarkdown
-        remarkPlugins={className?.split(/\s+/).includes("markdown-user-message") ? markdownUserRemarkPlugins : markdownRemarkPlugins}
-        rehypePlugins={markdownRehypePlugins}
-        urlTransform={onOpenFile ? markdownUrlTransform : markdownAppUrlTransform}
-        components={components}
-      >
-        {normalizedMarkdown}
-      </ReactMarkdown>
+      {blocks.map((block, index) => (
+        <MarkdownBlock
+          key={index}
+          markdown={block}
+          remarkPlugins={className?.split(/\s+/).includes("markdown-user-message") ? markdownUserRemarkPlugins : markdownRemarkPlugins}
+          urlTransform={onOpenFile ? markdownUrlTransform : markdownAppUrlTransform}
+          components={components}
+        />
+      ))}
     </div>
   );
-}
+});
 
 /** A table's Markdown, without the quote or list prefix it carries when nested. */
 export function tableSource(markdown: string, start: number, end: number): string {

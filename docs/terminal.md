@@ -55,6 +55,10 @@ On Debian/Ubuntu, install `python3` and `build-essential` first. This forces a
 source build instead of reusing a missing or incompatible prebuilt binary.
 Restart Pi Web after repair.
 
+## Touch keys
+
+A portrait touch screen (orientation from `screen.orientation`, never the viewport, which the soft keyboard reshapes) gets Termux's two key rows as the panel's last grid row, so xterm refits above them (`components/TerminalExtraKeys.tsx`, `lib/terminal-extra-keys.ts`). Keys go through `terminal.input(seq, true)` and follow xterm's application cursor mode; CTRL/ALT are one-shot and also modify the next soft-keyboard character. Buttons `preventDefault()` on pointer/mouse down so the keyboard stays up. Resizes clamp to at least 2 rows: the keyboard can fit the panel to one, and a rejected resize disables input.
+
 ## Verification
 
 Run `npm test` for native PTY, lease, output cursor, input queue, and storage

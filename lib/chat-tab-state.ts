@@ -4,6 +4,16 @@ export { getSessionDisplayTitle };
 
 export type ChatPane = "primary" | "secondary";
 
+/**
+ * Merge a session's server row into a client-held SessionInfo. The row wins
+ * (a persisted row also clears `transient`); `current` comes back unchanged
+ * when nothing differs, so state setters can bail out.
+ */
+export function mergeCatalogRow<T extends SessionInfo | null>(current: T, row: SessionInfo): T | SessionInfo {
+  const merged = { ...current, ...row, transient: row.transient ?? false };
+  return current && JSON.stringify(merged) === JSON.stringify(current) ? current : merged;
+}
+
 export interface ChatTabItem {
   id: string;
   kind: "session" | "draft";

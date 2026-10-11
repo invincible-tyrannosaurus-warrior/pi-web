@@ -71,6 +71,13 @@ export function toClientAgentEvent(
   // whole prompt plus every tool schema and are never rendered, so drop them
   // before they cost the browser bandwidth.
   if (isSystemMessageEvent(event)) return null;
+  // A finished tool result or delivered user message is announced with
+  // `message_start` and `message_end` back to back. The browser builds only an
+  // assistant reply from a start and reads just the role of the others, so their
+  // body (an image read's base64) would cross the stream twice.
+  if (event.type === "message_start" && isObject(event.message) && event.message.role !== "assistant") {
+    return { type: "message_start", message: { role: event.message.role } };
+  }
 
   if (event.type === "message_update") {
     const assistantMessageEvent = event.assistantMessageEvent;

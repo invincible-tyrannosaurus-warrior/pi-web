@@ -999,6 +999,55 @@ body {
   height: 100%;
 }
 
+/* Termux-style keys on a portrait touch screen: the panel's last grid row, so
+   xterm refits above them instead of being covered. Colors follow the header. */
+.terminal-panel.has-extra-keys {
+  grid-template-rows: 38px auto minmax(0, 1fr) auto;
+}
+
+.terminal-panel.has-extra-keys .terminal-xterm {
+  grid-row: 3;
+  padding-bottom: 6px;
+}
+
+.terminal-extra-keys {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: 36px;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top: 1px solid #2f3540;
+  background: #181b21;
+}
+
+.terminal-extra-keys button {
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.terminal-extra-keys button:active {
+  background: #242932;
+  color: #e5e7eb;
+}
+
+.terminal-extra-keys button.is-active {
+  color: #60a5fa;
+}
+
+.terminal-extra-keys .is-rotated {
+  display: inline-block;
+  transform: rotate(90deg);
+}
+
 .terminal-xterm .xterm-viewport {
   background-color: #111318;
 }

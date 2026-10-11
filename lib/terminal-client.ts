@@ -41,7 +41,9 @@ export function createTerminalWriter(id: string, onError: (error: Error) => void
     },
     resize(cols: number, rows: number) {
       bufferedInput = null;
-      enqueue({ type: "resize", cols, rows });
+      // A phone keyboard can briefly fit the panel to one row; the server needs >= 2,
+      // and a rejected resize would disable input for good.
+      enqueue({ type: "resize", cols: Math.max(2, cols), rows: Math.max(2, rows) });
     },
     stop() { stopped = true; bufferedInput = null; return pending; },
   };

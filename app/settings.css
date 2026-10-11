@@ -903,6 +903,15 @@
   color: var(--danger);
 }
 
+/* A skill's SKILL.md body, read as a document (prose face, file-preview rhythm)
+   at the settings tier: 14px body (no chat offset), headings 14px/600 below the
+   16px group title, told apart by the space above them (markdown-body rhythm). */
+.markdown-file-preview.settings-skill-instructions {
+  padding: 4px 0 12px;
+  font-size: 14px;
+}
+.markdown-file-preview.settings-skill-instructions :is(h1, h2, h3, h4) { font-size: 1em; }
+
 /* One wait indicator; invisible for 400ms so fast loads never show a loading step. */
 .settings-loading {
   margin: 0;

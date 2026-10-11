@@ -1,15 +1,14 @@
 "use client";
 
 import { memo, useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
-import {
-  Prism as SyntaxHighlighter,
-  createElement as renderSyntaxNode,
-  type SyntaxHighlighterProps,
-} from "react-syntax-highlighter";
+import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
+import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
+import renderSyntaxNode from "react-syntax-highlighter/dist/esm/create-element";
 import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import ReactMarkdown from "react-markdown";
 import { useTheme } from "@/hooks/useTheme";
+import { usePrismLanguages } from "@/hooks/usePrismLanguages";
 import { claudeCodeStyle, claudeDarkCodeStyle } from "@/lib/claude-theme";
 import {
   BINARY_FILE_ERROR,
@@ -81,6 +80,9 @@ interface FileData {
 }
 
 const PREVIEW_AUTOLOAD_MAX_BYTES = 4 * 1024 * 1024;
+// A larger HTML file (a standalone Plotly report) stays chunked in Source; its
+// preview fetches the whole file once, up to this cap.
+const HTML_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 // "Load more" reads to the end; past this size the whole file stays in page state, so ask first.
 const LOAD_ALL_CONFIRM_BYTES = 16 * 1024 * 1024;
 const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
@@ -1282,6 +1284,8 @@ function TextFileViewer({
   });
   const onStateChangeRef = useRef(onStateChange);
   const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
+  // Whole file for an HTML preview whose source view is still chunked.
+  const [htmlFull, setHtmlFull] = useState<{ text?: string; error?: string } | null>(null);
 
   onStateChangeRef.current = onStateChange;
 
@@ -1497,6 +1501,32 @@ function TextFileViewer({
     void fetchGitDiff(filePath);
   }, [fetchGitDiff, filePath, gitRefreshKey]);
 
+  // A half HTML document cannot render, so a chunked one previews from one
+  // whole-file fetch. A new file version (watch change) refetches it while the
+  // previous page stays up, so a live change does not flash "Loading"; more
+  // chunks of the same version do not.
+  const needsHtmlFull = displayMode === "preview"
+    && data?.language === "html"
+    && data.truncated
+    && data.size <= HTML_PREVIEW_MAX_BYTES;
+  useEffect(() => {
+    if (!needsHtmlFull) {
+      setHtmlFull(null);
+      return;
+    }
+    const controller = new AbortController();
+    fetch(getFileApiUrl(filePath, "download", sourceSessionId), { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const text = await response.text();
+        if (!controller.signal.aborted) setHtmlFull({ text });
+      })
+      .catch((fetchError) => {
+        if (!controller.signal.aborted) setHtmlFull({ error: String(fetchError) });
+      });
+    return () => controller.abort();
+  }, [needsHtmlFull, data?.version, filePath, sourceSessionId]);
+
   const hasGitDiff = gitDiff?.supported === true && typeof gitDiff.patch === "string";
   const isDeletedDiff = hasGitDiff && gitDiff.status === "deleted";
 
@@ -1530,11 +1560,15 @@ function TextFileViewer({
   const viewerContent = data?.content ?? "";
   const sourceLines = useMemo(() => viewerContent.split("\n"), [viewerContent]);
   const language = data?.language ?? "text";
+  // Plain text needs no Prism languages; any other file loads them once.
+  const prismReady = usePrismLanguages(Boolean(data) && language !== "text");
   const isHtml = language === "html";
   const isMarkdown = language === "markdown";
   // A CSV/TSV table shows a loaded prefix too; its cut last record waits for "Load more".
   const isDelimitedTable = isDelimitedTablePath(filePath);
-  const hasPreview = isDelimitedTable || (!data?.truncated && (isHtml || isMarkdown));
+  const hasPreview = isDelimitedTable || (isHtml
+    ? !!data && (!data.truncated || data.size <= HTML_PREVIEW_MAX_BYTES)
+    : isMarkdown && !data?.truncated);
   const effectiveDisplayMode = isDeletedDiff
     ? "diff"
     : displayMode === "preview" && !hasPreview
@@ -1558,7 +1592,7 @@ function TextFileViewer({
     () => showHighlightedSource ? (
       <SyntaxHighlighter
         className={wrapLines ? "file-source-view is-wrapped" : "file-source-view"}
-        language={language === "text" ? "plaintext" : language}
+        language={language === "text" || !prismReady ? "plaintext" : language}
         style={palette === "claude" ? (isDark ? claudeDarkCodeStyle : claudeCodeStyle) : isDark ? vscDarkPlus : vs}
         showLineNumbers
         lineNumberStyle={{
@@ -1589,7 +1623,7 @@ function TextFileViewer({
         {viewerContent}
       </SyntaxHighlighter>
     ) : null,
-    [isDark, language, palette, showHighlightedSource, viewerContent, wrapLines],
+    [isDark, language, palette, prismReady, showHighlightedSource, viewerContent, wrapLines],
   );
   const lightweightSourceLines = useMemo(
     () => useLightweightSource ? sourceLines.map((line, lineIndex) => (
@@ -1863,7 +1897,8 @@ function TextFileViewer({
         </div>
       </div>
 
-      {data?.truncated && (
+      {/* A chunked HTML preview shows the whole file, so Load more belongs to Source. */}
+      {data?.truncated && !(isHtml && effectiveDisplayMode === "preview") && (
         <div className="file-viewer-load-more">
           <span>{formatSize(data.nextOffset)} / {formatSize(data.size)}</span>
           <button
@@ -1897,13 +1932,17 @@ function TextFileViewer({
             [effectiveDisplayMode]: position,
           };
         }}
-        style={{ flex: 1, overflow: "auto", background: "var(--bg)", paddingBottom: data?.truncated ? 48 : undefined }}
+        style={{ flex: 1, overflow: "auto", background: "var(--bg)", paddingBottom: data?.truncated && !(isHtml && effectiveDisplayMode === "preview") ? 48 : undefined }}
       >
         {effectiveDisplayMode === "diff" && hasGitDiff ? (
           <DiffView patch={gitDiff.patch!} />
+        ) : isHtml && effectiveDisplayMode === "preview" && data?.truncated && !htmlFull?.text ? (
+          <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: htmlFull?.error ? "var(--danger)" : "var(--text-muted)", fontSize: 12, textAlign: "center" }}>
+            {htmlFull?.error ?? t("i18n.loading")}
+          </div>
         ) : isHtml && effectiveDisplayMode === "preview" ? (
           <iframe
-            srcDoc={content}
+            srcDoc={data?.truncated ? htmlFull?.text : content}
             sandbox="allow-scripts"
             style={{ width: "100%", height: "100%", border: "none", background: "var(--bg)" }}
              title={t("i18n.htmlPreview")}

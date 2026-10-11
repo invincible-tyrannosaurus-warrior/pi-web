@@ -139,3 +139,24 @@ test("a skill switched off globally stays listed and can be switched back on", a
   assert.equal((await PATCH(patchRequest({ cwd, filePath: off.filePath, enabled: true }))).status, 200);
   assert.equal((await list()).globalEnabled, true);
 });
+
+test("GET /api/skills?filePath= returns a loaded skill's text and refuses any other file", async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-web-skills-content-cwd-"));
+  allowFileRoot(cwd);
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const skillDir = join(testAgentDir, "skills", "content-skill");
+  await mkdir(skillDir, { recursive: true });
+  t.after(() => rm(skillDir, { recursive: true, force: true }));
+  const text = "---\nname: content-skill\ndescription: Shows its body\n---\n# Steps\n\nDo it.\n";
+  await writeFile(join(skillDir, "SKILL.md"), text);
+
+  const url = (filePath) => `http://localhost/api/skills?cwd=${encodeURIComponent(cwd)}&filePath=${encodeURIComponent(filePath)}`;
+  const ok = await GET(new Request(url(join(skillDir, "SKILL.md"))));
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), { content: text });
+
+  const outsider = join(cwd, "secret.md");
+  await writeFile(outsider, "secret\n");
+  const denied = await GET(new Request(url(outsider)));
+  assert.equal(denied.status, 404);
+});

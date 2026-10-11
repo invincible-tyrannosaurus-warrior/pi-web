@@ -22,6 +22,7 @@ import {
   chatTabMountKey,
   chatTabCwd,
   promoteDraftToSession,
+  mergeCatalogRow,
   type ChatPane,
   type ChatTabItem,
 } from "@/lib/chat-tab-state";
@@ -178,7 +179,7 @@ export function AppShell() {
   // Audio ownership lives here (not in ChatWindow) so the completion tone can
   // also fire for tasks finishing in a non-active workspace whose ChatWindow
   // is not mounted. ChatWindow receives the audio callbacks as props.
-  const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio, soundEnabledRef } = useAudio();
+  const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio, holdAudio, soundEnabledRef } = useAudio();
   const [quoteSelectionEnabled, setQuoteSelectionEnabled] = useState(true);
   useEffect(() => {
     try {
@@ -275,6 +276,28 @@ export function AppShell() {
   const [draftTabsPersistenceFailed, setDraftTabsPersistenceFailed] = useState(false);
   const chatTabsRef = useRef<ChatTabItem[]>([]);
   chatTabsRef.current = chatTabs;
+  // The sidebar's list reload (after a run, fork, rename...) carries the selected
+  // session's server row: projectKey for a client-built transient session, and
+  // `transient: false` once its file exists. Merge it here instead of fetching
+  // the whole list again per session.
+  const selectedSessionId = selectedSession?.id;
+  useEffect(() => {
+    const full = selectedSessionId ? sessionCatalog.find((s) => s.id === selectedSessionId) : undefined;
+    if (!full) return;
+    setSelectedSession((prev) => prev?.id === full.id ? mergeCatalogRow(prev, full) : prev);
+    setChatTabs((prev) => {
+      let changed = false;
+      const next = prev.map((tab) => {
+        if (tab.id !== full.id || tab.kind !== "session") return tab;
+        const session = mergeCatalogRow(tab.session, full);
+        const title = getSessionDisplayTitle(full);
+        if (session === tab.session && title === tab.title) return tab;
+        changed = true;
+        return { ...tab, title, session };
+      });
+      return changed ? next : prev;
+    });
+  }, [selectedSessionId, sessionCatalog]);
   const [activeChatTabId, setActiveChatTabId] = useState<string | null>(null);
   const activeChatTabIdRef = useRef<string | null>(null);
   activeChatTabIdRef.current = activeChatTabId;
@@ -1307,9 +1330,10 @@ export function AppShell() {
   const namingSessionIdsRef = useRef<Set<string>>(new Set());
 
   const handleAgentEnd = useCallback((paneSession?: SessionInfo | null, end?: { aborted: boolean }) => {
+    // The sidebar's reload merges the selected session's new row into it
+    // (the sessionCatalog effect), so no list fetch of its own here.
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
-    if (selectedSession) hydrateSelectedSession(selectedSession.id);
     const targetSession = paneSession ?? selectedSession;
 
     // Silent auto-name in the background on the first completed turn if untitled
@@ -1337,7 +1361,7 @@ export function AppShell() {
       body: translate("i18n.taskFinished"),
       tag: targetSession ? `pi-session-complete:${targetSession.id}` : "pi-session-complete",
     });
-  }, [deliverSessionNotification, hydrateSelectedSession, selectedSession, translate]);
+  }, [deliverSessionNotification, selectedSession, translate]);
 
   const handleAttentionNeeded = useCallback((
     request: BlockingExtensionUiRequest,
@@ -2055,6 +2079,7 @@ export function AppShell() {
         soundEnabled={soundEnabled}
         playDoneSound={playDoneSound}
         unlockAudio={unlockAudio}
+        holdAudio={holdAudio}
       />
     );
   };

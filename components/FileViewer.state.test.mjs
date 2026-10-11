@@ -94,7 +94,18 @@ test("TextFileViewer starts markdown and html files in preview without a post-lo
 
 test("CSV/TSV files preview as a table while truncated, ahead of the source fallback", () => {
   const block = functionBlock("TextFileViewer", null);
-  assert.match(block, /const hasPreview = isDelimitedTable \|\| \(!data\?\.truncated && \(isHtml \|\| isMarkdown\)\);/);
+  const start = block.indexOf("  const hasPreview = ");
+  const statement = block.slice(start, block.indexOf(";\n", start) + 1);
+  const hasPreview = new Function("data", "isHtml", "isMarkdown", "isDelimitedTable", "HTML_PREVIEW_MAX_BYTES", `${statement}\nreturn hasPreview;`);
+  const cap = 10 * 1024 * 1024;
+  const partial = { truncated: true, size: 6 * 1024 * 1024 };
+  // A truncated table previews its prefix; HTML previews whole up to the cap; markdown waits.
+  assert.equal(hasPreview(partial, false, false, true, cap), true);
+  assert.equal(hasPreview(partial, true, false, false, cap), true);
+  assert.equal(hasPreview({ ...partial, size: cap + 1 }, true, false, false, cap), false);
+  assert.equal(hasPreview({ truncated: false, size: cap + 1 }, true, false, false, cap), true);
+  assert.equal(hasPreview(partial, false, true, false, cap), false);
+  assert.equal(hasPreview({ truncated: false, size: 1 }, false, true, false, cap), true);
   const branch = block.indexOf(") : isDelimitedTable && effectiveDisplayMode === \"preview\" ? (");
   assert.notEqual(branch, -1);
   assert.ok(branch < block.indexOf(") : useLightweightSource ? ("), "table branch must come before the source fallback");

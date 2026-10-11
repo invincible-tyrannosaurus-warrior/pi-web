@@ -134,13 +134,12 @@ test("offers the downstream context-menu hook only on a normal session row", () 
   );
 });
 
-test("lifecycle refreshes bypass the cache while cross-window polling reuses it", () => {
-  assert.match(source, /force \? "\/api\/sessions\?force=1" : "\/api\/sessions"/);
-  assert.match(source, /cache: "no-store"/);
-  assert.match(source, /loadSessions\(isFirst, !isFirst\)/);
+test("list reloads never force a rescan: the server invalidates before the browser hears", () => {
+  assert.match(source, /fetch\("\/api\/sessions", \{\s*cache: "no-store"/);
+  assert.doesNotMatch(source, /force=1/);
   assert.match(source, /data\.sessionListVersion !== sessionListVersionRef\.current[\s\S]*?await loadSessions\(\)/);
   assert.doesNotMatch(source, /sessionRefreshDone|sessionRefreshTimerRef|title=\{t\("sidebar\.refresh"\)\}/);
-  assert.match(source, /loadSessions\(false, true\);[\s\S]*?onBackgroundTaskDone/);
+  assert.match(source, /void loadSessions\(\);[\s\S]*?onBackgroundTaskDone/);
 });
 
 test("keeps a session visible when the delete request fails", () => {

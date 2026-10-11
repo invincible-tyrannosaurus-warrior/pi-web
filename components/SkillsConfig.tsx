@@ -13,6 +13,8 @@ import type {
 } from "@/lib/api-types";
 import { ProjectOverrideTag } from "./ProjectOverride";
 import { ReloadNotice } from "./ReloadNotice";
+import { MarkdownBody } from "./MarkdownBody";
+import { parseFrontmatter } from "@/lib/frontmatter";
 import {
   ConfigButton,
   ConfigPanelShell,
@@ -129,6 +131,25 @@ function SkillDetail({
     return shortenPath(p);
   }
 
+  // The SKILL.md body (frontmatter already shows as name and description).
+  const [instructions, setInstructions] = useState<{ text?: string; error?: string } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setInstructions(null);
+    const params = new URLSearchParams({ cwd, filePath: skill.filePath });
+    fetch(`/api/skills?${params}`, { signal: controller.signal })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({})) as { content?: unknown; error?: string };
+        if (!response.ok || typeof data.content !== "string") throw new Error(data.error ?? `HTTP ${response.status}`);
+        setInstructions({ text: parseFrontmatter(data.content).rest.trim() });
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setInstructions({ error: error instanceof Error ? error.message : String(error) });
+      });
+    return () => controller.abort();
+    // An update rewrites SKILL.md at the same path.
+  }, [cwd, skill.filePath, skill.install?.versionHash]);
+
   const updateAvailable = updateStatus?.state === "update-available";
   const statusText = checkingUpdate
     ? t("i18n.checking")
@@ -213,6 +234,20 @@ function SkillDetail({
               {skill.install.skillsShUrl.replace(/^https?:\/\//, "")} ↗
             </a>
           </SettingsRow>
+        )}
+      </SettingsGroup>
+
+      <SettingsGroup title={t("skills.instructions")}>
+        {instructions === null ? (
+          <SettingsLoading label={t("i18n.loading")} />
+        ) : instructions.error ? (
+          <p role="alert" className="settings-row-message is-error">{instructions.error}</p>
+        ) : instructions.text ? (
+          <MarkdownBody className="markdown-file-preview settings-skill-instructions" cwd={skill.baseDir}>
+            {instructions.text}
+          </MarkdownBody>
+        ) : (
+          <p className="settings-row-message">{t("skills.noInstructions")}</p>
         )}
       </SettingsGroup>
 

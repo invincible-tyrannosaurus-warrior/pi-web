@@ -8,7 +8,10 @@ import { useTheme } from "@/hooks/useTheme";
 import { claudeCodeStyle, claudeDarkCodeStyle, claudeDarkMermaidVariables, claudeMermaidVariables } from "@/lib/claude-theme";
 import { useI18n } from "@/hooks/useI18n";
 import { copyText } from "@/lib/clipboard";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
+import { usePrismLanguages } from "@/hooks/usePrismLanguages";
+import { takeHighlightBudget, waitForHighlight } from "@/lib/highlight-queue";
+import { prismLanguagesLoaded } from "@/lib/prism-languages";
 import { CopyGlyph } from "./CopyGlyph";
 
 interface MermaidBlockProps {
@@ -309,11 +312,26 @@ interface CodeBlockProps {
  * While the owning message is still streaming, the block renders as plain
  * monospace text — highlighting a growing block re-tokenizes all of it on
  * every chunk, which is the single most expensive part of streamed rendering.
+ * A finished block past this task's highlight budget (lib/highlight-queue.ts),
+ * or mounted before the Prism languages have loaded (lib/prism-languages.ts),
+ * renders through the same highlighter as `text` (same lines, numbers and box,
+ * no tokens) until an idle slice lets it take its language.
  */
 export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isStreaming }: CodeBlockProps) {
   const { isDark, palette } = useTheme();
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
+  // Loading starts with the first block, streaming or not, so a streamed reply
+  // usually finds the languages ready when it ends.
+  const languagesReady = usePrismLanguages();
+  const [highlighted, setHighlighted] = useState(
+    () => !isStreaming && prismLanguagesLoaded() && takeHighlightBudget(code.length),
+  );
+
+  useEffect(() => {
+    if (isStreaming || highlighted || !languagesReady) return;
+    return waitForHighlight(() => setHighlighted(true));
+  }, [isStreaming, highlighted, languagesReady]);
 
   const copy = () => {
     copyText(code).then(() => {
@@ -366,7 +384,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
         </pre>
       ) : (
         <SyntaxHighlighter
-          language={lang || "text"}
+          language={highlighted ? lang || "text" : "text"}
           style={palette === "claude" ? (isDark ? claudeDarkCodeStyle : claudeCodeStyle) : isDark ? vscDarkPlus : vs}
           showLineNumbers
           lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal", paddingRight: "0.8em", userSelect: "none" }}

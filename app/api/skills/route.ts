@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { lstatSync, readFileSync, writeFileSync } from "fs";
+import { lstatSync, readFileSync, statSync, writeFileSync } from "fs";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { runNpx } from "@/lib/npx";
 import { getRemovableSkillEntry, removeSkillEntry } from "@/lib/skill-delete";
@@ -11,12 +11,18 @@ import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-acces
 
 export const dynamic = "force-dynamic";
 
+/** Skill instructions are small; a larger file is not something to render in settings. */
+const SKILL_CONTENT_MAX_BYTES = 1024 * 1024;
+
 // GET /api/skills?cwd=<path>
 // Uses DefaultResourceLoader (same logic as AgentSession startup) so settings.json
 // skill paths, package skills, and .agents/skills directories are all included.
+// With &filePath=<loaded skill file>, returns that skill's SKILL.md text instead.
+// The loaded list is the allow-list: any other path would make this a file reader.
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const cwd = searchParams.get("cwd");
+  const filePath = searchParams.get("filePath");
   if (!cwd) return NextResponse.json({ error: "cwd required" }, { status: 400 });
 
   try {
@@ -24,7 +30,20 @@ export async function GET(req: Request) {
     if (!isExistingFilePathAllowed(cwd, allowedRoots)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
-    return NextResponse.json(await loadSkillsWithInstallInfo(cwd));
+    const skills = await loadSkillsWithInstallInfo(cwd);
+    if (filePath === null) return NextResponse.json(skills);
+
+    const skill = skills.skills.find((item) => item.filePath === filePath);
+    if (!skill) return NextResponse.json({ error: "Skill not found" }, { status: 404 });
+    let stat;
+    try {
+      stat = statSync(skill.filePath);
+    } catch {
+      return NextResponse.json({ error: "Skill file not found" }, { status: 404 });
+    }
+    if (!stat.isFile()) return NextResponse.json({ error: "Skill file not found" }, { status: 404 });
+    if (stat.size > SKILL_CONTENT_MAX_BYTES) return NextResponse.json({ error: "Skill file is too large to show" }, { status: 413 });
+    return NextResponse.json({ content: readFileSync(skill.filePath, "utf8") });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

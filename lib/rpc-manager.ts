@@ -79,7 +79,8 @@ type EventSubscription = {
   listener: EventListener;
   keepAlive: boolean;
 };
-type AgentRunCompleteListener = (sessionId: string) => void;
+/** `sessionName`: the live session's own title (its newest `session_info`), read without a disk scan. */
+type AgentRunCompleteListener = (sessionId: string, sessionName: string | undefined) => void;
 type AgentRunCompletionGate = (sessionId: string) => boolean;
 
 type PendingUiResponse = {
@@ -462,7 +463,7 @@ export class AgentSessionWrapper {
     this.agentRunNeedsCompletion = false;
     if (this.suppressCompletionNotifications) return;
     try {
-      this.onAgentRunComplete?.(this.sessionId);
+      this.onAgentRunComplete?.(this.sessionId, this.inner.sessionManager.getSessionName());
     } catch (error) {
       console.error("[pi-web] completion listener failed:", error instanceof Error ? error.message : error);
     }
@@ -826,6 +827,9 @@ export class AgentSessionWrapper {
             // the internal callback. This waits for the run, but never acks early.
             acceptPreflight();
             finishPrompt();
+            // An extension-only command (no agent_end) may have renamed the session;
+            // browsers reload the list on prompt_done without forcing a rescan.
+            invalidateSessionListCache();
             if (!streamingBehavior) this.emit({ type: "prompt_done", aborted: this.lastRunAborted });
           }, (error) => {
             rejectPreflight(error);
@@ -1212,11 +1216,21 @@ export class AgentSessionWrapper {
       }
 
       case "reload": {
+        // A reload invalidates the extension ctx a running turn still holds; the
+        // turn would then fail at its next extension hook. pi refuses too.
+        if (this.isSessionRunningForReplacement()) {
+          throw new Error("Wait for the current response to finish before reloading.");
+        }
         if (this.extensionUiAbortController.signal.aborted) {
           this.extensionUiAbortController = new AbortController();
         }
         const activeToolNames = this.inner.getActiveToolNames();
         await this.waitForExtensionsBound();
+        // A prompt may have been admitted while extensions were binding.
+        // ponytail: check, not a reservation; a prompt admitted during inner.reload() itself is not blocked.
+        if (this.isSessionRunningForReplacement()) {
+          throw new Error("Wait for the current response to finish before reloading.");
+        }
         this.syncProjectTrust();
         await this.inner.reload();
         this.setActiveToolSelection(activeToolNames);
@@ -1689,6 +1703,23 @@ export class AgentSessionWrapper {
       navigateTree: (targetId, options) => this.navigateTree(targetId, { summarize: options?.summarize }),
       switchSession: async () => ({ cancelled: true }),
       reload: async () => {
+        // As pi's TUI: a command runs inside its own prompt, so the pending prompt
+        // does not count; only a streaming or compacting turn does.
+        const busy = this.inner.isStreaming
+          ? "Wait for the current response to finish before reloading."
+          : this.inner.isCompacting
+            ? "Wait for compaction to finish before reloading."
+            : null;
+        if (busy) {
+          this.emit({
+            type: "extension_ui_request",
+            id: randomUUID(),
+            method: "notify",
+            notifyType: "warning",
+            message: busy,
+          } as ExtensionUiRequest as AgentEvent);
+          return;
+        }
         this.syncProjectTrust();
         await this.inner.reload({
           beforeSessionStart: () => {
@@ -2490,8 +2521,8 @@ export async function startRpcSession(
       beforeAgentRunComplete: (completedSessionId) => (
         SUBAGENT_CONTROLLER.flushParentNotifications(completedSessionId)
       ),
-      onAgentRunComplete: (completedSessionId) => {
-        void notifySessionComplete(completedSessionId).catch((error) => {
+      onAgentRunComplete: (completedSessionId, sessionName) => {
+        void notifySessionComplete(completedSessionId, sessionName).catch((error) => {
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);
         });
       },
