@@ -553,6 +553,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const hasSearchQuery = searchQuery.trim().length > 0;
 
   // Reuse the cached, bounded file index used by @ mentions.
+  // Only a manual refresh forces a rebuild: run-time refreshKey bumps (up to 1/s)
+  // would re-walk large repos; the index's 10 s TTL covers agent edits.
   useEffect(() => {
     if (!fileSearchOpen) return;
     const query = searchQuery.trim();
@@ -566,7 +568,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setSearchLoading(true);
     setSearchError(false);
     const timer = setTimeout(() => {
-      fetch(`/api/file-index?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(query)}&kind=file&version=${encodeURIComponent(refreshToken)}`, { signal: controller.signal })
+      fetch(`/api/file-index?cwd=${encodeURIComponent(cwd)}&q=${encodeURIComponent(query)}&kind=file&version=${treeRefreshKey}`, { signal: controller.signal })
         .then((response) => response.ok ? response.json() as Promise<{ matches?: FileIndexEntry[] }> : Promise.reject(new Error("Search failed")))
         .then((data) => setSearchPaths((data.matches ?? []).filter((entry) => !entry.isDir).map((entry) => entry.path)))
         .catch(() => {
@@ -578,7 +580,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         .finally(() => { if (!controller.signal.aborted) setSearchLoading(false); });
     }, 150);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [cwd, fileSearchOpen, refreshToken, searchQuery]);
+  }, [cwd, fileSearchOpen, treeRefreshKey, searchQuery]);
 
   // Focus the search input whenever the search panel opens.
   useEffect(() => {

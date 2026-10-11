@@ -760,7 +760,6 @@ export const enLocale: LocalePlugin = {
     "chat.bashViewFull": "view all",
     "chat.bashDownloadFull": "download",
     "chat.bashLoading": "loading…",
-    "chat.compaction": "compaction",
     "chat.chatOnly": "Chat only",
     "chat.changeReasoning": "Change reasoning level: {level}",
     "chat.changeReasoningLabel": "Change reasoning level",

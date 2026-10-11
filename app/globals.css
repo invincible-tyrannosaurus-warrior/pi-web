@@ -1733,6 +1733,17 @@ pre, code {
 .markdown-custom-message > :last-child {
   margin-bottom: 0;
 }
+/* Compaction summaries and extension messages are chat content: follow the chat font size, body in --text. */
+.markdown-compaction-message,
+.markdown-custom-message,
+.markdown-compaction-message :is(h1, h2, h3, h4, h5, h6),
+.markdown-custom-message :is(h1, h2, h3, h4, h5, h6) {
+  font-size: calc(12px + var(--chat-font-size-offset, 0px));
+}
+.markdown-compaction-message p,
+.markdown-custom-message p {
+  color: var(--text);
+}
 
 .compaction-file-details {
   margin-top: 10px;
@@ -1864,16 +1875,6 @@ pre, code {
 }
 .meta-link:disabled {
   cursor: default;
-}
-
-/* Message cards (compaction, extension messages): actions appear on hover, like a user message. */
-@media (hover: hover) and (pointer: fine) {
-  .message-card .message-action-group {
-    opacity: 0;
-  }
-  .message-card:hover .message-action-group {
-    opacity: 1;
-  }
 }
 
 .message-action-group {
@@ -3770,7 +3771,6 @@ span.token.table {
   }
 }
 
-/* Running session parked on an extension dialog: a static warning dot in the beacon's 14px slot. */
 .image-pending-sheen {
   position: absolute;
   inset: 0;

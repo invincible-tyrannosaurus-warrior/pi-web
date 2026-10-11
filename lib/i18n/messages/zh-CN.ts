@@ -760,7 +760,6 @@ export const zhCNLocale: LocalePlugin = {
     "chat.bashViewFull": "查看全部",
     "chat.bashDownloadFull": "下载",
     "chat.bashLoading": "加载中…",
-    "chat.compaction": "压缩",
     "chat.chatOnly": "仅聊天",
     "chat.changeReasoning": "更改推理级别：{level}",
     "chat.changeReasoningLabel": "更改推理级别",

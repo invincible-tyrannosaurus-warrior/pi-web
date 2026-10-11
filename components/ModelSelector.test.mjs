@@ -63,35 +63,35 @@ function picker(props) {
 }
 
 for (const clear of [false, true]) {
-  test(`interleaved providers keep display/keyboard order with ArrowDown, Home and End (clear=${clear})`, () => {
+  test(`interleaved providers sort by provider then name; display and keyboard order agree with ArrowDown, Home and End (clear=${clear})`, () => {
     const options = [
-      { provider: "a", modelId: "a1", name: "A1" },
       { provider: "b", modelId: "b1", name: "B1" },
-      { provider: "a", modelId: "a2", name: "A2" },
       { provider: "a", modelId: "a3", name: "A3" },
+      { provider: "a", modelId: "a1", name: "A1" },
+      { provider: "a", modelId: "a2", name: "A2" },
     ];
     const chosen = [];
-    const state = picker({ options, value: options[0], onChange: (...args) => chosen.push(args), ...(clear ? { onClear() {}, emptyLabel: "Default" } : {}) });
+    const state = picker({ options, value: options[2], onChange: (...args) => chosen.push(args), ...(clear ? { onClear() {}, emptyLabel: "Default" } : {}) });
     state.key("ArrowDown"); // Open at A1.
     const labels = state.options().map((option) => option.props.children[1].props.children);
-    assert.deepEqual(labels, [...(clear ? ["Default"] : []), "A1", "B1", "A2", "A3"]);
+    assert.deepEqual(labels, [...(clear ? ["Default"] : []), "A1", "A2", "A3", "B1"]);
     assert.equal(state.active().props.children[1].props.children, "A1");
     const keys = state.groups().map((group) => group.key);
     assert.equal(new Set(keys).size, keys.length);
-    assert.equal(state.groups().length, 3); // Adjacent A2/A3 share a provider group.
+    assert.equal(state.groups().length, 2); // One header per provider.
     const html = state.html();
-    assert.ok(html.indexOf('title="A1"') < html.indexOf('title="B1"'));
-    assert.ok(html.indexOf('title="B1"') < html.indexOf('title="A2"'));
+    assert.ok(html.indexOf('title="A1"') < html.indexOf('title="A2"'));
+    assert.ok(html.indexOf('title="A3"') < html.indexOf('title="B1"'));
     state.key("ArrowDown");
-    assert.equal(state.active().props.children[1].props.children, "B1");
+    assert.equal(state.active().props.children[1].props.children, "A2");
     state.key("End");
-    assert.equal(state.active().props.children[1].props.children, "A3");
+    assert.equal(state.active().props.children[1].props.children, "B1");
     state.key("Home");
     assert.equal(state.active().props.children[1].props.children, clear ? "Default" : "A1");
     if (clear) state.key("ArrowDown");
     state.key("ArrowDown");
     state.key("Enter");
-    assert.deepEqual(chosen, [["b", "b1"]]);
-    assert.deepEqual(options.map((option) => option.modelId), ["a1", "b1", "a2", "a3"]);
+    assert.deepEqual(chosen, [["a", "a2"]]);
+    assert.deepEqual(options.map((option) => option.modelId), ["b1", "a3", "a1", "a2"]); // Input not mutated.
   });
 }
