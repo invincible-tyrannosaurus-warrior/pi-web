@@ -12,6 +12,7 @@ import { THINKING_LEVELS as VALID_THINKING_LEVELS } from "./thinking-levels";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { isExistingPathWithinRoots } from "./path-security";
 import { PRESET_READ_ONLY } from "./tool-presets";
+import { IMAGE_TOOL_NAME } from "./image-generation";
 import type { SessionEntry, SubagentSessionStatus } from "./types";
 
 export const SUBAGENT_META_TYPE = "pi-web:subagent";
@@ -72,6 +73,8 @@ export interface SubagentResourceSnapshot {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  /** Extensions load without `ext:` selectors or deny rules: every tool they register is admitted (#883). */
+  allExtensionTools?: true;
   exactSystemPrompt?: string;
 }
 
@@ -80,6 +83,7 @@ export interface SubagentSessionResources {
   tools: string[];
   loadSkills: boolean;
   loadExtensions: boolean;
+  allExtensionTools?: true;
   exactSystemPrompt?: string;
 }
 
@@ -826,6 +830,7 @@ export function readSubagentSessionResources(
       tools: [...new Set(snapshot.tools)],
       loadSkills,
       loadExtensions,
+      ...(loadExtensions && snapshot.allExtensionTools === true ? { allExtensionTools: true as const } : {}),
       ...(typeof snapshot.exactSystemPrompt === "string"
         ? { exactSystemPrompt: snapshot.exactSystemPrompt }
         : {}),
@@ -842,6 +847,36 @@ export function withSubagentExtensionTools(
     ...profileTools,
     ...[...extensionToolNames].filter((name) => !SUBAGENT_CONTROL_TOOLS.has(name)),
   ])];
+}
+
+/** Never registered in a child: the subagent controls, and `generate_image`, which only Pi Web's host extension owns. */
+const SUBAGENT_EXCLUDED_TOOLS = [...SUBAGENT_CONTROL_TOOL_NAMES, IMAGE_TOOL_NAME];
+
+/**
+ * SDK tool options of a child, shared by spawn and reopen. An allowlist is fixed when the session
+ * is created, so a tool an extension registers at `session_start` or later would never be callable
+ * (#883). Without one, `noTools: "builtin"` adds the profile's built-ins as `+name` entries and the
+ * other built-ins are excluded, so no extension can switch one on. `ext:` selectors and deny rules
+ * keep the name allowlist: the SDK admits tools by name, with no source-aware hook.
+ */
+export function subagentToolOptions(resources: { tools: readonly string[]; allExtensionTools?: boolean }): {
+  noTools?: "builtin";
+  tools?: string[];
+  excludeTools: string[];
+} {
+  if (!resources.allExtensionTools) {
+    return { tools: [...resources.tools], excludeTools: [...SUBAGENT_EXCLUDED_TOOLS] };
+  }
+  const builtins = resources.tools.filter((name) => BUILTIN_TOOLS.has(name));
+  return {
+    noTools: "builtin",
+    // Only `+name` entries: they add to the default selection instead of forming an allowlist.
+    ...(builtins.length > 0 ? { tools: builtins.map((name) => `+${name}`) } : {}),
+    excludeTools: [
+      ...SUBAGENT_EXCLUDED_TOOLS,
+      ...[...BUILTIN_TOOLS].filter((name) => !builtins.includes(name)),
+    ],
+  };
 }
 
 interface SubagentExtensionLike {

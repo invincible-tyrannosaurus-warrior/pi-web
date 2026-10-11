@@ -21,11 +21,31 @@ test("only the active file tab mounts a FileViewer", () => {
 
 test("the active viewer restores tab state and saves it with a revision", () => {
   const block = fileContentBlock();
-  assert.match(block, /key=\{`\$\{activeFileTab\.id\}:\$\{activeFileTab\.viewerRevision \?\? 0\}`\}/);
+  assert.match(block, /key=\{`\$\{fileWorkspaceGeneration\}:\$\{activeFileTab\.id\}:\$\{activeFileTab\.viewerRevision \?\? 0\}`\}/);
   assert.match(block, /cwd=\{activeFileTab\.cwd \?\? activeCwd \?\? undefined\}/);
   assert.match(block, /initialState=\{activeFileTab\.viewerState\}/);
-  assert.match(block, /handleFileViewerStateChange\(\s*activeFileTab\.id,\s*activeFileTab\.viewerRevision \?\? 0,/);
+  assert.match(block, /handleFileViewerStateChange\(\s*fileWorkspaceGeneration,\s*activeFileTab\.id,\s*activeFileTab\.viewerRevision \?\? 0,/);
   assert.match(block, /onMentionLines=\{rightPanelOpen \? handleFileLineMention : undefined\}/);
+});
+
+test("a project switch parks the file tabs and brings back the target's", () => {
+  const start = source.indexOf("const handleCwdChange = useCallback(");
+  const body = source.slice(start, source.indexOf("const handleSelectSession = useCallback(", start));
+  assert.match(body, /changeFileWorkspace\(currentProject, newProject\)/);
+  assert.doesNotMatch(body, /setFileTabs\(\[\]\)/);
+});
+
+test("choosing a chat leaves the file tabs alone", () => {
+  const start = source.indexOf("const handleSelectSession = useCallback(");
+  const body = source.slice(start, source.indexOf("const handleNewSession = useCallback(", start));
+  assert.doesNotMatch(body, /changeFileWorkspace|setFileTabs|setActiveFileTabId|setRightPanelOpen/);
+});
+
+test("a viewer report from a workspace just left is parked, not applied to live tabs", () => {
+  assert.match(source, /if \(generation !== fileWorkspaceGenerationRef\.current\) \{\s*saveParkedFileViewerState\(/);
+  const changeStart = source.indexOf("const changeFileWorkspace = useCallback(");
+  const changeBody = source.slice(changeStart, source.indexOf("}, [activeFileTabId, fileTabs, rightPanelOpen]);", changeStart));
+  assert.doesNotMatch(changeBody, /setTerminalTabs/);
 });
 
 test("file mentions carry their source cwd into the focused chat", () => {

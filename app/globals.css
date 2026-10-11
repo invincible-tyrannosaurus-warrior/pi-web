@@ -1,5 +1,8 @@
 @import "@xterm/xterm/css/xterm.css";
 @import "tailwindcss";
+/* Agent worktrees: scanning them makes webpack snapshot their symlinked
+   node_modules, which crashes `next build` with "reading 'length'". */
+@source not "../.claude";
 
 @theme {
   --color-bg: var(--bg);
@@ -1472,6 +1475,11 @@ pre, code {
 .process-details-list [data-message-role="assistant"] {
   margin-bottom: 0;
 }
+/* A step card placed straight in the scrolling flex list (an extension message) would
+   shrink to nothing: its overflow:hidden drops the flex item's content minimum. */
+.process-details-list > [data-step-card] {
+  flex-shrink: 0;
+}
 .process-details-list .assistant-blocks {
   gap: 1px;
 }
@@ -1686,44 +1694,23 @@ pre, code {
   margin: 4px 0;
 }
 
+.markdown-subagent-notification,
+.markdown-compaction-message,
 .markdown-custom-message {
-  line-height: 1.32;
-}
-.markdown-custom-message p { margin: 0; }
-.markdown-custom-message h1,
-.markdown-custom-message h2,
-.markdown-custom-message h3,
-.markdown-custom-message h4,
-.markdown-custom-message h5,
-.markdown-custom-message h6 {
-  margin: 4px 0 2px;
-  line-height: 1.18;
-}
-.markdown-custom-message ul,
-.markdown-custom-message ol {
-  margin: 2px 0 3px;
-}
-.markdown-custom-message li { margin: 0; }
-.markdown-custom-message blockquote {
-  margin: 3px 0;
-  padding: 4px 8px;
-}
-.markdown-custom-message .markdown-table-wrap,
-.markdown-custom-message .markdown-code-block {
-  margin: 4px 0;
-}
-
-.markdown-subagent-notification {
   font-family: var(--font-chat);
   font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
-.markdown-subagent-notification p {
+.markdown-subagent-notification p,
+.markdown-compaction-message p,
+.markdown-custom-message p {
   margin: 1px 0 6px;
   color: var(--text-muted);
 }
-.markdown-subagent-notification :is(h1, h2, h3, h4, h5, h6) {
+.markdown-subagent-notification :is(h1, h2, h3, h4, h5, h6),
+.markdown-compaction-message :is(h1, h2, h3, h4, h5, h6),
+.markdown-custom-message :is(h1, h2, h3, h4, h5, h6) {
   margin: 7px 0 2px;
   padding-top: 7px;
   border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
@@ -1734,36 +1721,17 @@ pre, code {
   line-height: 1.4;
   letter-spacing: 0;
 }
-.markdown-subagent-notification :is(h1, h2, h3, h4, h5, h6):first-child {
+.markdown-subagent-notification :is(h1, h2, h3, h4, h5, h6):first-child,
+.markdown-compaction-message :is(h1, h2, h3, h4, h5, h6):first-child,
+.markdown-custom-message :is(h1, h2, h3, h4, h5, h6):first-child {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;
 }
-.markdown-subagent-notification > :last-child {
+.markdown-subagent-notification > :last-child,
+.markdown-compaction-message > :last-child,
+.markdown-custom-message > :last-child {
   margin-bottom: 0;
-}
-
-.markdown-compaction-message {
-  line-height: 1.5;
-}
-.markdown-compaction-message p { margin: 0 0 7px; }
-.markdown-compaction-message h1,
-.markdown-compaction-message h2,
-.markdown-compaction-message h3,
-.markdown-compaction-message h4,
-.markdown-compaction-message h5,
-.markdown-compaction-message h6 {
-  margin: 8px 0 3px;
-  line-height: 1.25;
-}
-.markdown-compaction-message ul,
-.markdown-compaction-message ol {
-  margin: 4px 0 8px;
-}
-.markdown-compaction-message li { margin: 2px 0; }
-.markdown-compaction-message .markdown-table-wrap,
-.markdown-compaction-message .markdown-code-block {
-  margin: 6px 0;
 }
 
 .compaction-file-details {
@@ -2578,6 +2546,69 @@ pre, code {
   color: var(--text-dim);
   font-size: 11px;
 }
+
+/* CSV/TSV table (components/DelimitedTable.tsx): the markdown table cells (.markdown-body th/td)
+   on one fixed-height row per record, cells ellipsized. The header and gutter are opaque
+   because they stay over the scrolled body. */
+.file-table-wrap {
+  width: max-content;
+  min-width: calc(100% - 16px);
+  margin: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-md);
+  overflow: clip;
+}
+.file-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: var(--font-ui);
+  font-size: calc(13px + var(--chat-font-size-offset, 0px));
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  color: var(--text);
+}
+.file-table tr { height: 26px; }
+.file-table th,
+.file-table td {
+  box-sizing: border-box;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  vertical-align: middle;
+}
+.file-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  --file-table-head: color-mix(in srgb, var(--bg-subtle) 85%, var(--bg));
+  background: linear-gradient(var(--file-table-head), var(--file-table-head)) var(--bg);
+  color: var(--text);
+  font-weight: 600;
+}
+.file-table tbody tr.is-striped > td:not(.file-table-gutter) { background: var(--bg-subtle); }
+.file-table tbody tr.file-table-row:hover > td:not(.file-table-gutter) {
+  background: color-mix(in srgb, var(--bg-hover) 45%, transparent);
+}
+.file-table .file-table-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 0 8px;
+  text-align: right;
+  color: var(--text-dim);
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  font-size: calc(11px + var(--chat-font-size-offset, 0px));
+  font-weight: 400;
+}
+.file-table thead .file-table-gutter {
+  z-index: 3;
+  background: linear-gradient(var(--file-table-head), var(--file-table-head)) var(--bg);
+}
+.file-table .file-table-spacer td { padding: 0; border: 0; }
 
 .file-tab-close {
   appearance: none;
@@ -3739,6 +3770,7 @@ span.token.table {
   }
 }
 
+/* Running session parked on an extension dialog: a static warning dot in the beacon's 14px slot. */
 .image-pending-sheen {
   position: absolute;
   inset: 0;
@@ -4455,6 +4487,31 @@ span.token.table {
   border-color: color-mix(in srgb, var(--feedback-color) 42%, var(--border));
   background: color-mix(in srgb, var(--feedback-color) 6%, transparent);
   color: var(--text);
+}
+
+/* Dismiss: a micro × that does not grow the one-line bar. */
+.chat-input-feedback-close {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: -1px -6px -1px 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--ui-radius-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.chat-input-feedback-close:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg-hover) 80%, transparent);
+}
+.chat-input-feedback-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .chat-input-feedback-detail {

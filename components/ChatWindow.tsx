@@ -5,12 +5,13 @@ import { displayToolName } from "@/lib/tool-names";
 import { encodeFilePathForApi, joinFilePath } from "@/lib/file-paths";
 import { getImageGenerationResult, imageToolDisplayKind, IMAGE_RESULT_TYPE, type ImageConfigView, type ImageGenerationRequest, type ImageGenerationResult } from "@/lib/image-generation";
 import type { AttachedImage, Base64ImageAttachment } from "@/lib/image-attachments";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
+import { splitNoticeText } from "@/lib/notice-text";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, hasTrailingFinalAnswer, isAbortedAssistantError, isMessageGroupAnchor, isMessageGroupBoundary, isSubagentNotificationMessage, partitionAssistantMessage } from "@/lib/message-display";
+import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, hasTrailingFinalAnswer, isAbortedAssistantError, isHiddenCustomMessage, isMessageGroupAnchor, isMessageGroupBoundary, isSubagentNotificationMessage, partitionAssistantMessage } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { summarizeTurnActivity, type TurnActivity } from "@/lib/turn-activity";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
@@ -39,6 +40,7 @@ import { getForkSessionName } from "@/lib/session-display-title";
 import { formatDuration } from "@/lib/i18n/format";
 import { useAgentSession, type AgentEndInfo, type AgentPhase, type NoticeItem } from "@/hooks/useAgentSession";
 import { useDragDrop } from "@/hooks/useDragDrop";
+import { dropMentionText, splitDroppedItems, uploadFiles, type DroppedItem } from "@/lib/file-upload-client";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { AppUpdateNotice } from "./AppUpdateNotice";
@@ -67,6 +69,8 @@ interface Props {
   onKeepTabOpen?: (sessionId: string) => void;
   onNewSessionCwdChange?: (cwd: string) => Promise<void>;
   recentProjectPaths?: string[];
+  /** Project display names by root, shown in the new-session bar in place of the path. */
+  projectNameByRoot?: ReadonlyMap<string, string>;
   pinnedCwds?: string[];
   homeDir?: string;
   worktreeInfo?: {
@@ -77,6 +81,8 @@ interface Props {
   } | null;
   draftPersistenceWarning?: boolean;
   onAgentEnd?: (session?: SessionInfo | null, end?: AgentEndInfo) => void;
+  onToolEnd?: (toolName: string) => void;
+  onFilesChanged?: () => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest, session: SessionInfo | null) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string, sourceSessionId: string | null) => void;
@@ -165,12 +171,14 @@ function NewSessionCwdControl({
   pinnedPaths,
   homeDir,
   worktreeInfo,
+  projectNameByRoot,
 }: {
   cwd: string;
   onChange: (cwd: string) => Promise<void>;
   recentPaths: string[];
   pinnedPaths: string[];
   homeDir: string;
+  projectNameByRoot?: ReadonlyMap<string, string>;
   worktreeInfo: {
     forCwd: string;
     projectRoot: string;
@@ -269,7 +277,7 @@ function NewSessionCwdControl({
         }}
       >
         <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", direction: "rtl", textAlign: "center" }}>
-          <span style={{ unicodeBidi: "plaintext" }}>{projectLabel}</span>
+          <span style={{ unicodeBidi: "plaintext" }}>{projectNameByRoot?.get(displayProject) ?? projectLabel}</span>
         </span>
       </button>
       {currentBranch && (
@@ -342,7 +350,7 @@ function NewSessionCwdControl({
                     <span style={{ width: 10, flexShrink: 0 }} />
                   )}
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {homeDir && path.startsWith(homeDir) ? `~${path.slice(homeDir.length)}` : path}
+                    {projectNameByRoot?.get(path) ?? (homeDir && path.startsWith(homeDir) ? `~${path.slice(homeDir.length)}` : path)}
                   </span>
                 </button>
               );
@@ -769,7 +777,7 @@ function ProcessDetailsGroup({
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onDraftChange, onKeepTabOpen, onNewSessionCwdChange, recentProjectPaths = [], pinnedCwds = [], homeDir = "", worktreeInfo = null, draftPersistenceWarning = false, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, isFocusedPane = false, isVisiblePane = isFocusedPane, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onOutlineViewChange, onSessionStatsChange, onSessionStatsPanelOpen, sessionStatsOpen, onContextUsageChange, onOpenFile, onOpenSession, onOpenMcpSettings, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, playDoneSound = () => {}, unlockAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onDraftChange, onKeepTabOpen, onNewSessionCwdChange, recentProjectPaths = [], projectNameByRoot, pinnedCwds = [], homeDir = "", worktreeInfo = null, draftPersistenceWarning = false, onAgentEnd, onToolEnd, onFilesChanged, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, isFocusedPane = false, isVisiblePane = isFocusedPane, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onOutlineViewChange, onSessionStatsChange, onSessionStatsPanelOpen, sessionStatsOpen, onContextUsageChange, onOpenFile, onOpenSession, onOpenMcpSettings, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, playDoneSound = () => {}, unlockAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -842,13 +850,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     sessionIdRef, scrollContainerRef, isNearBottomRef,
     handleSend, handleDirectImageGeneration, abortDirectImageGeneration, handleAbort, handleFork, handleModelChange,
     retryLoadSession,
-    handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
+    handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction, dismissCompactError,
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
-    loadContext, activeLeafId, scrollToBottom, scrollToMessage,
+    loadContext, isOlderPageRequested, activeLeafId, scrollToBottom, scrollToMessage,
   } = useAgentSession({
-    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded: wrappedOnAttentionNeeded, onSessionCreated, onSessionForked: wrappedOnSessionForked,
+    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onToolEnd, onAttentionNeeded: wrappedOnAttentionNeeded, onSessionCreated, onSessionForked: wrappedOnSessionForked,
     modelsRefreshKey, chatInputRef: ownChatInputRef, onBranchDataChange: onBranchDataChange ? branchDataChange : undefined, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     deferInitialScroll: Boolean(pendingScrollRestore),
     isVisiblePane,
@@ -1415,6 +1423,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     if (!oldestId) return;
     const sid = session?.id ?? sessionIdRef.current;
     if (!sid) return;
+    // Already requested (in flight, or landed before the next cursor renders): no new page, so no scroll anchor either; a stale one would apply at the next message change.
+    if (isOlderPageRequested(sid, activeLeafId, oldestId)) return;
     loadingOlderRef.current = true;
     if (container) {
       prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
@@ -1422,7 +1432,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     void loadContext(sid, activeLeafId, oldestId).finally(() => {
       loadingOlderRef.current = false;
     });
-  }, [historyCursor, hasEarlierMessages, session, activeLeafId, loadContext, sessionIdRef, scrollContainerRef]);
+  }, [historyCursor, hasEarlierMessages, session, activeLeafId, isOlderPageRequested, loadContext, sessionIdRef, scrollContainerRef]);
 
   // IntersectionObserver on the sentinel div at the top of the message list.
   useEffect(() => {
@@ -1521,9 +1531,54 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, [ctxKey, loading, onContextUsageChange]);
   useEffect(() => () => { onContextUsageChange?.(null); }, [onContextUsageChange]);
 
-  const onDrop = useCallback((files: File[]) => {
-    ownChatInputRef.current?.addImages(files);
-  }, []);
+  // Images attach to the prompt. Other files go through the file explorer's
+  // upload into the working directory, never replacing a file already there,
+  // and come back as @mentions. The composer's attach button takes the same
+  // path, for phones that cannot drop files.
+  const uploadTargetRef = useRef({ cwd: session?.cwd ?? newSessionCwd, draftKey: session?.id ?? newSessionDraftKey });
+  uploadTargetRef.current = { cwd: session?.cwd ?? newSessionCwd, draftKey: session?.id ?? newSessionDraftKey };
+  const uploadDroppedFiles = useCallback(async (files: File[]) => {
+    const { cwd, draftKey } = uploadTargetRef.current;
+    if (!cwd) {
+      addNotice({ type: "error", message: t("chat.dropNeedsCwd") });
+      return;
+    }
+    try {
+      const { status, data } = await uploadFiles(cwd, files, "skip");
+      if (status !== 200 && status !== 207) throw new Error(data.error ?? `HTTP ${status}`);
+      const uploaded = data.uploaded ?? [];
+      const skipped = data.skipped ?? [];
+      const mentions = dropMentionText(files, [...uploaded, ...skipped]);
+      if (mentions && uploadTargetRef.current.cwd === cwd && uploadTargetRef.current.draftKey === draftKey) {
+        ownChatInputRef.current?.insertText(mentions);
+      }
+      if (uploaded.length > 0) {
+        onFilesChanged?.();
+        addNotice({ type: "success", message: t("chat.dropUploaded", { count: uploaded.length, dir: cwd }) });
+      }
+      if (skipped.length > 0) {
+        addNotice({ type: "warning", message: t("chat.dropAlreadyExists", { names: skipped.join(", "), dir: cwd }) });
+      }
+      for (const failure of data.errors ?? []) {
+        addNotice({ type: "error", message: t("chat.dropFailed", { message: `${failure.name}: ${failure.error}` }) });
+      }
+    } catch (uploadError) {
+      addNotice({ type: "error", message: t("chat.dropFailed", { message: uploadError instanceof Error ? uploadError.message : String(uploadError) }) });
+    }
+  }, [addNotice, onFilesChanged, t]);
+
+  const onDrop = useCallback((items: DroppedItem[]) => {
+    const { images, files, folders } = splitDroppedItems(items);
+    if (images.length > 0) ownChatInputRef.current?.addImages(images);
+    if (folders.length > 0) {
+      addNotice({ type: "warning", message: t("chat.dropFoldersUnsupported", { names: folders.join(", ") }) });
+    }
+    if (files.length > 0) void uploadDroppedFiles(files);
+  }, [addNotice, t, uploadDroppedFiles]);
+
+  const onAttachFiles = useCallback((files: File[]) => {
+    onDrop(files.map((file) => ({ kind: "file", file })));
+  }, [onDrop]);
 
   const { isDragOver, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop);
 
@@ -1669,7 +1724,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       : boundaryIndex + 1;
     for (let index = firstOutputIndex; index < messages.length; index++) {
       const message = messages[index];
-      if (message.role === "custom") return true;
+      if (message.role === "custom" && !isHiddenCustomMessage(message)) return true;
       if (message.role !== "assistant") continue;
       if (getDisplayableAssistantBlocks(message).length > 0 || getAssistantErrorMessage(message)) return true;
     }
@@ -1770,6 +1825,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
       compactError={compactError}
+      onDismissCompactError={dismissCompactError}
       compactResult={compactResult}
       contextUsage={isSessionLoading ? null : contextUsage}
       cacheHitRate={isSessionLoading ? null : cacheHitRate}
@@ -1795,6 +1851,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onDraftChange={onDraftChange}
       draftPersistenceWarning={draftPersistenceWarning}
       cwd={session?.cwd ?? newSessionCwd}
+      onAttachFiles={onAttachFiles}
     />
   );
   const composerStack = chatInputElement;
@@ -1929,6 +1986,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               const visibleRefIndexByMessage = new Map<number, number>();
               let refIdx = 0;
               messages.forEach((msg, idx) => {
+                if (isHiddenCustomMessage(msg)) return;
                 const persistedImage = (msg.role === "toolResult" && !msg.isError)
                   || (msg.role === "custom" && msg.customType === IMAGE_RESULT_TYPE)
                   ? getImageGenerationResult(msg.details)
@@ -1944,6 +2002,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
               const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; isTurnEnd?: boolean; writtenFiles?: WrittenFile[]; turnDurationSeconds?: number; isProcess?: boolean } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
+                if (isHiddenCustomMessage(msg)) return null;
                 const prevAssistantEntryId =
                   msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
                     ? entryIds[idx - 1]
@@ -2054,6 +2113,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
                 if (finalAssistantIdx === -1 && !notificationStartsProcess) {
                   for (let renderIdx = firstIdx; renderIdx < endIdx; renderIdx++) {
+                    if (isHiddenCustomMessage(messages[renderIdx])) continue;
                     markOutlineTarget([entryIds[renderIdx]]);
                     rendered.push(renderMessage(renderIdx));
                   }
@@ -2132,6 +2192,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     processEndTime = processEndTime === undefined ? processMessage.completedAt : Math.max(processEndTime, processMessage.completedAt);
                   }
                   if (processMessage.role === "custom") {
+                    // Not counted either: a turn whose only extra is a hidden message has no process details.
+                    if (isHiddenCustomMessage(processMessage)) continue;
                     processRefIdx ??= visibleRefIndexByMessage.get(processIdx);
                     revealProcess ||= Boolean(locateEntryId && locateEntryId === entryIds[processIdx]);
                     if (entryIds[processIdx]) processEntryIds.push(entryIds[processIdx]);
@@ -2280,6 +2342,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 }
                 if (finalAssistantIdx >= 0) {
                   for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
+                    if (isHiddenCustomMessage(messages[renderIdx])) continue;
                     markOutlineTarget([entryIds[renderIdx]]);
                     rendered.push(renderMessage(renderIdx));
                   }
@@ -2480,6 +2543,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   cwd={newSessionCwd}
                   onChange={onNewSessionCwdChange}
                   recentPaths={recentProjectPaths}
+                  projectNameByRoot={projectNameByRoot}
                   pinnedPaths={pinnedCwds}
                   homeDir={homeDir}
                   worktreeInfo={worktreeInfo}
@@ -2532,12 +2596,21 @@ function NoticeIcon({ type }: { type: NoticeItem["type"] }) {
 /** Links in a notice (an MCP sign-in URL) open in a new tab, shown by host: sign-in URLs run to hundreds of characters. */
 function NoticeText({ text }: { text: string }) {
   const { t } = useI18n();
-  return text.split(/(https?:\/\/\S+)/).map((part, index) => {
+  const withLinks = (value: string) => value.split(/(https?:\/\/\S+)/).map((part, index) => {
     if (index % 2 === 0) return part;
     let host = part;
     try { host = new URL(part).host; } catch { /* keep the raw text */ }
     return <a key={index} href={part} target="_blank" rel="noreferrer" title={part} className="notice-link">{t("chat.noticeOpenLink", { host })}</a>;
   });
+  return splitNoticeText(text).map((part, partIndex) => part.kind === "art" ? (
+    // A terminal QR code or bar (#755): every space kept, rows touching, one monospace face for spaces and blocks.
+    <span
+      key={partIndex}
+      style={{ display: "inline-block", verticalAlign: "top", margin: "4px 0", maxWidth: "100%", overflowX: "auto", whiteSpace: "pre", fontFamily: "var(--font-mono)", lineHeight: 1, color: "var(--text)" }}
+    >
+      {withLinks(part.text)}
+    </span>
+  ) : <Fragment key={partIndex}>{withLinks(part.text)}</Fragment>);
 }
 
 // ponytail: matches pi's English "Run /mcp to fix." text; a structured MCP status event would replace this.

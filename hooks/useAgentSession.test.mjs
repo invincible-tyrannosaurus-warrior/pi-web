@@ -320,6 +320,19 @@ test("new-session promotion rekeys drafts before publishing the real session", (
   assert.match(chatWindowSource, /draftKey=\{session\?\.id \?\? newSessionDraftKey \?\? undefined\}/);
 });
 
+test("a refused new session reports the server's reason, not a bare status", () => {
+  const ensureSource = source.slice(
+    source.indexOf("  const ensureNewSession = useCallback"),
+    source.indexOf("  const loadSystemInfo = useCallback"),
+  );
+
+  assert.match(
+    ensureSource,
+    /if \(!res\.ok\) \{[\s\S]*?await res\.json\(\)\.catch\(\(\) => null\)[\s\S]*?typeof body\?\.error === "string" \? body\.error : `HTTP \$\{res\.status\}`/,
+  );
+  assert.doesNotMatch(ensureSource, /if \(!res\.ok\) throw new Error\(`HTTP \$\{res\.status\}`\)/);
+});
+
 test("fresh sessions use the preference while persisted and live sessions restore their selection", () => {
   const preferenceSource = source.slice(
     source.indexOf("  const setToolPresetState"),
@@ -401,7 +414,7 @@ test("stale fresh-session completion cannot replace the active composer", () => 
     cwdChangeSource,
     /currentProject === newProject\s*&& \(selectedSession !== null \|\| currentFreshCwd === cwd\)/,
   );
-  assert.match(cwdChangeSource, /if \(currentProject !== newProject\) \{[\s\S]*?setFileTabs\(\[\]\)/);
+  assert.match(cwdChangeSource, /if \(currentProject !== newProject\) \{[\s\S]*?changeFileWorkspace\(currentProject, newProject\)/);
   assert.match(
     appShellSource,
     /useLayoutEffect\(\(\) => \{\s*activeNewSessionDraftKeyRef\.current = focusedDraftKey;/,
@@ -489,7 +502,7 @@ test("uses one absolute agent-readiness deadline instead of a five-second transp
 
 test("uses server pagination state instead of guessing from rendered rows", () => {
   const loadContextSource = source.slice(
-    source.indexOf("const loadContext = useCallback"),
+    source.indexOf("const fetchContextPage = useCallback"),
     source.indexOf("const loadTools = useCallback"),
   );
   assert.match(source, /const \[hasEarlierMessages, setHasEarlierMessages\] = useState\(false\)/);

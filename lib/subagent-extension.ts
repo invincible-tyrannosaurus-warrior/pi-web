@@ -44,8 +44,6 @@ export interface StartSubagentRequest {
   runInBackground?: boolean;
   model?: string;
   thinking?: string;
-  maxTurns?: number;
-  inheritContext?: boolean;
   isolation?: "worktree";
   signal?: AbortSignal;
   onUpdate?: (run: SubagentRunInfo) => void;
@@ -207,8 +205,6 @@ export function createSubagentExtension(
           run_in_background: Type.Optional(Type.Boolean({ description: "Return immediately. Default true. Unread results notify the parent after its current run settles." })),
           model: Type.Optional(Type.String({ description: "Exact provider/modelId from <subagent_models>. Omit to use the profile's default model; pass only when the user asks for a model. New sessions only; omit with resume." })),
           thinking: Type.Optional(Type.String({ description: "Thinking level: off, minimal, low, medium, high, xhigh, or max. Omit to use the profile's default thinking; pass only when the user asks for a level. New sessions only; omit with resume." })),
-          max_turns: Type.Optional(Type.Number({ description: "Optional positive agent turn limit for a new session. With resume, omit or pass 0 to keep the existing limit." })),
-          inherit_context: Type.Optional(Type.Boolean({ description: "Include the parent session's active conversation context in a new session. With resume, omit or pass false." })),
           isolation: Type.Optional(Type.String({ description: "Run a new subagent in an isolated git worktree copy. With resume, omit or pass an empty string to keep existing isolation." })),
         }),
         async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -220,8 +216,6 @@ export function createSubagentExtension(
             const unsupported = [
               params.input_files?.length ? "input_files" : undefined,
               params.isolation ? "isolation" : undefined,
-              params.max_turns !== undefined && params.max_turns !== 0 ? "max_turns" : undefined,
-              params.inherit_context === true ? "inherit_context" : undefined,
             ].filter(Boolean);
             if (unsupported.length > 0) {
               throw new Error(`resume cannot override create-only options: ${unsupported.join(", ")}. Omit them, or start a new subagent.`);
@@ -251,8 +245,6 @@ export function createSubagentExtension(
             ...(params.run_in_background !== undefined ? { runInBackground: params.run_in_background } : {}),
             ...(params.model ? { model: params.model } : {}),
             ...(params.thinking ? { thinking: params.thinking } : {}),
-            ...(params.max_turns ? { maxTurns: params.max_turns } : {}),
-            ...(params.inherit_context !== undefined ? { inheritContext: params.inherit_context } : {}),
             ...(params.isolation === "worktree" ? { isolation: "worktree" as const } : {}),
             signal,
             onUpdate: (run) => onUpdate?.({

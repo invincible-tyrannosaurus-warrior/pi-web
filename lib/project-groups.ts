@@ -49,6 +49,31 @@ export function projectOrderFits(order: readonly string[]): boolean {
   return order.length <= MAX_PROJECT_ORDER_KEYS && orderBytes(order) <= PROJECT_ORDER_MAX_BYTES;
 }
 
+export const MAX_PROJECT_NAME_CODE_POINTS = 80;
+export const MAX_PROJECT_NAMES = 1000;
+export const PROJECT_NAMES_MAX_BYTES = 256 * 1024;
+
+/** A display name is trimmed, one line, at most 80 code points. "" (or null) clears it; undefined is invalid. */
+export function projectDisplayName(value: unknown): string | undefined {
+  if (value === null) return "";
+  if (typeof value !== "string") return undefined;
+  const name = value.trim();
+  if (/[\p{Cc}\p{Zl}\p{Zp}]/u.test(name) || [...name].length > MAX_PROJECT_NAME_CODE_POINTS) return undefined;
+  return name;
+}
+
+export function projectNamesFit(names: Readonly<Record<string, string>>): boolean {
+  return Object.keys(names).length <= MAX_PROJECT_NAMES
+    && new TextEncoder().encode(JSON.stringify(names)).length <= PROJECT_NAMES_MAX_BYTES;
+}
+
+export function isProjectNames(value: unknown): value is Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  return Object.entries(value).every(([key, name]) => isProjectKey(key) && typeof name === "string"
+    && name !== "" && projectDisplayName(name) === name)
+    && projectNamesFit(value as Record<string, string>);
+}
+
 /** New keys first; existing (including hidden) slots survive. Input projects are newest first. */
 export function orderProjects<T extends { key: string }>(projects: readonly T[], order: readonly string[]): T[] {
   const rank = new Map(order.map((key, index) => [key, index]));

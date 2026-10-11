@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode, type Ref } from "react";
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies, isFamilyArchived, familiesToArchive, previewSessionFamilies, markSessionFamilyRead, type SessionFamily } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getSessionDisplayTitle } from "@/lib/session-display-title";
-import { applyProjectOrderUpdate, isProjectKey, orderProjects, getProjectActivity, getRecentProjects, sessionsForProject, type ProjectOrderUpdate } from "@/lib/project-groups";
+import { applyProjectOrderUpdate, isProjectKey, orderProjects, getProjectActivity, getRecentProjects, projectDisplayName, sessionsForProject, type ProjectOrderUpdate } from "@/lib/project-groups";
 import { createPortal } from "react-dom";
 import { useProjectDrag, type ProjectDragBlock } from "@/hooks/useProjectDrag";
 import { workspaceKeyOf } from "@/lib/workspace-key";
@@ -28,16 +28,17 @@ const SESSION_LIST_ITEM_HEIGHT = 26;
 const WORKSPACE_SESSION_PREVIEW_LIMIT = 6;
 const WORKSPACE_SESSION_PAGE_SIZE = 20;
 
-export function getSessionListIndices(count: number, scrollTop: number, viewportHeight: number, focusedIndex = -1): number[] {
+export function getSessionListIndices(count: number, scrollTop: number, viewportHeight: number, focusedIndex = -1, renamingIndex = -1): number[] {
   const overscan = 8;
   const visibleCount = Math.ceil((viewportHeight || 600) / SESSION_LIST_ITEM_HEIGHT) + overscan * 2;
   const start = Math.max(0, Math.min(Math.floor(scrollTop / SESSION_LIST_ITEM_HEIGHT) - overscan, count - visibleCount));
   const end = Math.min(count, start + visibleCount);
   const indices = Array.from({ length: end - start }, (_, offset) => start + offset);
-  // Keep a focused row mounted so scrolling cannot discard an inline rename.
-  if (focusedIndex >= 0 && focusedIndex < start) indices.unshift(focusedIndex);
-  if (focusedIndex >= end && focusedIndex < count) indices.push(focusedIndex);
-  return indices;
+  // Keep focused sessions and renaming projects mounted without widening the window.
+  for (const index of new Set([focusedIndex, renamingIndex])) {
+    if (index >= 0 && index < count && !indices.includes(index)) indices.push(index);
+  }
+  return indices.sort((a, b) => a - b);
 }
 
 declare global {
@@ -58,6 +59,7 @@ function ToolbarIconButton({
   marginRight,
   ariaPressed,
   className,
+  buttonRef,
   children,
 }: {
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
@@ -69,6 +71,7 @@ function ToolbarIconButton({
   marginRight?: number;
   ariaPressed?: boolean;
   className?: string;
+  buttonRef?: Ref<HTMLButtonElement>;
   children: ReactNode;
 }) {
   const enter = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -83,6 +86,7 @@ function ToolbarIconButton({
   };
   return (
     <button
+      ref={buttonRef}
       onClick={onClick}
       disabled={disabled}
       title={title}
@@ -170,6 +174,8 @@ interface Props {
   onBackgroundTaskDone?: (completedSessionIds: string[]) => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
   onSessionsChange?: (sessions: SessionInfo[]) => void;
+  /** Display names keyed by project root, for the pickers outside the sidebar. */
+  onProjectNamesChange?: (namesByRoot: ReadonlyMap<string, string>) => void;
   /** Explicitly added project directories (storage name predates the removed
       project-pin UI). They keep a project listed before it has any session. */
   pinnedCwds: string[];
@@ -218,7 +224,7 @@ interface ValidatedProject {
 type WorkspaceRow =
   | { kind: "workspace"; project: ProjectSelection; cwd: string }
   | { kind: "session"; family: ReturnType<typeof listSessionFamilies>[number] }
-  | { kind: "showMore"; projectKey: string; remaining: number }
+  | { kind: "showMore"; projectKey: string; remaining: number; nextLimit: number }
   | { kind: "showLess"; projectKey: string };
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
@@ -320,13 +326,18 @@ function PathLabel({ text, style }: { text: string; style?: CSSProperties }) {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSelectSession, onOpenSessionInNewTab, onForkSession, forking = false, onNewSession, initialSessionId, skipInitialProjectSelection, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, pinnedCwds, onTogglePinnedCwd, onHomeDirChange, onWorktreeInfoChange }: Props) {
+export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSelectSession, onOpenSessionInNewTab, onForkSession, forking = false, onNewSession, initialSessionId, skipInitialProjectSelection, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, onProjectNamesChange, pinnedCwds, onTogglePinnedCwd, onHomeDirChange, onWorktreeInfoChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>([]);
   const [archivedSessionIds, setArchivedSessionIds] = useState<Record<string, string>>({});
   const [archiveView, setArchiveView] = useState(false);
   const [projectOrder, setProjectOrder] = useState<string[]>([]);
+  const [projectNames, setProjectNames] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const [renamingProjectKey, setRenamingProjectKey] = useState<string | null>(null);
+  // A poll must not drop an optimistic rename the server has not confirmed yet.
+  const pendingProjectRenames = useRef(0);
+  const projectRenameQueues = useRef(new Map<string, { promise: Promise<void>; confirmedName: string }>());
   const pendingProjectOps = useRef<ProjectOrderUpdate[]>([]);
   const projectWriteQueue = useRef<Promise<void>>(Promise.resolve());
   const projectAddAttempt = useRef(new Set<string>());
@@ -363,6 +374,15 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [expandedWorkspaceKeys, setExpandedWorkspaceKeys] = useState<Set<string> | null>(loadExpandedWorkspaceKeys);
   const [workspaceSessionLimits, setWorkspaceSessionLimits] = useState<Record<string, number>>({});
+  // A folded project drops its "show more" window: opened again, it shows its first rows.
+  const forgetWorkspaceWindow = useCallback((key: string) => {
+    setWorkspaceSessionLimits((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
@@ -370,8 +390,19 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
   const sessionSearchActive = sessionSearchOpen && Boolean(sessionSearchQuery.trim());
   const [changesCount, setChangesCount] = useState(0);
+  // The count goes when nothing is changed any more (a commit, a revert). A
+  // focused count hands focus to the key after it while it is still mounted.
+  const changesButtonRef = useCallback((button: HTMLButtonElement | null) => {
+    if (!button) return;
+    return () => {
+      if (button.ownerDocument.activeElement !== button) return;
+      const next = button.nextElementSibling;
+      if (next instanceof HTMLElement) next.focus();
+    };
+  }, []);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  const [awaitingInputSessionIds, setAwaitingInputSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
   const currentSuppressedCompletionSessionIdsRef = useRef<Set<string>>(new Set());
@@ -482,7 +513,9 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         pinnedSessionIds: string[];
         archivedSessionIds?: Record<string, string>;
         projectOrder?: string[];
+        projectNames?: Record<string, string>;
         runningSessionIds?: string[];
+        awaitingInputSessionIds?: string[];
         completionNotificationSuppressedSessionIds?: string[];
       };
       if (loadId !== sessionLoadIdRef.current) return;
@@ -492,6 +525,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
       setPinnedSessionIds(data.pinnedSessionIds);
       setArchivedSessionIds(data.archivedSessionIds ?? {});
       setProjectOrder(pendingProjectOps.current.reduce(applyProjectOrderUpdate, data.projectOrder ?? []));
+      if (pendingProjectRenames.current === 0) setProjectNames(new Map(Object.entries(data.projectNames ?? {})));
       // Treat the fetched running set as an initial fallback only. Once the
       // lightweight poll is live, a slow session-list fetch cannot overwrite it.
       if (!runningPollAuthoritativeRef.current) {
@@ -499,6 +533,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
           data.completionNotificationSuppressedSessionIds ?? [],
         );
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        setAwaitingInputSessionIds(new Set(data.awaitingInputSessionIds ?? []));
       }
       // Drop markers for deleted sessions and for subagents, whose completion
       // is intentionally silent even if an older client marked them unread.
@@ -542,6 +577,57 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
       if (failure) setError(failure);
     });
   }, [loadSessions]);
+
+  // Optimistic like the order: the header changes at once and rolls back if the server refuses.
+  const renameProject = useCallback(async (projectKey: string, name: string) => {
+    const queue = projectRenameQueues.current.get(projectKey) ?? {
+      promise: Promise.resolve(), confirmedName: projectNames.get(projectKey) ?? "",
+    };
+    projectRenameQueues.current.set(projectKey, queue);
+    const withName = (names: ReadonlyMap<string, string>, value: string) => {
+      const next = new Map(names);
+      if (value) next.set(projectKey, value);
+      else next.delete(projectKey);
+      return next;
+    };
+    pendingProjectRenames.current += 1;
+    setProjectNames((current) => withName(current, name));
+    const write = queue.promise.then(async () => {
+      let failure: string | null = null;
+      try {
+        const response = await fetch("/api/sessions", {
+          method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectKey, name }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({})) as { error?: string };
+          throw new Error(data.error ?? `HTTP ${response.status}`);
+        }
+        queue.confirmedName = name;
+      } catch (e) {
+        failure = e instanceof Error ? e.message : String(e);
+        // An older failure must not overwrite a newer optimistic submission.
+        if (queue.promise === write) setProjectNames((current) => withName(current, queue.confirmedName));
+      } finally {
+        pendingProjectRenames.current -= 1;
+      }
+      await loadSessions();
+      if (failure) setError(failure);
+      if (queue.promise === write) projectRenameQueues.current.delete(projectKey);
+    });
+    queue.promise = write;
+    await write;
+  }, [loadSessions, projectNames]);
+
+  // The field opens on the visible name, so saving it unchanged is a no-op (an empty field clears the alias).
+  const commitProjectRename = useCallback((projectKey: string, value: string, folderName: string) => {
+    setRenamingProjectKey(null);
+    const name = projectDisplayName(value);
+    if (name === undefined) {
+      setError(t("sidebar.projectNameTooLong"));
+      return;
+    }
+    if (name !== (projectNames.get(projectKey) ?? folderName)) void renameProject(projectKey, name);
+  }, [projectNames, renameProject, t]);
 
   const updateSessionSidebarState = useCallback(async (target: string | readonly string[], update: { pinned: boolean } | { archived: boolean }) => {
     const ids = typeof target === "string" ? [target] : target;
@@ -639,6 +725,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         const data = await res.json() as {
           sessionListVersion: number;
           runningSessionIds?: string[];
+          awaitingInputSessionIds?: string[];
           completionNotificationSuppressedSessionIds?: string[];
         };
         if (stopped || controller !== current) return;
@@ -647,6 +734,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
           data.completionNotificationSuppressedSessionIds ?? [],
         );
         setRunningSessionIds(new Set(data.runningSessionIds ?? []));
+        setAwaitingInputSessionIds(new Set(data.awaitingInputSessionIds ?? []));
         if (data.sessionListVersion !== sessionListVersionRef.current) {
           // Reuse the invalidated cache; forcing a scan would change the version again.
           await loadSessions();
@@ -1095,6 +1183,14 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     return orderProjects(projects, projectOrder);
   }, [pinnedCwds, projectFor, projectOrder, recentProjects, selectedProject]);
 
+  const projectNameByRoot = useMemo(() => new Map(workspaceProjects.flatMap((project) => {
+    const name = projectNames.get(project.key);
+    return name ? [[project.root, name] as const] : [];
+  })), [projectNames, workspaceProjects]);
+  useEffect(() => {
+    onProjectNamesChange?.(projectNameByRoot);
+  }, [onProjectNamesChange, projectNameByRoot]);
+
   useEffect(() => {
     if (sessionListVersion === null) return;
     const missing = workspaceProjects.map((project) => project.key).filter((key) =>
@@ -1240,13 +1336,13 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         const limit = workspaceSessionLimits[project.key] ?? WORKSPACE_SESSION_PREVIEW_LIMIT;
         const forcedIds = new Set([...runningSessionIds, ...unreadSessionIds]);
         if (selectedSessionId) forcedIds.add(selectedSessionId);
-        const { visible: visibleFamilies, revealed } = previewSessionFamilies(
+        const { visible: visibleFamilies, revealed, nextShown } = previewSessionFamilies(
           families, singleProject || archiveView ? Infinity : WORKSPACE_SESSION_PREVIEW_LIMIT,
-          Math.max(0, limit - WORKSPACE_SESSION_PREVIEW_LIMIT), forcedIds,
+          Math.max(0, limit - WORKSPACE_SESSION_PREVIEW_LIMIT), forcedIds, WORKSPACE_SESSION_PAGE_SIZE,
         );
         rows.push(...visibleFamilies.map((family) => ({ kind: "session" as const, family })));
         const remaining = families.length - visibleFamilies.length;
-        if (remaining > 0) rows.push({ kind: "showMore", projectKey: project.key, remaining });
+        if (remaining > 0) rows.push({ kind: "showMore", projectKey: project.key, remaining, nextLimit: WORKSPACE_SESSION_PREVIEW_LIMIT + nextShown });
         if (revealed > 0) rows.push({ kind: "showLess", projectKey: project.key });
       }
     }
@@ -1274,6 +1370,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         next.delete(key);
         return next;
       });
+      forgetWorkspaceWindow(key);
       moveProject(key, anchor, position);
     },
     onDrag: (key) => { setDraggedProjectKey(key); if (key) { setProjectMenu(null); setSessionMenu(null); } },
@@ -1300,6 +1397,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     listScrollTop,
     listViewportH,
     workspaceRows.findIndex((row) => row.kind === "session" && row.family.root.id === focusedSessionId),
+    workspaceRows.findIndex((row) => row.kind === "workspace" && row.project.key === renamingProjectKey),
   );
 
   const worktreeSwitcher = showWorktreeSwitcher && worktreeState ? (() => {
@@ -1611,6 +1709,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
           indent={14}
           isSelected={familySessions.some((session) => session.id === selectedSessionId)}
           isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
+          isAwaiting={familySessions.some((session) => awaitingInputSessionIds.has(session.id))}
           isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
           menuAt={sessionMenu?.id === family.root.id ? sessionMenu : null}
           onOpenMenu={(x, y) => { setProjectMenu(null); setDeleteConfirm(null); setSessionMenu({ id: family.root.id, x, y }); }}
@@ -1664,9 +1763,14 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
           <div
             role="menu"
             className="project-context-menu menu-surface"
+            ref={(menu) => {
+              if (menu) menu.style.top = `${Math.max(4, Math.min(projectMenu.y + 2, window.innerHeight - menu.offsetHeight - 4))}px`;
+            }}
             style={{
               left: Math.min(projectMenu.x + 2, window.innerWidth - 168),
-              top: Math.min(projectMenu.y + 2, window.innerHeight - (archiveView ? 80 : 164)),
+              top: projectMenu.y + 2,
+              maxHeight: "calc(100dvh - 8px)",
+              overflowY: "auto",
             }}
           >
             <button
@@ -1681,6 +1785,17 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h4" /><path d="M10 5h10" /><path d="M4 12h4" /><path d="M10 12h10" /><path d="M4 19h4" /><path d="M10 19h10" /></svg>
               {t("files.explorer")}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setProjectMenu(null);
+                setRenamingProjectKey(projectMenu.key);
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>
+              {t("sidebar.rename")}
             </button>
             {!archiveView && (["before", "after"] as const).map((position) => {
               const anchor = workspaceProjects[projectIndex + (position === "before" ? -1 : 1)];
@@ -1755,7 +1870,10 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         <div className="sidebar-header-actions">
           {projectsOpen && !archiveView && !singleProject && workspaceProjects.filter((p) => (expandedWorkspaceKeys ?? defaultExpandedWorkspaceKeys).has(p.key)).length >= 2 && (
             <ToolbarIconButton
-              onClick={() => setExpandedWorkspaceKeys(new Set())}
+              onClick={() => {
+                setExpandedWorkspaceKeys(new Set());
+                setWorkspaceSessionLimits({});
+              }}
               title={t("sidebar.collapseAll")}
               color="var(--text-muted)"
             >
@@ -1851,7 +1969,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
               <div ref={projectDropdownInnerRef} style={{ position: "relative" }}>
               <ProjectDragGhost drag={dropdownDrag} dropdown label={(() => {
                 const root = workspaceProjects.find((project) => project.key === dropdownDrag.view?.key)?.root;
-                return root && <PathLabel text={displayCwd(root, homeDir)} style={{ flex: 1 }} />;
+                return root && <PathLabel text={projectNames.get(dropdownDrag.view?.key ?? "") ?? displayCwd(root, homeDir)} style={{ flex: 1 }} />;
               })()} />
               {workspaceProjects.map((project, index) => {
                 const active = project.key === selectedProject?.key;
@@ -1868,7 +1986,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                       title={project.root}
                       style={{ flex: 1, height: 28 }}
                     >
-                      <PathLabel text={displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
+                      <PathLabel text={projectNames.get(project.key) ?? displayCwd(project.root, homeDir)} style={{ flex: 1 }} />
                       {activity?.running ? <LivePulseBeacon size={11} /> : null}
                       {activity?.unread ? <span style={{ color: "var(--success)", fontSize: 10 }}>{activity.unread}</span> : null}
                     </button>
@@ -2022,7 +2140,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
           <div ref={listInnerRef} style={{ position: "relative", height: workspaceRows.length * SESSION_LIST_ITEM_HEIGHT }}>
             <ProjectDragGhost drag={projectDrag} label={(() => {
               const root = workspaceProjects.find((project) => project.key === projectDrag.view?.key)?.root;
-              return root && <><ProjectFolderIcon open={false} /><span>{getFileName(root)}</span></>;
+              return root && <><ProjectFolderIcon open={false} /><span>{projectNames.get(projectDrag.view?.key ?? "") ?? getFileName(root)}</span></>;
             })()} />
             {virtualIndices.map((index) => {
               const row = workspaceRows[index];
@@ -2047,6 +2165,14 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                     }}
                     style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 4, right: 4, height: SESSION_LIST_ITEM_HEIGHT, display: "flex", alignItems: "center", WebkitTouchCallout: "none", userSelect: "none", ...projectDrag.rowStyle(index * SESSION_LIST_ITEM_HEIGHT) }}
                   >
+                    {renamingProjectKey === row.project.key ? (
+                      <ProjectNameInput
+                        open={singleProject ? dropdownOpen : expanded}
+                        initial={projectNames.get(row.project.key) ?? getFileName(row.project.root)}
+                        onCommit={(value) => commitProjectRename(row.project.key, value, getFileName(row.project.root))}
+                        onCancel={() => setRenamingProjectKey(null)}
+                      />
+                    ) : (
                     <button
                       type="button"
                       aria-current={active ? "page" : undefined}
@@ -2069,14 +2195,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                           setWtDropdownOpen(false);
                           return;
                         }
-                        if (expanded) {
-                          setWorkspaceSessionLimits((current) => {
-                            if (!(row.project.key in current)) return current;
-                            const next = { ...current };
-                            delete next[row.project.key];
-                            return next;
-                          });
-                        }
+                        if (expanded) forgetWorkspaceWindow(row.project.key);
                         setExpandedWorkspaceKeys((current) => {
                           const next = new Set(current ?? defaultExpandedWorkspaceKeys);
                           if (next.has(row.project.key)) next.delete(row.project.key);
@@ -2088,7 +2207,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                       style={{ display: "flex", alignItems: "center", gap: 4, flex: "1 1 auto", minWidth: 0, height: "100%", padding: "0 4px", border: "none", background: "none", color: "inherit", cursor: "pointer", textAlign: "left", fontSize: 12 }}
                     >
                       <ProjectFolderIcon open={singleProject ? dropdownOpen : expanded} />
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{getFileName(row.project.root)}</span>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{projectNames.get(row.project.key) ?? getFileName(row.project.root)}</span>
                       {activity?.running ? (
                         <span role="status" aria-label={`${t("sidebar.agentRunning")} (${activity.running})`}>
                           <LivePulseBeacon size={11} />
@@ -2098,6 +2217,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                         <span aria-label={`${t("sidebar.newSessionActivity")} (${activity.unread})`} style={{ color: "var(--success)", fontSize: 10 }}>{activity.unread}</span>
                       ) : null}
                     </button>
+                    )}
                     {active ? worktreeSwitcher : null}
                     <span className="workspace-row-action">
                       <ToolbarIconButton
@@ -2136,11 +2256,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                     type="button"
                     className={`workspace-show-more-button${projectDrag.view ? " project-drag-row" : ""}`}
                     aria-label={t("sidebar.showMoreSessionsLabel", { count: row.remaining })}
-                    onClick={() => setWorkspaceSessionLimits((current) => ({
-                      ...current,
-                      [row.projectKey]: (current[row.projectKey] ?? WORKSPACE_SESSION_PREVIEW_LIMIT)
-                        + Math.min(WORKSPACE_SESSION_PAGE_SIZE, row.remaining),
-                    }))}
+                    onClick={() => setWorkspaceSessionLimits((current) => ({ ...current, [row.projectKey]: row.nextLimit }))}
                     style={{
                       position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT,
                       left: 4, right: 4, height: SESSION_LIST_ITEM_HEIGHT,
@@ -2211,6 +2327,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
             )}
             {explorerOpen && changesCount > 0 && (
               <ToolbarIconButton
+                buttonRef={changesButtonRef}
                 onClick={() => setChangesCollapsed((v) => !v)}
                 title={t("sidebar.changedFiles", { count: changesCount })}
                 ariaPressed={!changesCollapsed}
@@ -2291,6 +2408,64 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   );
 }
 
+const RENAME_INPUT_STYLE: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  fontSize: 12,
+  fontFamily: "inherit",
+  lineHeight: 1.4,
+  padding: "1px 6px",
+  border: "1px solid var(--accent)",
+  borderRadius: 4,
+  outline: "none",
+  background: "var(--bg)",
+  color: "var(--text)",
+  height: 24,
+  boxSizing: "border-box",
+};
+
+/** A project header turned into the session row's rename field: Enter or blur saves, Escape cancels. */
+function ProjectNameInput({ open, initial, onCommit, onCancel }: {
+  open: boolean;
+  initial: string;
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useI18n();
+  const [value, setValue] = useState(initial);
+  const settled = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Select the whole name once mounted, as the session rename does.
+  useEffect(() => { inputRef.current?.select(); }, []);
+  const finish = (commit: boolean) => {
+    if (settled.current) return;
+    settled.current = true;
+    if (commit) onCommit(value);
+    else onCancel();
+  };
+  return (
+    // The row's drag gesture and its context menu must not start from the field.
+    <div onPointerDown={(event) => event.stopPropagation()} onContextMenu={(event) => event.stopPropagation()}
+      style={{ display: "flex", alignItems: "center", gap: 4, flex: "1 1 auto", minWidth: 0, height: "100%", padding: "0 4px" }}>
+      <ProjectFolderIcon open={open} />
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => finish(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") finish(true);
+          if (event.key === "Escape") finish(false);
+        }}
+        autoFocus
+        aria-label={t("sidebar.rename")}
+        className="session-rename-input"
+        style={RENAME_INPUT_STYLE}
+      />
+    </div>
+  );
+}
+
 function RunningSessionIndicator() {
   const { t } = useI18n();
   return (
@@ -2302,12 +2477,13 @@ function RunningSessionIndicator() {
   );
 }
 
-function UnreadSessionIndicator() {
-  const { t } = useI18n();
+/** Row-state badge in the meta slot: a 12px filled circle with a white glyph (unread, awaiting input). */
+function SessionStateBadge({ label, color, children }: { label: string; color: string; children: ReactNode }) {
   return (
     <span
-      title={t("sidebar.newSessionActivity")}
-      aria-label={t("sidebar.newSessionActivity")}
+      role="img"
+      title={label}
+      aria-label={label}
       style={{
         width: 14,
         height: 14,
@@ -2318,10 +2494,30 @@ function UnreadSessionIndicator() {
       }}
     >
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" style={{ display: "block" }}>
-        <circle cx="6" cy="6" r="5" fill="var(--success)" />
-        <path d="M3.6 6.2l1.6 1.6 3.2-3.4" stroke="#ffffff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="6" cy="6" r="5" fill={color} />
+        {children}
       </svg>
     </span>
+  );
+}
+
+/** Parked on an extension dialog: the run waits for an answer, so a question mark. */
+function AwaitingSessionIndicator() {
+  const { t } = useI18n();
+  return (
+    <SessionStateBadge label={t("sidebar.awaitingInput")} color="var(--warning)">
+      <path d="M4.7 4.6a1.4 1.4 0 0 1 2.7.5c0 .9-1.4 1.1-1.4 1.9" stroke="#ffffff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="6" cy="8.7" r="0.75" fill="#ffffff" />
+    </SessionStateBadge>
+  );
+}
+
+function UnreadSessionIndicator() {
+  const { t } = useI18n();
+  return (
+    <SessionStateBadge label={t("sidebar.newSessionActivity")} color="var(--success)">
+      <path d="M3.6 6.2l1.6 1.6 3.2-3.4" stroke="#ffffff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </SessionStateBadge>
   );
 }
 
@@ -2329,6 +2525,7 @@ export function SessionItem({
   session,
   isSelected,
   isRunning,
+  isAwaiting = false,
   isUnread,
   menuAt = null,
   onOpenMenu,
@@ -2356,6 +2553,8 @@ export function SessionItem({
   session: SessionInfo;
   isSelected: boolean;
   isRunning?: boolean;
+  /** Running and parked on an extension dialog: the slot shows the dot instead of the beacon. */
+  isAwaiting?: boolean;
   isUnread?: boolean;
   /** Open context-menu position; the sidebar owns which row's menu is open. */
   menuAt?: { x: number; y: number } | null;
@@ -2561,21 +2760,7 @@ export function SessionItem({
           }}
           autoFocus
           className="session-rename-input"
-          style={{
-            flex: 1,
-            minWidth: 0,
-            fontSize: 12,
-            fontFamily: "inherit",
-            lineHeight: 1.4,
-            padding: "1px 6px",
-            border: "1px solid var(--accent)",
-            borderRadius: 4,
-            outline: "none",
-            background: "var(--bg)",
-            color: "var(--text)",
-            height: 24,
-            boxSizing: "border-box",
-          }}
+          style={RENAME_INPUT_STYLE}
         />
       ) : (
         /* ── Normal view ── */
@@ -2677,7 +2862,7 @@ export function SessionItem({
           )}
 
           <div className="session-row-meta" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", flexShrink: 0, color: "var(--text-dim)", fontSize: 11, whiteSpace: "nowrap" }}>
-            {isRunning ? <RunningSessionIndicator /> : isUnread ? <UnreadSessionIndicator /> : (
+            {isAwaiting ? <AwaitingSessionIndicator /> : isRunning ? <RunningSessionIndicator /> : isUnread ? <UnreadSessionIndicator /> : (
               <span title={session.modified}>{formatCompactRelativeTime(session.modified, locale)}</span>
             )}
           </div>

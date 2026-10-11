@@ -31,6 +31,14 @@ test("folds a leading process prefix that has no user anchor", () => {
   );
 });
 
+test("skips custom messages without display in the chat and in process details (#1043)", () => {
+  assert.match(source, /const msg = options\.messageOverride \?\? messages\[idx\];\s*if \(isHiddenCustomMessage\(msg\)\) return null;/);
+  assert.match(
+    source,
+    /if \(processMessage\.role === "custom"\) \{[^}]*?if \(isHiddenCustomMessage\(processMessage\)\) continue;/,
+  );
+});
+
 test("starts a stable process group at each subagent notification boundary", () => {
   assert.match(source, /const hasBoundary = isMessageGroupBoundary\(messages\[idx\]\)/);
   assert.match(source, /const notificationStartsProcess = boundaryIdx >= 0 && isSubagentNotificationMessage\(messages\[boundaryIdx\]\)/);

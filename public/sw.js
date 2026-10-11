@@ -2,9 +2,9 @@ const CACHE_PREFIX = "pi-web";
 const CACHE_VERSION = new URL(self.location.href).searchParams.get("v") || "dev";
 const STATIC_CACHE = `${CACHE_PREFIX}-static-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
+const MANIFEST_URL = "/manifest.webmanifest";
 const PRECACHE_URLS = [
   OFFLINE_URL,
-  "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/apple-touch-icon.png",
@@ -29,6 +29,15 @@ self.addEventListener("activate", (event) => {
             .filter((key) => key.startsWith(`${CACHE_PREFIX}-`) && key !== STATIC_CACHE)
             .map((key) => caches.delete(key)),
         ),
+      )
+      // Older workers precached the manifest; its name is runtime configuration now.
+      .then(() =>
+        caches
+          .open(STATIC_CACHE)
+          .then((cache) => cache.delete(MANIFEST_URL, { ignoreSearch: true }))
+          .catch(() => {
+            // A leftover entry is never read again; a failed purge must not block activation.
+          }),
       )
       .then(() => self.clients.claim()),
   );
@@ -64,6 +73,10 @@ self.addEventListener("fetch", (event) => {
 
   // Session data and live agent traffic must always come from the local server.
   if (url.pathname.startsWith("/api/") || url.pathname === "/sw.js") return;
+
+  // The manifest is runtime configuration. Bypass even entries left in an old
+  // cache, including requests with a query string or navigation mode.
+  if (url.pathname === MANIFEST_URL) return;
 
   if (request.mode === "navigate") {
     event.respondWith(

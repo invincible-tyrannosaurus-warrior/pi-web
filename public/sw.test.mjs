@@ -199,3 +199,49 @@ test("a failed background cache write does not reject the static response", asyn
   assert.equal(await event.response, response);
   await Promise.all(event.writes);
 });
+
+test("install precaches offline assets but not the runtime manifest", async (t) => {
+  const previousCaches = globalThis.caches;
+  t.after(() => { globalThis.caches = previousCaches; });
+  let precached;
+  globalThis.caches = { open: async () => ({ addAll: async (urls) => { precached = urls; } }) };
+  self.skipWaiting = async () => {};
+  let pending;
+  listeners.get("install")({ waitUntil: (promise) => { pending = promise; } });
+  await pending;
+  assert.deepEqual(precached, [
+    "/offline.html",
+    "/icons/icon-192.png",
+    "/icons/icon-512.png",
+    "/icons/apple-touch-icon.png",
+  ]);
+});
+
+test("manifest requests bypass the worker, with query strings and in navigation mode", () => {
+  for (const path of ["/manifest.webmanifest", "/manifest.webmanifest?v=old"]) {
+    for (const mode of ["cors", "navigate"]) {
+      let responded = false;
+      listeners.get("fetch")({
+        request: { url: `https://pi.test${path}`, method: "GET", mode },
+        respondWith: () => { responded = true; },
+        waitUntil: () => {},
+      });
+      assert.equal(responded, false, `${mode} ${path} must reach the network`);
+    }
+  }
+});
+
+test("activate purges the manifest an earlier worker cached, query variants included", async (t) => {
+  const previous = { caches: globalThis.caches, clients: self.clients };
+  t.after(() => { globalThis.caches = previous.caches; self.clients = previous.clients; });
+  const deleted = [];
+  globalThis.caches = {
+    keys: async () => [],
+    open: async (name) => ({ delete: async (url, options) => { deleted.push([name, url, options]); return true; } }),
+  };
+  self.clients = { claim: async () => {} };
+  let pending;
+  listeners.get("activate")({ waitUntil: (promise) => { pending = promise; } });
+  await pending;
+  assert.deepEqual(deleted, [["pi-web-static-test", "/manifest.webmanifest", { ignoreSearch: true }]]);
+});

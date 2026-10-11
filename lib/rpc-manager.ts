@@ -9,6 +9,7 @@ import { pathToFileURL } from "url";
 import { isBase64ImageWithinLimits, validateAgentImages } from "./image-attachments";
 import { parseQueuedDeliverySnapshot, snapshotAgentQueuedMessages } from "./queued-messages";
 import { invalidateModelsCache } from "./models-cache";
+import { isBlockingExtensionUiRequest } from "./browser-notifications";
 import { THINKING_LEVELS as VALID_THINKING_LEVELS } from "./thinking-levels";
 import { resolveVisibleModels, selectInitialModelScope } from "./model-scope";
 import {
@@ -44,6 +45,7 @@ import {
   listSubagentProfiles,
   readSubagentRun,
   readSubagentSessionResources,
+  subagentToolOptions,
   SUBAGENT_CONTROL_TOOL_NAMES,
 } from "./subagents";
 import { createSubagentController, createSubagentShellTools, getActiveSubagentRuns, isSubagentQueued } from "./subagent-runtime";
@@ -395,6 +397,13 @@ export class AgentSessionWrapper {
     return this._alive && (this.pendingPromptCount > 0 || this.directImageAbortController !== null || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
   }
 
+  /** A running session parked on an extension dialog only a person can answer (select/confirm/input/editor, or an open custom overlay). */
+  isAwaitingInput(): boolean {
+    if (!this.isRunning()) return false;
+    return [...this.pendingUiRequests.values()].some((request) =>
+      isBlockingExtensionUiRequest(request as unknown as ExtensionUiRequest));
+  }
+
   isBusyForFileMutation(): boolean {
     return this._closing
       || this.activeMutatingCommands > 0
@@ -744,6 +753,11 @@ export class AgentSessionWrapper {
       if (type === "prompt" || type === "steer" || type === "follow_up") {
         const imageError = validateAgentImages(command.images);
         if (imageError) throw new Error(imageError);
+      }
+      // A deleted folder stays readable, but a run there only fails its tools, and pi's
+      // write would recreate the folder. Refuse as /api/agent/new does; the composer keeps the draft.
+      if (type === "prompt" && !existsSync(this.cwd)) {
+        throw new Error(`Directory does not exist: ${this.cwd}`);
       }
 
       switch (type) {
@@ -2214,6 +2228,15 @@ export function getRunningRpcSessionIds(): string[] {
   return [...ids];
 }
 
+/** Subset of getRunningRpcSessionIds(): the runs waiting on a person, so the sidebar can tell them apart. */
+export function getAwaitingInputRpcSessionIds(): string[] {
+  const ids = new Set<string>();
+  for (const [sessionId, session] of getRegistry()) {
+    if (session.isAwaitingInput?.()) ids.add(session.sessionId || sessionId);
+  }
+  return [...ids];
+}
+
 export function getCompletionNotificationSuppressedRpcSessionIds(): string[] {
   const ids = new Set<string>();
   for (const [sessionId, session] of getRegistry()) {
@@ -2309,7 +2332,8 @@ export async function startRpcSession(
 
     // Determine which tools to pass based on requested toolNames.
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
-    let toolsOption: string[] | undefined = subagentResources?.tools;
+    // A subagent's tools come from its snapshot (subagentToolOptions below), not from this allow-list.
+    let toolsOption: string[] | undefined;
     if (!subagentResources && selectedToolNames !== undefined) {
       // toolNames === [] -> "all off" (an empty allow-list disables every tool).
       // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
@@ -2431,7 +2455,7 @@ export async function startRpcSession(
       ...(scope.scopedModels.length > 0 ? { scopedModels: [...scope.scopedModels] } : {}),
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
       ...(subagentResources ? {
-        excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES],
+        ...subagentToolOptions(subagentResources),
         customTools: createSubagentShellTools(sessionCwd, settingsManager, services.resourceLoader.getExtensions().extensions),
       } : {}),
     });

@@ -8,17 +8,18 @@ import {
   mergeSessionLists,
 } from "@/lib/session-reader";
 import {
+  getAwaitingInputRpcSessionIds,
   getCompletionNotificationSuppressedRpcSessionIds,
   getRpcSessionInfos,
   getRunningRpcSessionIds,
 } from "@/lib/rpc-manager";
-import { readSidebarState, updateSidebarState, updateProjectOrder, SESSION_ID_PATTERN } from "@/lib/sidebar-state";
-import { isProjectOrderUpdate } from "@/lib/project-groups";
+import { readSidebarState, updateSidebarState, updateProjectOrder, updateProjectName, SESSION_ID_PATTERN } from "@/lib/sidebar-state";
+import { isProjectKey, isProjectOrderUpdate, projectDisplayName } from "@/lib/project-groups";
 import { listSessionFamilies, familyHasMemberIn } from "@/lib/session-family";
 
 export const dynamic = "force-dynamic";
 
-// PATCH /api/sessions: bulk archive, addProjects, or { move, before|after, addProjects? }.
+// PATCH /api/sessions: { projectKey, name } renames a project, bulk archive, addProjects, or { move, before|after, addProjects? }.
 // Project moves are relative; the locked state is never replaced with a client's whole list.
 export async function PATCH(req: Request) {
   try {
@@ -27,6 +28,17 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Expected a JSON object" }, { status: 400 });
     }
     const record = body as Record<string, unknown>;
+    if ("projectKey" in record) {
+      const name = projectDisplayName(record.name);
+      if (Object.keys(record).some((key) => key !== "projectKey" && key !== "name") || !isProjectKey(record.projectKey) || name === undefined) {
+        return NextResponse.json({ error: "Send a projectKey and a name of at most 80 characters on one line" }, { status: 400 });
+      }
+      if (!await updateProjectName(record.projectKey, name)) {
+        return NextResponse.json({ error: "Project names are full" }, { status: 409 });
+      }
+      invalidateSessionListCache();
+      return NextResponse.json({ ok: true });
+    }
     if (["addProjects", "move", "before", "after", "projectOrder"].some((key) => key in record)) {
       if (Object.keys(record).some((key) => !["addProjects", "move", "before", "after"].includes(key))
         || !isProjectOrderUpdate(record)) {
@@ -84,7 +96,9 @@ export async function GET(req: Request) {
         pinnedSessionIds: sidebarState.pinned,
         archivedSessionIds: sidebarState.archived,
         projectOrder: sidebarState.projectOrder ?? [],
+        projectNames: sidebarState.projectNames ?? {},
         runningSessionIds: getRunningRpcSessionIds(),
+        awaitingInputSessionIds: getAwaitingInputRpcSessionIds(),
         completionNotificationSuppressedSessionIds: getCompletionNotificationSuppressedRpcSessionIds(),
       },
       { headers: { "Cache-Control": "no-store" } },

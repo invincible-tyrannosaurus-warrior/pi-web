@@ -3,13 +3,15 @@ import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
 import { writePrivateFileAtomicSync } from "./atomic-file";
-import { applyProjectOrderUpdate, isProjectKey, isProjectOrderUpdate, projectOrderFits, type ProjectOrderUpdate } from "./project-groups";
+import { applyProjectOrderUpdate, isProjectKey, isProjectNames, isProjectOrderUpdate, projectDisplayName, projectNamesFit, projectOrderFits, type ProjectOrderUpdate } from "./project-groups";
 
 export interface SidebarState {
   version: 1;
   pinned: string[];
   archived: Record<string, string>;
   projectOrder?: string[];
+  /** Project display names keyed by project key; an absent key means no name. */
+  projectNames?: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -47,6 +49,7 @@ function loadState(path: string): SidebarState {
     && (value.projectOrder === undefined || (Array.isArray(value.projectOrder)
       && value.projectOrder.every(isProjectKey) && new Set(value.projectOrder).size === value.projectOrder.length
       && projectOrderFits(value.projectOrder)))
+    && (value.projectNames === undefined || isProjectNames(value.projectNames))
     && isRecord(value.archived) && Object.entries(value.archived).every(([id, time]) =>
       SESSION_ID_PATTERN.test(id) && typeof time === "string" && Number.isFinite(Date.parse(time)))) {
     return value as SidebarState;
@@ -93,6 +96,25 @@ export async function updateProjectOrder(update: ProjectOrderUpdate, path = getS
     state.projectOrder = next;
     return true;
   }, path);
+}
+
+/** Sets a project's display name, or clears it when name is "". False (nothing written) when the store has no room. */
+export async function updateProjectName(projectKey: string, name: string, path = getSidebarStatePath()): Promise<boolean> {
+  if (!isProjectKey(projectKey) || projectDisplayName(name) !== name) throw new Error("Invalid project name update");
+  let stored = true;
+  await mutateSidebarState((state) => {
+    const names = { ...state.projectNames };
+    if (name) names[projectKey] = name;
+    else delete names[projectKey];
+    if (!projectNamesFit(names)) {
+      stored = false;
+      return false;
+    }
+    if (JSON.stringify(names) === JSON.stringify(state.projectNames ?? {})) return false;
+    state.projectNames = names;
+    return true;
+  }, path);
+  return stored;
 }
 
 export async function updateSidebarState(

@@ -100,6 +100,8 @@ Pi stores `{type:"toolCall", id, name, arguments}`; our `ToolCallContent` is `{t
 - Linked worktrees resolve to the main repo `projectRoot` (`lib/worktree.ts`) so the sidebar groups them; sessions in removed worktrees fold back into the main project. See `docs/worktrees.md`.
 - git prints POSIX paths even on Windows: pass every git path through `toNativePath()` (`lib/paths.ts`) and compare with `samePath()`, never `===`. Branch names are not paths. Browser code cannot apply Node path rules, so `/api/worktrees` returns `currentWorktreePath`.
 - `/api/files` is not a general filesystem browser: allowed roots are session cwds, their project roots, and `allowFileRoot()` additions. `isPathWithinRoots()` (`lib/path-security.ts`) is the single security boundary; keep one implementation.
+- One browser upload client: `lib/file-upload-client.ts`, used by the explorer and by chat drops and the attach button. Those two route non-images through `ChatWindow`'s drop path (`conflict=skip`, `@` mentions into the cwd root); folders are refused because the endpoint takes flat files.
+- `.csv`/`.tsv` open as a table in the viewer's Preview (`lib/delimited-table.ts`, `components/DelimitedTable.tsx`). A truncated prefix is shown with its cut last record left out (`complete: false`), so keep that flag when touching the parser.
 
 ### Settings pages (plugins, skills, project overrides)
 Full notes: `docs/settings.md`. Traps:
@@ -121,7 +123,7 @@ Full notes: `docs/subagents.md`, `docs/adr/0003-built-in-subagent-toggle.md`. Tr
 - The published `.next/prerender-manifest.json` carries a public `previewModeId`; a matching `x-prerender-revalidate` header skips `proxy.ts` entirely. `bin/pi-web.js` rotates those secrets before every `next start` spawn and refuses to start otherwise: never launch a production build with bare `next start`.
 
 ### Sidebar state
-Pins, archives and project order live in `~/.pi/agent/pi-web/sidebar-state.json` (`lib/sidebar-state.ts`, locked + atomic; migrated from `pinned-sessions.json`). Session files are never touched. Archive is keyed by family root and is effective only while the root has no newer message activity and nothing in the family runs. Project order changes are relative moves, never whole-list writes.
+Pins, archives, project order and project display names (`projectNames`, keyed by project key) live in `~/.pi/agent/pi-web/sidebar-state.json` (`lib/sidebar-state.ts`, locked + atomic; migrated from `pinned-sessions.json`). Session files are never touched. Archive is keyed by family root and is effective only while the root has no newer message activity and nothing in the family runs. Project order changes are relative moves, never whole-list writes.
 
 ### UI rules (details: `docs/ui.md`)
 - Modals go through `components/ModalDialog.tsx`; confirms through `useConfirm()`. `window.confirm`/`alert` are banned (tested).

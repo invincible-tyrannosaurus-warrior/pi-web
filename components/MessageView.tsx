@@ -278,7 +278,7 @@ export const MessageView = memo(function MessageView({ message, modelName, isStr
     if (isSubagentNotificationMessage(customMessage)) {
       return <SubagentNotificationView message={customMessage} cwd={cwd} onOpenFile={onOpenFile} />;
     }
-    return <CustomMessageView message={customMessage} cwd={cwd} onOpenFile={onOpenFile} />;
+    return <CustomMessageView message={customMessage} cwd={cwd} onOpenFile={onOpenFile} isProcess={isProcess} />;
   }
   if (message.role === "bashExecution") {
     return <BashExecutionView message={message as BashExecutionMessage} sessionId={sessionId} expanded={expandOutput} />;
@@ -1735,55 +1735,56 @@ function PairedResult({ text, images, isEmpty, isError }: {
   );
 }
 
+/** A compaction is a turn boundary, shown as one step row; the summary opens below it. */
 function CompactionMessageView({ message }: { message: CustomMessage }) {
   const { t, locale } = useI18n();
+  // Collapsed by default, as in pi's TUI: a summary can run to pages.
+  const [expanded, setExpanded] = useState(false);
   const summary = getMessageText(message.content);
   const parsedSummary = useMemo(() => parseCompactionSummary(summary), [summary]);
   const time = formatTime(message.timestamp, locale);
+  const tokensBefore = (message.details as { tokensBefore?: unknown } | undefined)?.tokensBefore;
+  const tokens = typeof tokensBefore === "number" && Number.isFinite(tokensBefore)
+    ? t("i18n.compactedFromTokens", { tokens: tokensBefore.toLocaleString(locale) })
+    : "";
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div
-        className="message-card"
-        style={{
-          border: "1px solid var(--border)",
-          borderRadius: "var(--ui-radius-md)",
-          overflow: "hidden",
-          background: "var(--bg)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            minHeight: 28,
-            padding: "0 10px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            color: "var(--text-muted)",
-          }}
-        >
-          <span style={{ fontSize: 11, lineHeight: 1.35 }}>
-            {t("chat.compaction")}
-          </span>
-          {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 11, lineHeight: 1.35, fontVariantNumeric: "tabular-nums" }}>{time}</span>}
+    <div className="step-flat" style={{ margin: "4px 0 12px" }}>
+      <div data-step-card="">
+        <div className="step-head">
+          <button
+            type="button"
+            data-step-trigger=""
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <span className="step-icon">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={iconStroke(12)} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 22v-6M12 8V2M4 12H2M10 12H8M16 12h-2M22 12h-2M15 19l-3-3-3 3M15 5l-3 3-3-3" />
+              </svg>
+            </span>
+            <span className="step-label">{t("i18n.conversationCompacted")}</span>
+            <span className="step-preview">{tokens}</span>
+            {time && <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 11, lineHeight: 1.35, fontVariantNumeric: "tabular-nums" }}>{time}</span>}
+            <svg data-step-chevron="" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="2 3.5 5 6.5 8 3.5" />
+            </svg>
+          </button>
         </div>
-
-        <div style={{ padding: "11px 13px 12px" }}>
-          <div style={{ color: "var(--text)", fontSize: "calc(14px + var(--chat-font-size-offset, 0px))", fontWeight: 600, lineHeight: 1.35 }}>
-             {t("i18n.conversationCompacted")}
+        {expanded && (
+          <div className="step-body" style={{ padding: "6px 10px 8px 20px" }}>
+            <p style={{ margin: "0 0 6px", color: "var(--text-muted)", fontSize: 12, lineHeight: 1.45 }}>
+              {t("i18n.compactionDescription")}
+            </p>
+            {parsedSummary.body ? (
+              <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
+            ) : (
+              <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noSummary")}</span>
+            )}
+            <CompactionFileMetadata readFiles={parsedSummary.readFiles} modifiedFiles={parsedSummary.modifiedFiles} />
           </div>
-          <div style={{ marginTop: 3, marginBottom: 10, color: "var(--text)", fontSize: "calc(14px + var(--chat-font-size-offset, 0px))", lineHeight: 1.5 }}>
-             {t("i18n.compactionDescription")}
-          </div>
-          {parsedSummary.body ? (
-            <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
-          ) : (
-             <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noSummary")}</span>
-          )}
-          <CompactionFileMetadata readFiles={parsedSummary.readFiles} modifiedFiles={parsedSummary.modifiedFiles} />
-        </div>
+        )}
+        {expanded && <StepCollapseRail onCollapse={() => setExpanded(false)} />}
       </div>
     </div>
   );
@@ -1860,10 +1861,14 @@ function SubagentNotificationView({ message, cwd, onOpenFile }: {
   );
 }
 
-function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void }) {
-  const { t, locale } = useI18n();
-  const isHiddenDisplay = message.display === false;
-  const [contentExpanded, setContentExpanded] = useState(!isHiddenDisplay);
+/**
+ * An extension's displayed message, as a step row: its type and a one-line preview,
+ * the content (and raw details on request) opening below. Inside a turn's steps it
+ * sits among them; on its own it takes the flat step look.
+ */
+function CustomMessageView({ message, cwd, onOpenFile, isProcess }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void; isProcess?: boolean }) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const text = getMessageText(message.content);
@@ -1871,128 +1876,98 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
   const hasDetails = message.details !== undefined;
   const detailsText = hasDetails ? safeJson(message.details) : "";
   const title = formatCustomType(message.customType);
-  const time = formatTime(message.timestamp, locale);
+  const copyValue = text || detailsText;
+  const thumbs = images.map((img) => ({ src: imageSource(img) })).filter((img) => img.src);
 
   const copyContent = () => {
-    copyText(text || detailsText).then(() => {
+    copyText(copyValue).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
   };
 
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <div
-        className="message-card"
-        style={{
-          border: "1px solid var(--border)",
-          borderRadius: "var(--ui-radius-md)",
-          overflow: "hidden",
-          background: isHiddenDisplay ? "var(--bg-subtle)" : "var(--bg)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            minHeight: 28,
-            padding: "0 4px 0 10px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            color: "var(--text-muted)",
-          }}
+  const card = (
+    <div data-step-card="">
+      <div className="step-head">
+        <button
+          type="button"
+          data-step-trigger=""
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
         >
-          <span style={{ color: "var(--text-muted)", fontSize: 11, lineHeight: 1.35 }}>
-            {title}
+          <span className="step-icon">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={iconStroke(12)} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z" />
+            </svg>
           </span>
-          {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11, lineHeight: 1.35 }}>{t("i18n.hiddenExtensionMessage")}</span>}
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            {(hasDetails || isHiddenDisplay) && (
-              <button
-                type="button"
-                className="meta-link"
-                style={{ fontSize: 11, lineHeight: 1.35 }}
-                onClick={() => {
-                  if (isHiddenDisplay) setContentExpanded((v) => !v);
-                  else setDetailsExpanded((v) => !v);
-                }}
-              >
-                {isHiddenDisplay
-                  ? (contentExpanded ? t("i18n.collapse") : t("i18n.expand"))
-                  : (detailsExpanded ? t("i18n.hideDetails") : t("i18n.showDetails"))}
-              </button>
-            )}
-            {time && <span style={{ color: "var(--text-dim)", fontSize: 11, lineHeight: 1.35, fontVariantNumeric: "tabular-nums" }}>{time}</span>}
-            {(text || detailsText) && (
-              <div className="message-action-group">
-                <button
-                  type="button"
-                  className="message-action-button"
-                  data-copied={copied ? "true" : undefined}
-                  onClick={copyContent}
-                  title={copied ? t("i18n.copied") : t("i18n.copyMessage")}
-                  aria-label={copied ? t("i18n.copied") : t("i18n.copy")}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    {copied ? <polyline points="20 6 9 17 4 12" /> : <CopyGlyph />}
-                  </svg>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {contentExpanded ? (
-          <div style={{ padding: "6px 9px" }}>
-            <ImageThumbs
-              images={images.map((img) => ({ src: imageSource(img) })).filter((img) => img.src)}
-              style={{ marginBottom: text ? 8 : 0 }}
-            />
-             {text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
-          </div>
-        ) : (
+          <span className="step-label">{title}</span>
+          <span className="step-preview">{expanded || !text ? "" : previewText(text)}</span>
+          <svg data-step-chevron="" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="2 3.5 5 6.5 8 3.5" />
+          </svg>
+        </button>
+        {copyValue && (
           <button
-            onClick={() => setContentExpanded(true)}
-            style={{
-              display: "block",
-              width: "100%",
-              padding: "8px 10px",
-              border: "none",
-              background: "transparent",
-              color: "var(--text-dim)",
-              cursor: "pointer",
-              fontSize: 12,
-              textAlign: "left",
-            }}
+            type="button"
+            data-step-action=""
+            data-copied={copied ? "true" : undefined}
+            onClick={copyContent}
+            title={copied ? t("i18n.copied") : t("i18n.copyMessage")}
+            aria-label={copied ? t("i18n.copied") : t("i18n.copyMessage")}
+            style={{ width: 30, display: "grid", placeItems: "center", border: "none", background: "none", cursor: "pointer", flexShrink: 0 }}
           >
-             {text ? previewText(text) : t("i18n.showExtensionMessage")}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={iconStroke(12)} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {copied ? <polyline points="20 6 9 17 4 12" /> : <CopyGlyph />}
+            </svg>
           </button>
         )}
-
-        {hasDetails && ((isHiddenDisplay && contentExpanded) || (!isHiddenDisplay && detailsExpanded)) && (
-          <pre
-            style={{
-              margin: 0,
-              padding: "9px 10px",
-              borderTop: "1px solid var(--border)",
-              background: "var(--bg)",
-              color: "var(--text-muted)",
-              fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
-              lineHeight: 1.5,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              maxHeight: 360,
-              overflow: "auto",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            {detailsText}
-          </pre>
-        )}
       </div>
+      {expanded && (
+        <div className="step-body" style={{ padding: "6px 10px 8px 20px" }}>
+          <ImageThumbs images={thumbs} style={{ marginBottom: text ? 8 : 0 }} />
+          {text
+            ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody>
+            : thumbs.length === 0 && <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("i18n.noMessage")}</span>}
+          {hasDetails && (
+            <button
+              type="button"
+              className="meta-link"
+              aria-expanded={detailsExpanded}
+              style={{ display: "block", marginTop: 6, fontSize: 11, lineHeight: 1.35 }}
+              onClick={() => setDetailsExpanded((value) => !value)}
+            >
+              {detailsExpanded ? t("i18n.hideDetails") : t("i18n.showDetails")}
+            </button>
+          )}
+          {hasDetails && detailsExpanded && (
+            <pre
+              style={{
+                margin: "6px 0 0",
+                color: "var(--text-muted)",
+                fontSize: "calc(12px + var(--chat-font-size-offset, 0px))",
+                lineHeight: 1.5,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                maxHeight: 360,
+                overflow: "auto",
+              }}
+            >
+              {detailsText}
+            </pre>
+          )}
+        </div>
+      )}
+      {expanded && <StepCollapseRail onCollapse={() => setExpanded(false)} />}
+      {/* Images stay visible while folded, as on tool rows (#826). */}
+      {!expanded && thumbs.length > 0 && (
+        <div className="step-body" style={{ padding: "6px 10px 8px 20px" }}>
+          <ImageThumbs images={thumbs} />
+        </div>
+      )}
     </div>
   );
+
+  return isProcess ? card : <div className="step-flat" style={{ margin: "4px 0 8px" }}>{card}</div>;
 }
 
 function getMessageText(content: CustomMessage["content"] | UserMessage["content"]): string {
@@ -2059,7 +2034,6 @@ function formatCustomType(type: string): string {
 
 function previewText(text: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
-  if (!normalized) return "Show extension message";
   return normalized.length > 140 ? `${normalized.slice(0, 140)}...` : normalized;
 }
 

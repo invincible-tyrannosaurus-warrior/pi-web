@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getAdjacentTabId, openFileTab, saveFileViewerState } from "./file-tab-state.ts";
+import { getAdjacentTabId, openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace } from "./file-tab-state.ts";
 
 const tabA = {
   id: "file:/repo/a.ts",
@@ -133,4 +133,47 @@ test("opening a PDF again without a page fragment returns it to the first page",
   // Re-opening on the same page is a no-op rather than a needless remount.
   const again = openFileTab(opened, { ...base, page: 12 });
   assert.equal(again, opened);
+});
+
+test("switching workspaces parks the left tabs and brings back the target's", () => {
+  const states = new Map();
+  const left = { tabs: [tabA], activeTabId: tabA.id, open: true };
+  const arrived = switchFileWorkspace(states, "/proj-a", "/proj-b", left, 0);
+  assert.deepEqual(arrived, { tabs: [], activeTabId: null, open: false });
+
+  const back = switchFileWorkspace(states, "/proj-b", "/proj-a", arrived, 1);
+  assert.deepEqual(back, { tabs: [tabA], activeTabId: tabA.id, open: true });
+  assert.equal(states.has("/proj-a"), false, "live workspace is not kept in the parked map");
+});
+
+test("switching to the same workspace changes nothing", () => {
+  const states = new Map();
+  const current = { tabs: [tabA], activeTabId: tabA.id, open: true };
+  assert.strictEqual(switchFileWorkspace(states, "/proj-a", "/proj-a", current, 0), current);
+  assert.equal(states.size, 0);
+});
+
+test("a viewer report tagged with a left workspace's generation lands only there", () => {
+  const states = new Map();
+  // A is live under generation 0; switching to B (also showing tabA's path) bumps to 1.
+  switchFileWorkspace(states, "/proj-a", "/proj-b", { tabs: [tabA], activeTabId: tabA.id, open: true }, 0);
+  switchFileWorkspace(states, "/proj-b", "/proj-c", { tabs: [tabA], activeTabId: tabA.id, open: true }, 1);
+
+  // A's viewer unmounts late, reporting generation 0: A's parked copy changes, B's does not.
+  const scrolled = { ...tabA.viewerState, scrollTop: 480 };
+  saveParkedFileViewerState(states, 0, tabA.id, 0, scrolled);
+  assert.equal(states.get("/proj-a").tabs[0].viewerState.scrollTop, 480);
+  assert.equal(states.get("/proj-b").tabs[0].viewerState.scrollTop, 240);
+});
+
+test("a parked report with a stale revision or an unknown generation is ignored", () => {
+  const states = new Map();
+  switchFileWorkspace(states, "/proj-a", "/proj-b", { tabs: [tabA], activeTabId: tabA.id, open: true }, 0);
+  const before = states.get("/proj-a").tabs;
+
+  saveParkedFileViewerState(states, 0, tabA.id, 9, { ...tabA.viewerState, scrollTop: 1 });
+  assert.strictEqual(states.get("/proj-a").tabs, before);
+
+  saveParkedFileViewerState(states, 7, tabA.id, 0, { ...tabA.viewerState, scrollTop: 1 });
+  assert.strictEqual(states.get("/proj-a").tabs, before);
 });

@@ -57,7 +57,7 @@ function callback(name, scope) {
   return execute(declaration.initializer.arguments[0], scope);
 }
 function workspaceRows(scope) {
-  return callback("workspaceRows", { ...familyHelpers, workspaceKeyOf, WORKSPACE_SESSION_PREVIEW_LIMIT: 6, draggedProjectKey: null, ...scope })();
+  return callback("workspaceRows", { ...familyHelpers, workspaceKeyOf, WORKSPACE_SESSION_PREVIEW_LIMIT: 6, WORKSPACE_SESSION_PAGE_SIZE: 20, draggedProjectKey: null, ...scope })();
 }
 
 test("the actual virtual row model hides archived families, keeps cross-project subagents, and shows the scoped archive", () => {

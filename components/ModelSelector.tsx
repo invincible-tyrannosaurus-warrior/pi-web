@@ -23,14 +23,6 @@ interface ModelSelectorProps {
   placement?: "up" | "auto";
 }
 
-const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-
-function compareModelOptions(a: ModelSelectorOption, b: ModelSelectorOption): number {
-  return MODEL_OPTION_COLLATOR.compare(a.provider, b.provider)
-    || MODEL_OPTION_COLLATOR.compare(a.name || a.modelId, b.name || b.modelId)
-    || MODEL_OPTION_COLLATOR.compare(a.modelId, b.modelId);
-}
-
 export function ModelSelector({
   options,
   value,
@@ -53,21 +45,22 @@ export function ModelSelector({
   const [activeIndex, setActiveIndex] = useState(-1);
   const [anchorRect, setAnchorRect] = useState<{ top: number; right: number; bottom: number; left: number; width: number } | null>(null);
   const locked = disabled || busy;
-  const sortedOptions = useMemo(() => [...options].sort(compareModelOptions), [options]);
+  // Options arrive in pi's /model order (orderSelectorModels()); never re-sort
+  // them, or a models.json provider loses the order its file gives.
   const modelsByProvider: { provider: string; options: ModelSelectorOption[] }[] = [];
 
-  for (const option of sortedOptions) {
-    const group = modelsByProvider.find((item) => item.provider === option.provider);
-    if (group) group.options.push(option);
+  for (const option of options) {
+    const group = modelsByProvider.at(-1);
+    if (group?.provider === option.provider) group.options.push(option);
     else modelsByProvider.push({ provider: option.provider, options: [option] });
   }
 
   const currentName = selectedLabel ?? (value
-    ? sortedOptions.find((option) => option.modelId === value.modelId && option.provider === value.provider)?.name ?? value.modelId
-    : emptyLabel ?? (sortedOptions.length > 0 ? "Select model" : "No models"));
+    ? options.find((option) => option.modelId === value.modelId && option.provider === value.provider)?.name ?? value.modelId
+    : emptyLabel ?? (options.length > 0 ? "Select model" : "No models"));
   const selectableOptions = useMemo<(ModelSelectorOption | null)[]>(
-    () => (onClear ? [null, ...sortedOptions] : sortedOptions),
-    [onClear, sortedOptions],
+    () => (onClear ? [null, ...options] : options),
+    [onClear, options],
   );
   const selectedIndex = selectableOptions.findIndex((option) => option !== null
     ? option.modelId === value?.modelId && option.provider === value?.provider
@@ -219,7 +212,7 @@ export function ModelSelector({
         }}
         aria-busy={busy || undefined}
         disabled={locked}
-        title={busy ? "Switching model" : locked ? currentName : sortedOptions.length > 0 || onClear ? "Change model" : "No available models"}
+        title={busy ? "Switching model" : locked ? currentName : options.length > 0 || onClear ? "Change model" : "No available models"}
         className={variant === "toolbar" ? "composer-btn model-selector-trigger" : undefined}
         style={buttonStyle}
         onClick={() => {
@@ -304,8 +297,8 @@ export function ModelSelector({
                 <div style={{ padding: "7px 8px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
                   No available models
                 </div>
-              ) : modelsByProvider.map((group) => (
-                <div key={group.provider} className="menu-surface-group">
+              ) : modelsByProvider.map((group, groupIndex) => (
+                <div key={`${group.provider}-${groupIndex}`} className="menu-surface-group">
                   <div className="menu-surface-label">{group.provider}</div>
                   {group.options.map((option) => (
                     <ModelOptionButton

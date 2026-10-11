@@ -25,6 +25,12 @@ test("renders temporary notices once at the top right of the chat column", () =>
   );
 });
 
+test("keeps block-character art in a notice on a monospace grid, links still open (#755)", () => {
+  assert.match(source, /function NoticeText[\s\S]*?splitNoticeText\(text\)\.map\(/);
+  assert.match(source, /whiteSpace: "pre", fontFamily: "var\(--font-mono\)", lineHeight: 1/);
+  assert.match(source, /function NoticeText[\s\S]*?const withLinks = \(value: string\)[\s\S]*?target="_blank" rel="noreferrer"/);
+});
+
 test("pauses only for a visible notice", () => {
   assert.match(
     hookSource,

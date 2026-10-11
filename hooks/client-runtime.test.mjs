@@ -23,7 +23,7 @@ function uiHarness() {
     setExtensionCustomUis: (update) => { panels = update(panels); },
     sessionIdRef: ref("session"), loadSession: noop, dispatch: noop,
     cancelEventStreamGrace: noop, sdkAgentActiveRef: ref(false), rpcPromptPendingRef: ref(false),
-    agentRunningRef: ref(false), setAgentRunning: noop, setAgentPhase: noop, handshakePhase: noop,
+    agentRunningRef: ref(false), setAgentRunning: noop, setAgentPhase: noop, setRetryInfo: noop, handshakePhase: noop,
     promptRunIdRef: ref(0),
   };
   const request = evaluate(between("  const handleExtensionUiRequest", "  const flushStreamDeltas"), bindings, "return handleExtensionUiRequest;");

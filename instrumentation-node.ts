@@ -1,5 +1,5 @@
 import { closeAllAgentEventStreams } from "@/lib/agent-event-stream";
-import { configureHttpDispatcher } from "@/lib/http-dispatcher";
+import { configureHttpDispatcher, readHttpIdleTimeoutMs } from "@/lib/http-dispatcher";
 
 /**
  * Node-only startup work.
@@ -14,7 +14,14 @@ import { configureHttpDispatcher } from "@/lib/http-dispatcher";
 const SHUTDOWN_HOOK_KEY = Symbol.for("@calmabacus/pi-web/node-shutdown-hook/v1");
 
 export async function registerNodeRuntime(): Promise<void> {
-  configureHttpDispatcher();
+  // The pi CLI applies settings' `httpIdleTimeoutMs` to the same undici timeouts;
+  // without it the built-in five minutes aborts a provider stream the CLI keeps.
+  configureHttpDispatcher(readHttpIdleTimeoutMs());
+
+  // Next evaluates a route's code, and with it the pi SDK, on the route's first
+  // request (seconds on Windows, #964). Start that import now without awaiting it
+  // so register() stays fast; a failure is left for the routes to report.
+  import("@earendil-works/pi-coding-agent").catch(() => {});
 
   const host = globalThis as unknown as Record<symbol, boolean | undefined>;
   if (host[SHUTDOWN_HOOK_KEY]) return;

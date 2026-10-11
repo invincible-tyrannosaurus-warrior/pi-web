@@ -1,4 +1,8 @@
 import { EventEmitter } from "node:events";
+import { readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import * as undici from "undici";
 
 export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;
@@ -23,6 +27,54 @@ function parseHttpIdleTimeoutMs(value: unknown): number | undefined {
     return undefined;
   }
   return Math.floor(value);
+}
+
+/**
+ * The agent directory as pi's getAgentDir() resolves it: PI_CODING_AGENT_DIR,
+ * then ~, file: URLs and Windows shell drive paths. Mirrored rather than
+ * imported because the SDK entry point is ~1600 modules, too slow for register();
+ * http-dispatcher.test.mjs checks it against the SDK.
+ */
+export function defaultAgentDir(): string {
+  let configured = process.env.PI_CODING_AGENT_DIR;
+  if (!configured) return join(homedir(), ".pi", "agent");
+  if (process.platform === "win32") configured = windowsShellPath(configured);
+  if (configured === "~") return homedir();
+  if (configured.startsWith("~/") || (process.platform === "win32" && configured.startsWith("~\\"))) {
+    return join(homedir(), configured.slice(2));
+  }
+  if (/^file:\/\//.test(configured)) return fileURLToPath(configured);
+  return configured;
+}
+
+/** `/c/x`, `/mnt/c/x`, `/cygdrive/c/x` to `C:\x` (pi's normalizeWindowsShellPath). */
+function windowsShellPath(path: string): string {
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return path;
+  const match = path.match(/^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i);
+  if (!match) return path;
+  return `${match[1].toUpperCase()}:\\${match[2]?.replace(/\//g, "\\") ?? ""}`;
+}
+
+/**
+ * The global `httpIdleTimeoutMs` from `<agentDir>/settings.json`, read the way
+ * the pi CLI reads it, so the Web UI and CLI sessions share one timeout. Only
+ * the global file counts: the dispatcher is configured once at startup, before
+ * any project is selected. A missing, unparsable or invalid value yields
+ * undefined, which keeps configureHttpDispatcher's default.
+ */
+export function readHttpIdleTimeoutMs(agentDir: string = defaultAgentDir()): number | undefined {
+  const path = join(agentDir, "settings.json");
+  let settings: unknown;
+  try {
+    // A FIFO or other non-file here would block readFileSync at startup.
+    if (!statSync(path).isFile()) return undefined;
+    const text = readFileSync(path, "utf8");
+    settings = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+  } catch {
+    return undefined;
+  }
+  if (typeof settings !== "object" || settings === null) return undefined;
+  return parseHttpIdleTimeoutMs((settings as { httpIdleTimeoutMs?: unknown }).httpIdleTimeoutMs);
 }
 
 // Undici can emit an internal Client error while terminating a response body.

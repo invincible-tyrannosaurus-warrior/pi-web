@@ -27,6 +27,15 @@ test("path menu renders sidebar workspace state; only opening the worktree menu 
   assert.match(control, /\/api\/worktrees\?cwd=/);
 });
 
+test("the new-session bar shows a named project's alias, the path stays its tooltip, and AppShell feeds the names", async () => {
+  assert.match(control, /\{projectNameByRoot\?\.get\(displayProject\) \?\? projectLabel\}/);
+  assert.match(control, /\{projectNameByRoot\?\.get\(path\) \?\? \(homeDir/);
+  assert.match(control, /onClick=\{\(\) => choose\(path\)\}\s*title=\{path\}/);
+  const appShell = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+  assert.match(appShell, /onProjectNamesChange=\{setProjectNameByRoot\}/);
+  assert.match(appShell, /projectNameByRoot=\{projectNameByRoot\}/);
+});
+
 function find(root, predicate) {
   if (predicate(root)) return root;
   return ts.forEachChild(root, (child) => find(child, predicate));

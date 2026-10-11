@@ -25,8 +25,10 @@ import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePat
 import { pdfPageFromHref, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { extractMarkdownOutline, findHeadingBySlug } from "@/lib/markdown-outline";
-import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
+import { markdownAppUrlTransform, markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
+import { DelimitedTable } from "./DelimitedTable";
+import { isDelimitedTablePath } from "@/lib/delimited-table";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { MarkdownOutlineMenu } from "./MarkdownOutlineMenu";
 import { parseUnifiedPatch } from "@/lib/patch";
@@ -48,7 +50,7 @@ function resolveFileDisplayMode(
 ): DisplayMode {
   return resolveInitialFileDisplayMode(
     initialState,
-    initialDisplayMode ?? (isFilePreviewPath(filePath) ? "preview" : undefined),
+    initialDisplayMode ?? ((isFilePreviewPath(filePath) || isDelimitedTablePath(filePath)) ? "preview" : undefined),
   );
 }
 
@@ -1141,7 +1143,7 @@ const MarkdownFilePreview = memo(function MarkdownFilePreview({
       <ReactMarkdown
         remarkPlugins={markdownPreviewRemarkPlugins}
         rehypePlugins={markdownPreviewRehypePlugins}
-        urlTransform={onOpenFile ? markdownUrlTransform : undefined}
+        urlTransform={onOpenFile ? markdownUrlTransform : markdownAppUrlTransform}
         components={{
           code({ className, children, ...props }) {
             const lang = className?.replace("language-", "").toLowerCase() ?? "";
@@ -1530,7 +1532,9 @@ function TextFileViewer({
   const language = data?.language ?? "text";
   const isHtml = language === "html";
   const isMarkdown = language === "markdown";
-  const hasPreview = !data?.truncated && (isHtml || isMarkdown);
+  // A CSV/TSV table shows a loaded prefix too; its cut last record waits for "Load more".
+  const isDelimitedTable = isDelimitedTablePath(filePath);
+  const hasPreview = isDelimitedTable || (!data?.truncated && (isHtml || isMarkdown));
   const effectiveDisplayMode = isDeletedDiff
     ? "diff"
     : displayMode === "preview" && !hasPreview
@@ -1911,6 +1915,13 @@ function TextFileViewer({
             markdownDirectory={markdownDirectory}
             onOpenFile={onOpenFile}
             sourceSessionId={sourceSessionId}
+          />
+        ) : isDelimitedTable && effectiveDisplayMode === "preview" ? (
+          <DelimitedTable
+            content={content}
+            filePath={filePath}
+            complete={!data?.truncated}
+            scrollRef={contentRef}
           />
         ) : useLightweightSource ? (
           <div

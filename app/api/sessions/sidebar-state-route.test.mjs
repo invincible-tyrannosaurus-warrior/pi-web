@@ -65,6 +65,39 @@ test("project ordering PATCH validates relative operations and refreshes other b
   assert.equal(await readFile(path, "utf8"), "{corrupt");
 });
 
+test("project display name PATCH validates, stores in the sidebar file, reports full stores with 409, and GET carries the names", async (t) => {
+  const agentDir = await mkdtemp(join(tmpdir(), "project-name-api-"));
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  const previousRegistry = globalThis.__piSessions;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  globalThis.__piSessions = new Map();
+  invalidateSessionListCache();
+  t.after(async () => {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+    globalThis.__piSessions = previousRegistry;
+    invalidateSessionListCache();
+    await rm(agentDir, { recursive: true, force: true });
+  });
+  const patch = (body) => bulkPatch(new Request("http://localhost/api/sessions", { method: "PATCH", body: JSON.stringify(body) }));
+  const list = async () => (await GET(new Request("http://localhost/api/sessions"))).json();
+  for (const body of [
+    { projectKey: "/work/a" }, { projectKey: "/work/a", name: 5 }, { projectKey: "/work/a", name: "two\nlines" },
+    { projectKey: "/work/a", name: "x".repeat(81) }, { projectKey: "__proto__", name: "x" },
+    { projectKey: "/work/a", name: "x", archived: true },
+  ]) assert.equal((await patch(body)).status, 400, JSON.stringify(body));
+  assert.equal((await patch({ projectKey: "/work/a", name: "  Alpha  " })).status, 200);
+  assert.deepEqual((await list()).projectNames, { "/work/a": "Alpha" });
+  assert.equal((await patch({ projectKey: "/work/a", name: "" })).status, 200);
+  assert.deepEqual((await list()).projectNames, {});
+
+  const path = join(agentDir, "pi-web", "sidebar-state.json");
+  await mkdir(join(agentDir, "pi-web"), { recursive: true });
+  await writeFile(path, JSON.stringify({ version: 1, pinned: [], archived: {}, projectNames: Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [`/p/${i}`, "n"])) }));
+  assert.equal((await patch({ projectKey: "/work/new", name: "New" })).status, 409);
+  assert.equal(Object.keys((await list()).projectNames).length, 1000);
+});
+
 test("sidebar PATCH normalizes to family roots, syncs via list versions, never writes JSONL, and scanner activity restores archives", async (t) => {
   const agentDir = await mkdtemp(join(tmpdir(), "sidebar-api-"));
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;

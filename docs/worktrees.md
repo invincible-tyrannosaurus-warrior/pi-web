@@ -89,6 +89,7 @@ Explorer 跟随当前选择的 worktree；聊天跟随打开的会话。如果�
 ## Implementation notes
 
 - `lib/worktree.ts` resolves linked worktree top-levels back to the main repo `projectRoot`; `listAllSessions()` attaches that to each `SessionInfo` so all worktrees for one repo are grouped together in the sidebar.
+- `repoRootFromCommonDir()` picks that root: the parent of a `.git` dir, or the folder of a `.git` file pointing at a bare `project/.bare`. Any other bare clone (`parent/repo.git`) is its own root, so its worktrees never fall into the folder holding every clone, and new ones go to `repo.git-worktrees/`. Removed ones are inferred back into it by the same `-worktrees` rule (#1049).
 - Worktree operations are served by `/api/worktrees` and guarded by the same allowed-root rules as `/api/files`.
 - New worktrees are created under `<repoRoot>-worktrees/<sanitized-branch>`. Existing branches are reused; otherwise `git worktree add -b` creates the branch.
 - Removing a dirty worktree returns `409` with `{ dirty: true }` so the UI can ask before retrying with `force`.

@@ -215,6 +215,8 @@ export interface UseAgentSessionOptions {
   newSessionCwd: string | null;
   newSessionDraftKey: string | null;
   onAgentEnd?: (end: AgentEndInfo) => void;
+  /** A tool call finished; the files it touched may have changed (the explorer reloads). */
+  onToolEnd?: (toolName: string) => void;
   onAttentionNeeded?: (request: BlockingExtensionUiRequest) => void;
   onSessionCreated?: (session: SessionInfo, sourceDraftKey: string) => void;
   onSessionForked?: (newSessionId: string) => void;
@@ -351,7 +353,7 @@ type SlashCommandsResponse = {
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
-    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
+    session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
     isVisiblePane = false,
   } = opts;
@@ -701,7 +703,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [applyContextUsage, setToolPresetState]);
 
-  const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
+  const fetchContextPage = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       if (leafId) params.set("leafId", leafId);
@@ -740,6 +742,31 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!options?.signal?.aborted) console.error("Failed to load context:", e);
     }
   }, []);
+
+  // One request per older cursor, kept until a different cursor renders. The sentinel can
+  // report the same cursor again after its page landed but before React renders the next
+  // one, and the outline locate can start from that stale cursor: both share the request
+  // instead of prepending the same page twice. A failed or aborted request is forgotten.
+  const olderPageRef = useRef<{ sid: string; leafId: string | null; before: string; page: Promise<SessionData["context"] | undefined> } | null>(null);
+  const isOlderPageRequested = useCallback((sid: string, leafId: string | null, before: string) => {
+    const asked = olderPageRef.current;
+    return asked !== null && asked.sid === sid && asked.leafId === leafId && asked.before === before;
+  }, []);
+  useEffect(() => {
+    // A reload can still bring an asked-for cursor back, so forget it once another one renders.
+    if (olderPageRef.current && olderPageRef.current.before !== historyCursor) olderPageRef.current = null;
+  }, [historyCursor]);
+  const loadContext = useCallback((sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
+    if (!before) return fetchContextPage(sid, leafId, before, options);
+    const asked = olderPageRef.current;
+    if (asked && isOlderPageRequested(sid, leafId, before)) return asked.page;
+    const request = { sid, leafId, before, page: fetchContextPage(sid, leafId, before, options) };
+    olderPageRef.current = request;
+    void request.page.then((context) => {
+      if (!context && olderPageRef.current === request) olderPageRef.current = null;
+    });
+    return request.page;
+  }, [fetchContextPage, isOlderPageRequested]);
 
   const loadTools = useCallback(async (sid: string) => {
     try {
@@ -816,7 +843,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             : {}),
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // The server's reason (e.g. a deleted project folder) beats a bare status.
+        const body = await res.json().catch(() => null) as { error?: unknown } | null;
+        throw new Error(typeof body?.error === "string" ? body.error : `HTTP ${res.status}`);
+      }
       // Explicit selections were just persisted as the new defaults.
       if (selectedModel || selectedThinkingLevel) invalidateModelsClientCache();
       const result = await res.json() as {
@@ -829,7 +860,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (warmCwdRef.current !== cwd) return null;
       const realId = result.sessionId;
       sessionIdRef.current = realId;
-      if (visiblePaneRef.current) {
+      if (sessionHookMountedRef.current && visiblePaneRef.current) {
         void eventConnectionRef.current?.ensureConnected(realId).catch(handleEventStreamError);
       }
       applyContextUsage(result.contextUsage, realId, usageRunId, usageRequestId);
@@ -1383,6 +1414,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         agentRunningRef.current = true;
         setAgentRunning(true);
         setAgentPhase({ kind: "waiting_model" });
+        // A retry's wait is over once its run starts: pi's successful auto_retry_end
+        // only comes with the retry's first complete reply, which can stream for minutes.
+        setRetryInfo(null);
         dispatch({ type: "start" });
         break;
       case "agent_end":
@@ -1591,6 +1625,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       case "tool_execution_end": {
         const id = event.toolCallId as string;
+        onToolEnd?.(event.toolName as string);
         setActiveToolResults((prev) => {
           if (!prev.has(id)) return prev;
           const next = new Map(prev);
@@ -1642,7 +1677,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setExtensionCustomUis((queue) => queue.filter((panel) => panel.id !== event.id));
         break;
     }
-  }, [addNotice, applyContextUsage, cancelEventStreamGrace, flushStreamDeltas, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, queueStreamDelta, scheduleEventStreamClose, settleUiStage]);
+  }, [addNotice, applyContextUsage, cancelEventStreamGrace, flushStreamDeltas, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, onToolEnd, queueStreamDelta, scheduleEventStreamClose, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1763,7 +1798,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               if (promptRunGateRef.current.isCancelled(promptRunId)) return null;
             }
           }
-          await ensureEventsConnected(sid);
+          // Switching sessions unmounts this composer and closes its stream. The prompt
+          // still goes out, so the new session runs and gets its sidebar row (#1146).
+          if (sessionHookMountedRef.current) {
+            await ensureEventsConnected(sid).catch((error) => {
+              if (sessionHookMountedRef.current) throw error;
+            });
+          }
           if (promptRunGateRef.current.isCancelled(promptRunId)) return null;
           return sid;
         }
@@ -2101,6 +2142,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setIsCompacting(false);
     }
   }, [isCompacting, loadSession]);
+
+  // The banner otherwise stays until the next compaction, e.g. "Nothing to compact".
+  const dismissCompactError = useCallback(() => setCompactError(null), []);
 
   const loadModels = useCallback(async (signal?: AbortSignal, force = false, refreshToken?: number) => {
     let d: ModelsResponse;
@@ -2675,12 +2719,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleEditContent, cancelEdit,
     handleSend, handleDirectImageGeneration, abortDirectImageGeneration, handleAbort, handleFork, handleNavigate, handleModelChange,
     retryLoadSession,
-    handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
+    handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction, dismissCompactError,
     handleRecallQueue,
     handleBuiltinSlashCommand,
     addNotice,
     setNoticePaused: setPausedNoticeId,
-    handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
+    handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext, isOlderPageRequested,
     scrollToBottom, scrollToMessage,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,

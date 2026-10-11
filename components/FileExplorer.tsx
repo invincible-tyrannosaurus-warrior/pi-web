@@ -11,10 +11,12 @@ import {
   joinFilePath,
   normalizeFilePathSlashes,
 } from "@/lib/file-paths";
+import { readExpandedPaths, rememberExpandedPaths } from "@/lib/file-tree-expansion";
 import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import type { FileIndexEntry } from "@/lib/file-fuzzy";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import { useI18n } from "@/hooks/useI18n";
+import { uploadFiles, type UploadConflictStrategy, type UploadError, type UploadResponse } from "@/lib/file-upload-client";
 type Translate = ReturnType<typeof useI18n>["t"];
 
 interface FileEntry {
@@ -51,21 +53,6 @@ export interface FileExplorerHandle {
 }
 
 type UploadPhase = "idle" | "checking" | "uploading";
-type UploadConflictStrategy = "error" | "overwrite" | "skip";
-
-interface UploadError {
-  name: string;
-  error: string;
-}
-
-interface UploadResponse {
-  uploaded?: string[];
-  skipped?: string[];
-  errors?: UploadError[];
-  conflicts?: string[];
-  nonReplaceable?: string[];
-  error?: string;
-}
 
 interface UploadSummary {
   uploaded: string[];
@@ -147,41 +134,6 @@ function GitStatusBadge({ status, t }: { status: GitFileStatus; t: Translate }) 
       {status.code}
     </span>
   );
-}
-
-function uploadFiles(
-  targetDirectory: string,
-  files: File[],
-  strategy: UploadConflictStrategy,
-  onProgress: (progress: number) => void,
-): Promise<{ status: number; data: UploadResponse }> {
-  return new Promise((resolve, reject) => {
-    const formData = new FormData();
-    files.forEach((file) => formData.append("files", file, file.name));
-
-    const xhr = new XMLHttpRequest();
-    xhr.open(
-      "POST",
-      `/api/files/${encodeFilePathForApi(targetDirectory)}?type=upload&conflict=${strategy}`,
-    );
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && event.total > 0) {
-        onProgress(Math.round((event.loaded / event.total) * 100));
-      }
-    };
-    xhr.onerror = () => reject(new Error("Network error while uploading files"));
-    xhr.onabort = () => reject(new Error("Upload cancelled"));
-    xhr.onload = () => {
-      let data: UploadResponse = {};
-      try {
-        data = JSON.parse(xhr.responseText) as UploadResponse;
-      } catch {
-        if (xhr.responseText) data.error = xhr.responseText;
-      }
-      resolve({ status: xhr.status, data });
-    };
-    xhr.send(formData);
-  });
 }
 
 function MentionIcon({ size = 12 }: { size?: number }) {
@@ -280,10 +232,12 @@ function TreeNode({
     }
   }, [loaded, node.fullPath]);
 
-  // Re-fetch children when the tree refreshes and the directory is open.
+  // Re-fetch children when the tree refreshes and the directory is open; a folded one
+  // forgets its listing and loads afresh when opened again.
   useEffect(() => {
-    if (refreshToken !== undefined && open && loaded) {
-      loadChildren(true);
+    if (refreshToken !== undefined && loaded) {
+      if (open) loadChildren(true);
+      else setLoaded(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken]);
@@ -732,12 +686,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     : deletingPath ? { path: deletingPath, phase: "deleting" as const } : null;
 
   const handleToggleExpanded = useCallback((fullPath: string, open: boolean) => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      if (open) next.add(fullPath); else next.delete(fullPath);
-      return next;
-    });
-  }, []);
+    const next = new Set(expandedPaths);
+    if (open) next.add(fullPath); else next.delete(fullPath);
+    setExpandedPaths(next);
+    rememberExpandedPaths(cwd, [...next]);
+  }, [cwd, expandedPaths]);
 
   const applyUploadResult = useCallback((data: UploadResponse) => {
     const uploaded = data.uploaded ?? [];
@@ -842,9 +795,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     const cwdChanged = prevCwdRef.current !== cwd;
     prevCwdRef.current = cwd;
 
-    // Reset expanded state only when cwd changes, not on refreshKey bumps
+    // Swap expanded state only when cwd changes, not on refreshKey bumps; each cwd gets back the folders it had open
     if (cwdChanged) {
-      setExpandedPaths(new Set());
+      const restored = readExpandedPaths(cwd);
+      setExpandedPaths(new Set(restored));
+      rememberExpandedPaths(cwd, restored);
       setHighlightedPaths(new Set());
       setUploadSummary(null);
       setPendingConflict(null);

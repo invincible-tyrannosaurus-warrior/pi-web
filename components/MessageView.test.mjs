@@ -510,6 +510,27 @@ test("renders custom-message images as buttons that open a larger preview", () =
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
 });
 
+test("collapses the compaction summary to its title and token count, as pi's TUI does (#1026)", () => {
+  const summary = "## Goal\n\nShip the parser fix.\n\n<read-files>\nlib/read.ts\n</read-files>\n\n<modified-files>\nlib/changed.ts\n</modified-files>";
+  const message = {
+    role: "custom",
+    customType: "compaction",
+    content: summary,
+    display: true,
+    details: { tokensBefore: 123456, firstKeptEntryId: "kept0001" },
+  };
+  const html = renderMessage(message);
+
+  assert.match(html, /<button[^>]*aria-expanded="false"/);
+  assert.match(html, /Conversation compacted/);
+  assert.ok(html.includes(`Compacted from ${(123456).toLocaleString()} tokens`));
+  assert.doesNotMatch(html, /Ship the parser fix|following summary|File context|lib\/read\.ts|lib\/changed\.ts/);
+  assert.doesNotMatch(renderMessage({ ...message, details: undefined }), /Compacted from/);
+  // A step row like the turn's other steps; the summary mounts only under the expanded toggle.
+  assert.match(html, /data-step-card=""/);
+  assert.match(source, /\{expanded && \(\s*<div className="step-body"[\s\S]*?<MarkdownBody className="markdown-compaction-message"/);
+});
+
 test("renders subagent notifications as a compact collapsed step", () => {
   const html = renderMessage({
     role: "custom",
@@ -527,6 +548,28 @@ test("renders subagent notifications as a compact collapsed step", () => {
   assert.match(html, /3 sub-agent results ready/);
   assert.doesNotMatch(html, /markdown-subagent-notification/);
   assert.doesNotMatch(html, /pi-web:subagent-notification|First result|Full result body|Show details/);
+});
+
+test("renders a displayed custom message as a folded step row", () => {
+  const custom = (props) => renderMessage({
+    role: "custom",
+    customType: "extension",
+    display: true,
+    timestamp: Date.now(),
+    ...props,
+  });
+  // The header's first button is the toggle and holds the type; copy is a sibling step action.
+  const header = (html) => html.slice(0, html.indexOf("</button>"));
+
+  const folded = custom({ content: [{ type: "text", text: "a message with details" }], details: { files: ["a.ts"] } });
+  assert.match(folded, /data-step-card=""/);
+  assert.match(header(folded), /data-step-trigger="" aria-expanded="false"/);
+  assert.match(header(folded), /class="step-label">extension</);
+  assert.match(header(folded), /class="step-preview">a message with details</);
+  assert.match(folded, /data-step-action=""/);
+  // Body and details mount only once opened.
+  assert.doesNotMatch(folded, /markdown-custom-message|Show details|a\.ts/);
+  assert.match(source, /\{expanded && \(\s*<div className="step-body"[\s\S]*?className="markdown-custom-message"[\s\S]*?\{hasDetails && \(/);
 });
 
 test("renders assistant image answers instead of leaving a blank final answer", () => {

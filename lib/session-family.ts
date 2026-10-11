@@ -118,18 +118,35 @@ export function familiesToArchive({
     && Date.parse(family.latestModified) < now - 7 * 24 * 60 * 60 * 1000);
 }
 
-/** Forced rows preserve sorted order and do not consume a show-more page. */
+/**
+ * The first `limit` families, the `shown` positions "show more" opened past
+ * them, and any later family that is forced (running, unread or selected), in
+ * sorted order. A window, not a budget: a family that turns forced inside it
+ * keeps its place, so picking the last revealed row never brings in an older
+ * one below it. `revealed` counts the rows only the window shows (what "show
+ * less" would fold). `nextShown` is the window a "show more" click opens now:
+ * `step` more hidden families past it (forced ones do not use up the click),
+ * or all that are left.
+ */
 export function previewSessionFamilies(
-  families: readonly SessionFamily[], limit: number, extra: number, forcedIds: ReadonlySet<string>,
-): { visible: SessionFamily[]; revealed: number } {
+  families: readonly SessionFamily[], limit: number, shown: number, forcedIds: ReadonlySet<string>, step: number,
+): { visible: SessionFamily[]; revealed: number; nextShown: number } {
+  const forced = families.map((family) => familyHasMemberIn(family, forcedIds));
+  const end = limit + shown;
   let revealed = 0;
-  const visible = families.filter((family, index) => {
-    if (index < limit || familyHasMemberIn(family, forcedIds)) return true;
-    if (revealed >= extra) return false;
-    revealed++;
-    return true;
+  const visible = families.filter((_family, index) => {
+    if (index < limit || forced[index]) return true;
+    if (index < end) {
+      revealed++;
+      return true;
+    }
+    return false;
   });
-  return { visible, revealed };
+  let next = Math.max(limit, Math.min(end, families.length));
+  for (let hidden = 0; next < families.length && hidden < step; next++) {
+    if (!forced[next]) hidden++;
+  }
+  return { visible, revealed, nextShown: next - limit };
 }
 
 export function markSessionFamilyRead(

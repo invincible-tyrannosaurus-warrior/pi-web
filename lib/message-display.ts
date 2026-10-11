@@ -20,19 +20,31 @@ export function getThinkingPreview(thinking: string): string {
   return thinking.trimStart().match(/^[^\r\n]{0,240}/u)?.[0].trimEnd() ?? "";
 }
 
-export function isMessageGroupAnchor(message: { role?: AgentMessage["role"]; customType?: string }): boolean {
-  return message.role === "user"
-    || (message.role === "custom" && message.customType === "compaction");
+/**
+ * pi's TUI draws a custom message only when `display` is set; `display: false` (or a
+ * missing flag, as in older entries) keeps it for the model alone. The chat skips it too.
+ */
+export function isHiddenCustomMessage(message: { role?: AgentMessage["role"]; display?: boolean }): boolean {
+  return message.role === "custom" && !message.display;
 }
 
+export function isMessageGroupAnchor(message: { role?: AgentMessage["role"]; customType?: string; display?: boolean }): boolean {
+  return message.role === "user"
+    || (message.role === "custom" && message.customType === "compaction" && !isHiddenCustomMessage(message));
+}
+
+// pi-web's own completion notice, and @tintinweb/pi-subagents' bare `subagent-notification`:
+// both are follow-ups that trigger a turn, so they start one (a boundary, not an anchor).
 export function isSubagentNotificationMessage(
-  message: { role?: AgentMessage["role"]; customType?: string },
+  message: { role?: AgentMessage["role"]; customType?: string; display?: boolean },
 ): boolean {
-  return message.role === "custom" && message.customType === "pi-web:subagent-notification";
+  return message.role === "custom"
+    && (message.customType === "pi-web:subagent-notification" || message.customType === "subagent-notification")
+    && !isHiddenCustomMessage(message);
 }
 
 export function isMessageGroupBoundary(
-  message: { role?: AgentMessage["role"]; customType?: string },
+  message: { role?: AgentMessage["role"]; customType?: string; display?: boolean },
 ): boolean {
   return isMessageGroupAnchor(message) || isSubagentNotificationMessage(message);
 }

@@ -67,6 +67,7 @@ interface Props {
   onAbortCompaction?: () => void;
   isCompacting?: boolean;
   compactError?: string | null;
+  onDismissCompactError?: () => void;
   compactResult?: CompactResultInfo | null;
   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
   cacheHitRate?: number | null;
@@ -95,6 +96,8 @@ interface Props {
   draftPersistenceWarning?: boolean;
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null;
+  /** Files picked with the attach button, handled like files dropped onto the chat. */
+  onAttachFiles?: (files: File[]) => void;
 }
 
 export interface ChatInputHandle {
@@ -598,7 +601,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   isEditing = false, onSend, onOpenImageGeneration, onAbort, onSteer, onFollowUp, isStreaming, disabled = false, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
-  onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
+  onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
   contextUsage, cacheHitRate, sessionCost, onOpenSessionStats, statsOpen,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
@@ -610,6 +613,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onDraftChange,
   draftPersistenceWarning = false,
   cwd,
+  onAttachFiles,
   compact = false,
 }: Props, ref) {
   const { t } = useI18n();
@@ -1894,18 +1898,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         transition: "opacity 0.15s",
       }}
     >
-      {/* Hidden file input */}
+      {/* Hidden file input. No `accept` or `capture`: any file, and phones still offer the photo library and camera. */}
       {!compact && <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
         multiple
         disabled={disabled}
         style={{ display: "none" }}
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
-          processImageFiles(files);
+          // Clearing the value lets the same file be picked again.
           e.target.value = "";
+          onAttachFiles?.(files);
         }}
       />}
       <div style={{ maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
@@ -1949,7 +1953,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         )}
         {compactError && (
           <div role="alert" className="chat-input-feedback chat-input-feedback-error chat-input-feedback-detail" style={{ whiteSpace: "pre-wrap" }}>
-            {compactError}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 3 }} aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span style={{ minWidth: 0, flex: 1 }}>{compactError}</span>
+            {onDismissCompactError && (
+              <button
+                type="button"
+                className="chat-input-feedback-close"
+                onClick={onDismissCompactError}
+                title={t("chat.dismissCompactError")}
+                aria-label={t("chat.dismissCompactError")}
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
+                  <path d="M2.5 2.5l5 5M7.5 2.5l-5 5" />
+                </svg>
+              </button>
+            )}
           </div>
         )}
         {sendHeld && isStreaming && (
@@ -2479,20 +2501,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       fileInputRef.current?.click();
                     }
                   }}
-                  title={onOpenImageGeneration ? `${t("chat.attachImage")} / ${t("image.title")}` : t("chat.attachImage")}
-                  aria-label={onOpenImageGeneration ? `${t("chat.attachImage")} / ${t("image.title")}` : t("chat.attachImage")}
+                  title={onOpenImageGeneration ? `${t("chat.attachFiles")} / ${t("image.title")}` : t("chat.attachFiles")}
+                  aria-label={onOpenImageGeneration ? `${t("chat.attachFiles")} / ${t("image.title")}` : t("chat.attachFiles")}
                   aria-expanded={onOpenImageGeneration ? imageMenuOpen : undefined}
                   aria-haspopup={onOpenImageGeneration ? "menu" : undefined}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                    <circle cx="8.5" cy="8.5" r="1.5" />
-                    <polyline points="21 15 16 10 5 21" />
+                    <path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" />
                   </svg>
                 </button>
                 {imageMenuOpen && onOpenImageGeneration && (
                   <div role="menu" className="chat-input-menu menu-surface" style={{ left: 0 }} onKeyDown={closeMenuOnEscape}>
-                    <button type="button" role="menuitem" onClick={() => { setImageMenuOpen(false); fileInputRef.current?.click(); }}>{t("chat.attachImage")}</button>
+                    <button type="button" role="menuitem" onClick={() => { setImageMenuOpen(false); fileInputRef.current?.click(); }}>{t("chat.attachFiles")}</button>
                     <button type="button" role="menuitem" onClick={() => { setImageMenuOpen(false); onOpenImageGeneration(attachedImagesRef.current.map(imageToDraftImage)); }}>{t("image.title")}</button>
                   </div>
                 )}

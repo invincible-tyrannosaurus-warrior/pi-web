@@ -92,6 +92,15 @@ test("TextFileViewer starts markdown and html files in preview without a post-lo
   assert.match(block, /showHighlightedSource \? \(/);
 });
 
+test("CSV/TSV files preview as a table while truncated, ahead of the source fallback", () => {
+  const block = functionBlock("TextFileViewer", null);
+  assert.match(block, /const hasPreview = isDelimitedTable \|\| \(!data\?\.truncated && \(isHtml \|\| isMarkdown\)\);/);
+  const branch = block.indexOf(") : isDelimitedTable && effectiveDisplayMode === \"preview\" ? (");
+  assert.notEqual(branch, -1);
+  assert.ok(branch < block.indexOf(") : useLightweightSource ? ("), "table branch must come before the source fallback");
+  assert.match(block.slice(branch, branch + 400), /<DelimitedTable[\s\S]*complete=\{!data\?\.truncated\}[\s\S]*scrollRef=\{contentRef\}/);
+});
+
 test("markdown table tokens stay inline despite Tailwind's table utility", () => {
   const html = renderToStaticMarkup(
     React.createElement(

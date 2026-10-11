@@ -162,6 +162,50 @@ test("hides subagent rows and aggregates their state into the main session row",
   assert.doesNotMatch(source, /function SessionTreeItem/);
 });
 
+test("a run parked on an extension dialog shows a static warning badge in the running slot", async () => {
+  const React = await jiti.import("react");
+  const { renderToStaticMarkup } = await jiti.import("react-dom/server");
+  const { I18nProvider } = await jiti.import("@/hooks/useI18n");
+  const session = { id: "parked", name: "Parked", firstMessage: "", modified: new Date().toISOString(), messageCount: 1 };
+  const render = (props) => renderToStaticMarkup(React.createElement(I18nProvider, null, React.createElement(SessionItem, {
+    session, isSelected: false, onClick() {}, ...props,
+  })));
+  const awaiting = render({ isRunning: true, isAwaiting: true });
+  // The unread badge's shape (12px filled circle, white glyph) in the warning token, without animation.
+  assert.match(awaiting, /<span role="img" title="Awaiting input" aria-label="Awaiting input"[^>]*><svg[^>]*><circle cx="6" cy="6" r="5" fill="var\(--warning\)">/);
+  assert.doesNotMatch(awaiting, /live-pulse-beacon|animation/);
+  assert.match(render({ isRunning: true }), /live-pulse-beacon/);
+  assert.doesNotMatch(render({ isRunning: true }), /--warning/);
+  assert.match(render({ isUnread: true }), /<circle cx="6" cy="6" r="5" fill="var\(--success\)">/);
+  // The family's awaiting state rides the poll's own ids, like running does.
+  assert.match(source, /isAwaiting=\{familySessions\.some\(\(session\) => awaitingInputSessionIds\.has\(session\.id\)\)\}/);
+  assert.equal((source.match(/setAwaitingInputSessionIds\(new Set\(data\.awaitingInputSessionIds \?\? \[\]\)\)/g) ?? []).length, 2);
+});
+
+test("a project header renames inline like a session row, optimistically, and rolls back a refused write", () => {
+  // The menu entry opens the header's field, which shares the session rename's class and style.
+  assert.match(source, /setRenamingProjectKey\(projectMenu\.key\);/);
+  assert.match(source, /renamingProjectKey === row\.project\.key \? \(/);
+  const field = source.slice(source.indexOf("function ProjectNameInput("), source.indexOf("function RunningSessionIndicator()"));
+  assert.match(field, /className="session-rename-input"/);
+  assert.match(field, /style=\{RENAME_INPUT_STYLE\}/);
+  assert.match(sessionItemSource, /className="session-rename-input"\s*style=\{RENAME_INPUT_STYLE\}/);
+  // Enter and blur save, Escape cancels; the drag gesture never starts from the field.
+  assert.match(field, /if \(event\.key === "Enter"\) finish\(true\);\s*if \(event\.key === "Escape"\) finish\(false\);/);
+  assert.match(field, /onBlur=\{\(\) => finish\(true\)\}/);
+  assert.match(field, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/);
+  // Optimistic apply, rollback on refusal, and no poll overwrite while a write is in flight.
+  const rename = source.slice(source.indexOf("const renameProject = useCallback"), source.indexOf("const commitProjectRename"));
+  assert.match(rename, /body: JSON\.stringify\(\{ projectKey, name \}\)/);
+  assert.match(rename, /setProjectNames\(\(current\) => withName\(current, name\)\);/);
+  assert.match(rename, /setProjectNames\(\(current\) => withName\(current, queue\.confirmedName\)\);/);
+  assert.match(source, /if \(pendingProjectRenames\.current === 0\) setProjectNames\(/);
+  // Validation is the server's rule; the header and the pickers show the alias, the folder otherwise.
+  assert.match(source, /const name = projectDisplayName\(value\);/);
+  assert.match(source, /projectNames\.get\(row\.project\.key\) \?\? getFileName\(row\.project\.root\)/);
+  assert.match(source, /projectNames\.get\(project\.key\) \?\? displayCwd\(project\.root, homeDir\)/);
+});
+
 test("right-click and mobile long-press open one session menu with every row action", () => {
   assert.match(sessionItemSource, /onTouchStart=\{handleTouchStart\}/);
   assert.match(sessionItemSource, /onOpenMenu\?\.\(touch\.clientX, touch\.clientY\)/);
@@ -220,6 +264,25 @@ test("limits recent sessions per project and loads more without marking them as 
   assert.match(source, /workspace-show-more-count/);
   assert.match(source, /indent=\{14\}/);
   assert.doesNotMatch(source, /depth=\{1\}/);
+});
+
+test("show more stores the window its row offers, decided at the click, never a budget recounted per render", () => {
+  assert.match(source, /nextLimit: WORKSPACE_SESSION_PREVIEW_LIMIT \+ nextShown/);
+  assert.match(source, /onClick=\{\(\) => setWorkspaceSessionLimits\(\(current\) => \(\{ \.\.\.current, \[row\.projectKey\]: row\.nextLimit \}\)\)\}/);
+  assert.doesNotMatch(source, /Math\.min\(WORKSPACE_SESSION_PAGE_SIZE, row\.remaining\)/);
+});
+
+test("folding a project drops its show-more window on every explicit fold path, not Explorer or archive folds", () => {
+  assert.match(source, /const forgetWorkspaceWindow = useCallback\(\(key: string\) => \{\s*setWorkspaceSessionLimits\(\(current\) => \{\s*if \(!\(key in current\)\) return current;/);
+  assert.match(source, /if \(expanded\) forgetWorkspaceWindow\(row\.project\.key\);/, "toggle");
+  assert.match(source, /next\.delete\(key\);\s*return next;\s*\}\);\s*forgetWorkspaceWindow\(key\);\s*moveProject\(key, anchor, position\);/, "drag keeps the lifted project folded");
+  assert.match(source, /onClick=\{\(\) => \{\s*setExpandedWorkspaceKeys\(new Set\(\)\);\s*setWorkspaceSessionLimits\(\{\}\);\s*\}\}/, "collapse all");
+});
+
+test("the changed-files button hands focus to the key after it only when it had focus and goes away", () => {
+  assert.match(source, /const changesButtonRef = useCallback\(\(button: HTMLButtonElement \| null\) => \{\s*if \(!button\) return;\s*return \(\) => \{\s*if \(button\.ownerDocument\.activeElement !== button\) return;\s*const next = button\.nextElementSibling;\s*if \(next instanceof HTMLElement\) next\.focus\(\);\s*\};\s*\}, \[\]\);/);
+  assert.match(source, /<ToolbarIconButton\s*buttonRef=\{changesButtonRef\}\s*onClick=\{\(\) => setChangesCollapsed/);
+  assert.match(source, /ref=\{buttonRef\}/);
 });
 
 test("project rows carry no session count", () => {

@@ -30,7 +30,7 @@ import {
   resolveSubagentProfile,
   selectSubagentExtensionTools,
   subagentNotFoundMessage,
-  SUBAGENT_CONTROL_TOOL_NAMES,
+  subagentToolOptions,
   SUBAGENT_META_TYPE,
   SUBAGENT_RESULT_TYPE,
   SUBAGENT_STATUS_TYPE,
@@ -916,8 +916,12 @@ export function createSubagentController(
 
     const runInBackground = request.runInBackground ?? profile.runInBackground;
     const isolation = profile.isolation === "off" ? undefined : request.isolation ?? profile.isolation;
-    const inheritContext = request.inheritContext ?? profile.inheritContext;
-    const maxTurns = request.maxTurns ?? profile.maxTurns;
+    const inheritContext = profile.inheritContext;
+    const maxTurns = profile.maxTurns;
+    // Deny rules need the name allowlist: without it a denied extension's late tools would be admitted.
+    const allExtensionTools = profile.loadExtensions
+      && !profile.extensionTools?.length
+      && !profile.disallowedExtensionTools?.length;
     if (maxTurns !== undefined && (!Number.isFinite(maxTurns) || maxTurns < 0)) {
       throw new Error("max_turns must be a non-negative number");
     }
@@ -985,6 +989,7 @@ export function createSubagentController(
         tools: [...profile.tools],
         loadSkills: profile.loadSkills,
         loadExtensions: profile.loadExtensions,
+        ...(allExtensionTools ? { allExtensionTools: true as const } : {}),
         ...(promptPlan.exactSystemPrompt !== undefined
           ? { exactSystemPrompt: promptPlan.exactSystemPrompt }
           : {}),
@@ -1084,9 +1089,8 @@ export function createSubagentController(
             sessionManager: context.manager,
             model: requestedModel.model ?? parentModel,
             ...(thinking ? { thinkingLevel: thinking as ThinkingLevel } : {}),
-            tools: activeTools,
+            ...subagentToolOptions({ tools: activeTools, allExtensionTools }),
             customTools: createSubagentShellTools(childCwd, settingsManager, services.resourceLoader.getExtensions().extensions),
-            excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES],
           });
           dependencies.registerSession(inner, { chatOnly });
           childWrapper = dependencies.getSession(sessionId);

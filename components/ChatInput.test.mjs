@@ -249,7 +249,7 @@ test("groups model and effort on the dock and folds rare controls", () => {
       onCompact() {},
     }),
   ));
-  const attach = html.indexOf('aria-label="Attach image"');
+  const attach = html.indexOf('aria-label="Attach files"');
   const model = html.indexOf(">GPT Test<");
   const effort = html.indexOf("Change reasoning level");
   const context = html.indexOf("360k / 500k");
@@ -305,7 +305,7 @@ test("keeps empty Send quiet and highlights text or image submissions", () => {
       assert.match(send, /<svg width="14" height="14" viewBox="0 0 24 24"[^>]*stroke-width="1.9"/);
       assert.doesNotMatch(send, /composer-btn-label/);
       assert.match(html, /class="chat-input-composer"[\s\S]*class="chat-input-dock"/);
-      const attach = html.match(/<button[^>]*aria-label="Attach image"[\s\S]*?<\/button>/)?.[0];
+      const attach = html.match(/<button[^>]*aria-label="Attach files"[\s\S]*?<\/button>/)?.[0];
       assert.match(attach ?? "", /<svg width="13" height="13"[^>]*stroke-width="2"/);
     }
   } finally {
@@ -317,14 +317,14 @@ test("integrates image generation into the image button menu instead of a standa
   const withoutGen = renderToStaticMarkup(React.createElement(I18nProvider, null,
     React.createElement(ChatInput, { onSend() {}, onAbort() {}, isStreaming: false }),
   ));
-  assert.match(withoutGen, /aria-label="Attach image"/);
-  assert.doesNotMatch(withoutGen, /aria-label="Attach image \/ Generate image"/);
+  assert.match(withoutGen, /aria-label="Attach files"/);
+  assert.doesNotMatch(withoutGen, /aria-label="Attach files \/ Generate image"/);
   assert.doesNotMatch(withoutGen, /aria-haspopup="menu"/);
 
   const withGen = renderToStaticMarkup(React.createElement(I18nProvider, null,
     React.createElement(ChatInput, { onSend() {}, onAbort() {}, onOpenImageGeneration() {}, isStreaming: false }),
   ));
-  assert.match(withGen, /aria-label="Attach image \/ Generate image"/);
+  assert.match(withGen, /aria-label="Attach files \/ Generate image"/);
   assert.match(withGen, /aria-haspopup="menu"/);
   assert.doesNotMatch(withGen, /<button[^>]*aria-label="Generate image"[^>]*class="inline-flex h-7 w-7/);
 });
@@ -518,7 +518,7 @@ test("renders the compact composer with the standard Send button and no session 
   assert.match(html, /aria-label="Send"/);
   assert.match(html, /class="composer-send" aria-label="Send"/);
   assert.equal((html.match(/<button\b/g) ?? []).length, 1);
-  assert.doesNotMatch(html, /type="file"|Attach image|Change tool preset/);
+  assert.doesNotMatch(html, /type="file"|Attach files|Change tool preset/);
 });
 
 test("shows and locks the optimistic model while a switch is pending", () => {
@@ -555,9 +555,9 @@ test("renders the toolbar model as a plain dock button without a chip icon", () 
   assert.doesNotMatch(html, /<rect x="4" y="4" width="16" height="16"/);
 });
 
-test("orders model groups by provider id, then display name", () => {
+test("groups model options by provider in the server's /model order, never re-sorted", () => {
   const source = readFileSync(new URL("./ModelSelector.tsx", import.meta.url), "utf8");
-  assert.match(source, /compare\(a\.provider, b\.provider\)\s*\|\|\s*MODEL_OPTION_COLLATOR\.compare\(a\.name \|\| a\.modelId/);
+  assert.doesNotMatch(source, /\.sort\(/);
   assert.match(source, /className="menu-surface-label">\{group\.provider\}/);
   assert.doesNotMatch(source, /modelsByProvider\.length > 1 &&/);
 });
@@ -866,6 +866,26 @@ test("renders compact errors above the input as a wrapping alert", () => {
   assert.match(html, /&lt;html&gt;request forbidden&lt;\/html&gt;/);
   assert.match(html, /white-space:pre-wrap/);
   assert.ok(html.indexOf('role="alert"') < html.indexOf("<textarea"));
+});
+
+test("a compact error can be dismissed when the composer is given a handler", () => {
+  const render = (props) => renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        onCompact() {},
+        isStreaming: false,
+        compactError: "Nothing to compact (session too small)",
+        ...props,
+      }),
+    ),
+  );
+
+  assert.match(render({ onDismissCompactError() {} }), /aria-label="Dismiss compaction error"/);
+  assert.doesNotMatch(render({}), /Dismiss compaction error/);
 });
 
 test("modelSupportsImageInput warns only when modality info is known and lacks image", () => {

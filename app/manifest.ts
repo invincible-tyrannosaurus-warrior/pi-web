@@ -1,12 +1,16 @@
 import type { MetadataRoute } from "next";
 
+// Read per request so PI_WEB_APP_NAME takes effect without a rebuild.
+export const dynamic = "force-dynamic";
+
 export default function manifest(): MetadataRoute.Manifest {
   const iconVersion = process.env.NEXT_PUBLIC_ICON_VERSION ? `?v=${process.env.NEXT_PUBLIC_ICON_VERSION}` : "";
+  const appName = process.env.PI_WEB_APP_NAME?.trim() || "Pi Web";
 
   return {
     id: "/",
-    name: "Pi Web",
-    short_name: "Pi Web",
+    name: appName,
+    short_name: appName,
     description: "Local web interface for the pi coding agent",
     start_url: "/",
     scope: "/",
