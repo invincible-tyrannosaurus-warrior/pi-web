@@ -270,12 +270,15 @@ function createFileBodyStream(filePath: string, range?: { start: number; end: nu
   const fileStream = fs.createReadStream(filePath, range);
   let closed = false;
 
+  // Backpressure: pause the file once the queue is full and resume on pull, so a
+  // slow client holds about 1 MB (16 x 64 KB reads), not the whole file.
   return new ReadableStream<Uint8Array>({
     start(controller) {
       fileStream.on("data", (chunk: Buffer) => {
         if (closed) return;
         try {
           controller.enqueue(new Uint8Array(chunk));
+          if ((controller.desiredSize ?? 1) <= 0) fileStream.pause();
         } catch {
           closed = true;
           fileStream.destroy();
@@ -300,11 +303,14 @@ function createFileBodyStream(filePath: string, range?: { start: number; end: nu
         }
       });
     },
+    pull() {
+      if (!closed) fileStream.resume();
+    },
     cancel() {
       closed = true;
       fileStream.destroy();
     },
-  });
+  }, { highWaterMark: 16 });
 }
 
 function encodeHeaderValue(value: string): string {

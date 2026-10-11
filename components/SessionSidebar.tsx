@@ -326,6 +326,12 @@ function PathLabel({ text, style }: { text: string; style?: CSSProperties }) {
   );
 }
 
+/** The polled ids as a Set, or `current` itself when nothing changed, so React skips the render. */
+function sameIdSet(current: Set<string>, ids: string[] | undefined): Set<string> {
+  const next = ids ?? [];
+  return next.length === current.size && next.every((id) => current.has(id)) ? current : new Set(next);
+}
+
 export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSelectSession, onOpenSessionInNewTab, onForkSession, forking = false, onNewSession, initialSessionId, skipInitialProjectSelection, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, onProjectNamesChange, pinnedCwds, onTogglePinnedCwd, onHomeDirChange, onWorktreeInfoChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -402,6 +408,22 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   }, []);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
+  // Relative times ("5m") are minute-grained. They used to advance only because
+  // every running-state poll re-rendered the list; polls that change nothing now
+  // keep the same Sets, so a minute clock refreshes the labels instead.
+  const [, setMinuteTick] = useState(0);
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === "visible") setMinuteTick((value) => value + 1);
+    };
+    const id = setInterval(tick, 60_000);
+    // Coming back after a while: refresh at once, the poll may change nothing.
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, []);
   const [awaitingInputSessionIds, setAwaitingInputSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set());
@@ -532,8 +554,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         currentSuppressedCompletionSessionIdsRef.current = new Set(
           data.completionNotificationSuppressedSessionIds ?? [],
         );
-        setRunningSessionIds(new Set(data.runningSessionIds ?? []));
-        setAwaitingInputSessionIds(new Set(data.awaitingInputSessionIds ?? []));
+        setRunningSessionIds((current) => sameIdSet(current, data.runningSessionIds));
+        setAwaitingInputSessionIds((current) => sameIdSet(current, data.awaitingInputSessionIds));
       }
       // Drop markers for deleted sessions and for subagents, whose completion
       // is intentionally silent even if an older client marked them unread.
@@ -736,8 +758,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         currentSuppressedCompletionSessionIdsRef.current = new Set(
           data.completionNotificationSuppressedSessionIds ?? [],
         );
-        setRunningSessionIds(new Set(data.runningSessionIds ?? []));
-        setAwaitingInputSessionIds(new Set(data.awaitingInputSessionIds ?? []));
+        setRunningSessionIds((current) => sameIdSet(current, data.runningSessionIds));
+        setAwaitingInputSessionIds((current) => sameIdSet(current, data.awaitingInputSessionIds));
         if (data.sessionListVersion !== sessionListVersionRef.current) {
           // Reuse the invalidated cache; forcing a scan would change the version again.
           await loadSessions();

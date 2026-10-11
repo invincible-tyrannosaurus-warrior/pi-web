@@ -178,7 +178,7 @@ test("a run parked on an extension dialog shows a static warning badge in the ru
   assert.match(render({ isUnread: true }), /<circle cx="6" cy="6" r="5" fill="var\(--success\)">/);
   // The family's awaiting state rides the poll's own ids, like running does.
   assert.match(source, /isAwaiting=\{familySessions\.some\(\(session\) => awaitingInputSessionIds\.has\(session\.id\)\)\}/);
-  assert.equal((source.match(/setAwaitingInputSessionIds\(new Set\(data\.awaitingInputSessionIds \?\? \[\]\)\)/g) ?? []).length, 2);
+  assert.equal((source.match(/setAwaitingInputSessionIds\(\(current\) => sameIdSet\(current, data\.awaitingInputSessionIds\)\)/g) ?? []).length, 2);
 });
 
 test("a project header renames inline like a session row, optimistically, and rolls back a refused write", () => {

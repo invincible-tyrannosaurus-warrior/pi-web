@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, Fragment } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { ChatTabBar } from "./ChatTabBar";
@@ -42,7 +43,12 @@ import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsDialog } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { ContextMeter } from "./ContextMeter";
-import { TerminalPanel } from "./TerminalPanel";
+// xterm (~80 KB gzip) loads only once a terminal tab exists; the placeholder is
+// the panel's own dark surface, so opening one does not flash the light theme.
+const TerminalPanel = dynamic(() => import("./TerminalPanel").then((module) => module.TerminalPanel), {
+  ssr: false,
+  loading: () => <div className="terminal-panel" />,
+});
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useI18n } from "@/hooks/useI18n";
 import { useConfirm } from "@/hooks/useConfirm";

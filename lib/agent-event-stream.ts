@@ -175,6 +175,10 @@ export function createAgentEventStream(
         }
       };
       const encode = (data: unknown, droppable = false) => {
+        // A droppable event is dropped anyway past the high-water mark: decide that
+        // before serializing a large tool update for a congested client.
+        // (queued bytes > high-water mark, i.e. desiredSize < 0, as enqueueText checks).
+        if (droppable && !closed && (controller.desiredSize ?? 0) < 0) return;
         enqueueText(`data: ${JSON.stringify(data)}\n\n`, droppable);
       };
       const forwardEvent = (event: AgentEventLike, snapshot: unknown) => {

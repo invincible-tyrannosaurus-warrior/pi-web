@@ -2,7 +2,8 @@
 // variables: Prism styles are passed as objects and Mermaid derives shades
 // from hex in JS. Keep them in step with app/theme-claude.css.
 import type { CSSProperties } from "react";
-import { vs, vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import vs from "react-syntax-highlighter/dist/esm/styles/prism/vs";
+import vscDarkPlus from "react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus";
 
 type PrismStyle = Record<string, CSSProperties>;
 

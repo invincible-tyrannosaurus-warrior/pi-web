@@ -336,9 +336,12 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 
 	const changed: Array<{ filePath: string; fp: Fingerprint; resultIndex: number }> = [];
 	const results: (ScannedSessionInfo | null)[] = new Array(files.length).fill(null);
+	// Persist only when the index really changed: a file that keeps failing to scan
+	// (never indexed) must not rewrite the whole index on every pass.
+	let mutated = stale.length > 0;
 	for (const [resultIndex, { filePath, fp }] of fingerprints.entries()) {
 		if (!fp) {
-			index.delete(filePath);
+			if (index.delete(filePath)) mutated = true;
 			continue;
 		}
 		const cached = index.get(filePath);
@@ -358,12 +361,13 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 		if (info) {
 			index.set(filePath, { fp, info });
 			results[resultIndex] = info;
-		} else {
-			index.delete(filePath);
+			mutated = true;
+		} else if (index.delete(filePath)) {
+			mutated = true;
 		}
 	});
 
-	if (changed.length > 0 || stale.length > 0) queueIndexPersist();
+	if (mutated) queueIndexPersist();
 
 	// Pi 0.86 discovers files by filesystem mtime before sorting session metadata.
 	// Keep that order even when the metadata timestamps are equal or cached.

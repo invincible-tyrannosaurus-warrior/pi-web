@@ -2,7 +2,7 @@ import {
   SessionManager,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, type Dirent, fstatSync, openSync, readSync } from "fs";
+import { closeSync, type Dirent, fstatSync, openSync, readSync, statSync } from "fs";
 import { readdir } from "fs/promises";
 import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
 import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext, SessionOutlineItem } from "./types";
@@ -267,6 +267,7 @@ declare global {
   var __piSessionListPromiseGeneration: number | undefined;
   var __piSessionListGeneration: number | undefined;
   var __piSessionListCache: { data: SessionInfo[]; ts: number } | undefined;
+  var __piSessionReadCache: Map<string, { fingerprint: string; bytes: number; manager: SessionManager }> | undefined;
 }
 
 const SESSION_LIST_CACHE_TTL_MS = 30_000;
@@ -545,8 +546,54 @@ export function readSessionHeader(filePath: string): SessionHeader | null {
   }
 }
 
+/** Parsed session files kept for read-only routes, bounded by on-disk bytes. */
+const SESSION_READ_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+
+function sessionFileFingerprint(filePath: string): { key: string; size: number } | null {
+  try {
+    const stat = statSync(filePath);
+    return { key: `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}`, size: stat.size };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A parsed session for READ-ONLY use (detail, context, outline, entry lookups).
+ * Opening a large session parses the whole JSONL synchronously (~100 ms for 40 MB),
+ * and one page open fetches detail, outline and every deferred image separately.
+ * The parse is reused while the file's size/mtime/inode hold; it is cached only
+ * when the file did not change during the parse (an append or an SDK migration
+ * rewrite in between is re-read next time). `fresh` skips a cached parse (a
+ * forced external-write read). Never append through the result.
+ */
+export function openSessionForRead(filePath: string, options: { fresh?: boolean } = {}): SessionManager {
+  const cache = globalThis.__piSessionReadCache ??= new Map();
+  const before = sessionFileFingerprint(filePath);
+  const hit = cache.get(filePath);
+  if (hit && before && hit.fingerprint === before.key && !options.fresh) {
+    cache.delete(filePath);
+    cache.set(filePath, hit);
+    return hit.manager;
+  }
+  cache.delete(filePath);
+  const manager = SessionManager.open(filePath);
+  const after = sessionFileFingerprint(filePath);
+  if (before && after && before.key === after.key && after.size <= SESSION_READ_CACHE_MAX_BYTES) {
+    cache.set(filePath, { fingerprint: after.key, bytes: after.size, manager });
+    let total = 0;
+    for (const entry of cache.values()) total += entry.bytes;
+    for (const [key, entry] of cache) {
+      if (total <= SESSION_READ_CACHE_MAX_BYTES) break;
+      cache.delete(key);
+      total -= entry.bytes;
+    }
+  }
+  return manager;
+}
+
 export function getSessionEntries(filePath: string): SessionEntry[] {
-  const entries = SessionManager.open(filePath).getEntries();
+  const entries = openSessionForRead(filePath).getEntries();
   return entries as unknown as SessionEntry[];
 }
 

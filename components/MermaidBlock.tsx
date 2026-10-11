@@ -1,8 +1,9 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+// Direct theme imports: the styles/prism barrel pulls in all ~44 themes.
+import vs from "react-syntax-highlighter/dist/esm/styles/prism/vs";
+import vscDarkPlus from "react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus";
 import { useFontScheme } from "@/hooks/useFontScheme";
 import { useTheme } from "@/hooks/useTheme";
 import { claudeCodeStyle, claudeDarkCodeStyle, claudeDarkMermaidVariables, claudeMermaidVariables } from "@/lib/claude-theme";
@@ -323,7 +324,9 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
   const [copied, setCopied] = useState(false);
   // Loading starts with the first block, streaming or not, so a streamed reply
   // usually finds the languages ready when it ends.
-  const languagesReady = usePrismLanguages();
+  // A plain-text fence needs no grammars; any real language loads them all once.
+  const plain = !lang || lang === "text" || lang === "plaintext" || lang === "txt";
+  const languagesReady = usePrismLanguages(!plain);
   const [highlighted, setHighlighted] = useState(
     () => !isStreaming && prismLanguagesLoaded() && takeHighlightBudget(code.length),
   );

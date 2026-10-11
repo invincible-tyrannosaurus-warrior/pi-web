@@ -19,6 +19,7 @@ import {
   buildSessionContext,
   probeLatestEntryId,
   readSessionHeader,
+  openSessionForRead,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/session-path";
 import { getRpcSession, getSubagentRun, getRunningRpcSessionIds, getRpcSessionInfos, releaseRpcSessionForExternalWrite, reserveRpcSessionFileMutation } from "@/lib/rpc-manager";
@@ -86,7 +87,7 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(resolvedPath!);
+    const sm = liveRpc?.inner.sessionManager ?? openSessionForRead(resolvedPath!, { fresh: force });
     const filePath = liveRpc?.sessionFile || sm.getSessionFile() || resolvedPath || "";
     const entries = sm.getEntries();
     const leafId = sm.getLeafId();

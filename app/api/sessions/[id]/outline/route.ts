@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { resolveSessionPath, buildSessionOutline } from "@/lib/session-reader";
+import { resolveSessionPath, buildSessionOutline, openSessionForRead } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 
 export async function GET(
@@ -18,7 +17,7 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(filePath!);
+    const sm = liveRpc?.inner.sessionManager ?? openSessionForRead(filePath!);
     const items = buildSessionOutline(sm.getEntries() as never, leafId ?? sm.getLeafId());
     return NextResponse.json({ items });
   } catch (error) {
