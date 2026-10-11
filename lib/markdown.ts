@@ -118,8 +118,10 @@ export function normalizeDisplayMath(markdown: string): string {
     if (!inlineCodeMarkerSize) line = rewriteEscapedInlineCodeBackticks(line);
 
     if (inlineCodeMarkerSize || line.includes("`")) {
+      const startsInCode = inlineCodeMarkerSize > 0;
       inlineCodeMarkerSize = updateInlineCodeMarker(line, inlineCodeMarkerSize);
-      normalized.push(line);
+      // Code spans that open and close on this line: rewrite only the prose around them.
+      normalized.push(startsInCode || inlineCodeMarkerSize ? line : normalizeInlineLineOutsideCode(line));
       continue;
     }
 
@@ -257,7 +259,7 @@ export function normalizeDisplayMath(markdown: string): string {
       continue;
     }
 
-    normalized.push(escapeTableMathPipes(normalizeInlineLatexMath(line)));
+    normalized.push(normalizeInlineLine(line));
   }
 
   return normalized.join(lineBreak);
@@ -395,6 +397,18 @@ function updateInlineCodeMarker(line: string, initialMarkerSize: number): number
   return markerSize;
 }
 
+function normalizeInlineLine(line: string): string {
+  return escapeTableMathPipes(normalizeInlineLatexMath(line));
+}
+
+// Swap complete code spans for placeholders so their `$`, `|` and `\(` stay verbatim.
+function normalizeInlineLineOutsideCode(line: string): string {
+  if (line.includes("\uE000")) return line;
+  const spans: string[] = [];
+  const masked = line.replace(/(`+)[^`][\s\S]*?(?<!`)\1(?!`)/g, (span) => `\uE000${spans.push(span) - 1}\uE000`);
+  return normalizeInlineLine(masked).replace(/\uE000(\d+)\uE000/g, (_match, index: string) => spans[Number(index)]);
+}
+
 function normalizeInlineLatexMath(line: string): string {
   if (
     /^\s{0,3}\[[^\]]+\]:/.test(line) ||
@@ -406,21 +420,42 @@ function normalizeInlineLatexMath(line: string): string {
     return line;
   }
 
+  // `\$` (a literal dollar inside TeX) would close single-dollar math early, so
+  // such formulas use `$$`, which remark-math also renders inline mid-line.
   return line.replace(
-    /(?<!\\)\\\(([^`\r\n$]+?)(?<!\\)\\\)/g,
-    (match, math: string) => (math.trim() ? `$${math}$` : match),
+    /(?<!\\)\\\(((?:\\\$|[^`\r\n$])+?)(?<!\\)\\\)/g,
+    (match, math: string) => (!math.trim() ? match : math.includes("$") ? `$$${math}$$` : `$${math}$`),
   );
 }
 
 // GFM splits table cells on `|` before inline math is parsed, so `$|x|$` in a
 // row breaks the column count and the whole table renders as a paragraph.
 // `\|` would survive the split but means `‖` in TeX; `\vert` renders as `|`.
+// Price pairs (`$811.86 | +$142`) are not math: skip them exactly as
+// remarkCurrencySafeMath will, and retry from their closing `$`.
 function escapeTableMathPipes(line: string): string {
   if (!/^ {0,3}\|/.test(line)) return line;
-  return line.replace(
-    /(?<![\\$])\$(?!\$)(\S(?:[^$\n]*?\S)?)(?<![\\$])\$(?!\$)/g,
-    (match, math: string) => `$${math.replace(/(?<!\\)\|/g, "\\vert ")}$`,
-  );
+  const pair = /(?<![\\$])\$(?!\$)(\S(?:[^$\n]*?\S)?)(?<![\\$])\$(?!\$)/g;
+  let output = "";
+  let copied = 0;
+  for (let match; (match = pair.exec(line));) {
+    const end = match.index + match[0].length;
+    if (isPriceNotMath(match[1], line[end])) {
+      pair.lastIndex = end - 1;
+      continue;
+    }
+    output += `${line.slice(copied, match.index)}$${match[1].replace(/(?<!\\)\|/g, "\\vert ")}$`;
+    copied = end;
+  }
+  return output + line.slice(copied);
+}
+
+// `content` is between single `$`s; `next` is the character after the closing `$`.
+function isPriceNotMath(content: string, next: string | undefined): boolean {
+  const startsWithAmount = /^\s*[+-]?(?:\d|\.\d)/.test(content);
+  const closesBeforeNumber = next !== undefined && /^[0-9]$/.test(next);
+  const mismatchedPadding = /^\s/.test(content) !== /\s$/.test(content);
+  return startsWithAmount && (closesBeforeNumber || mismatchedPadding);
 }
 
 function isLikelyMathExpression(value: string): boolean {
@@ -492,11 +527,8 @@ const remarkCurrencySafeMath: Plugin = function () {
       return tokenize.call(this, effects, (code) => {
         const source = this.sliceSerialize({ start, end: this.now() });
         if (source.startsWith("$") && !source.startsWith("$$")) {
-          const content = source.slice(1, -1);
-          const startsWithAmount = /^\s*[+-]?(?:\d|\.\d)/.test(content);
-          const closesBeforeNumber = code !== null && code >= 48 && code <= 57;
-          const mismatchedPadding = /^\s/.test(content) !== /\s$/.test(content);
-          if (startsWithAmount && (closesBeforeNumber || mismatchedPadding)) return nok(code);
+          const next = code !== null && code >= 0 ? String.fromCodePoint(code) : undefined;
+          if (isPriceNotMath(source.slice(1, -1), next)) return nok(code);
         }
         return ok(code);
       }, nok);
