@@ -3927,6 +3927,11 @@ span.token.table {
     width: var(--right-panel-width, clamp(360px, 42vw, 640px));
     min-width: 300px;
   }
+  /* Pointer moves update the panel width directly; the committed preview width
+     changes only on release, avoiding full-document reflow on every move. */
+  .right-panel-container.right-panel-resizing > .file-preview-pane {
+    width: var(--right-panel-preview-width);
+  }
   .right-panel-container.right-panel-resizing,
   .right-panel-container.right-panel-resizing > * {
     transition: none !important;

@@ -3382,6 +3382,7 @@ export function AppShell() {
         className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelResizer.isResizing ? " right-panel-resizing" : ""}`}
         style={{
           "--right-panel-width": `${rightPanelResizer.width}px`,
+          "--right-panel-preview-width": `${rightPanelResizer.width}px`,
           "--panel-transition": `${getPanelTransitionMs(rightPanelResizer.width)}ms`,
           display: "flex",
           flexDirection: "column",
