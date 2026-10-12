@@ -1769,7 +1769,7 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
               </svg>
             </span>
             <span className="step-label">{t("i18n.conversationCompacted")}</span>
-            <span className="step-preview">{tokens}</span>
+            <span className="step-preview">{tokens && `· ${tokens}`}</span>
             {time && <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 11, lineHeight: 1.35, fontVariantNumeric: "tabular-nums" }}>{time}</span>}
             <svg data-step-chevron="" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="2 3.5 5 6.5 8 3.5" />

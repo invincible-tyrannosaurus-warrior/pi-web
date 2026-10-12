@@ -522,10 +522,12 @@ test("collapses the compaction summary to its title and token count, as pi's TUI
   const html = renderMessage(message);
 
   assert.match(html, /<button[^>]*aria-expanded="false"/);
-  assert.match(html, /Conversation compacted/);
-  assert.ok(html.includes(`Compacted from ${(123456).toLocaleString()} tokens`));
+  assert.match(html, /class="step-label">Compaction<\/span>/);
+  assert.doesNotMatch(html, /Conversation compacted/);
+  assert.ok(html.includes(`· Original context: ${(123456).toLocaleString()} tokens`));
   assert.doesNotMatch(html, /Ship the parser fix|following summary|File context|lib\/read\.ts|lib\/changed\.ts/);
-  assert.doesNotMatch(renderMessage({ ...message, details: undefined }), /Compacted from/);
+  assert.doesNotMatch(html, /Compacted from/);
+  assert.doesNotMatch(renderMessage({ ...message, details: undefined }), /Original context:|·/);
   // A step row like the turn's other steps; the summary mounts only under the expanded toggle.
   assert.match(html, /data-step-card=""/);
   assert.match(source, /\{expanded && \(\s*<div className="step-body"[\s\S]*?<MarkdownBody className="markdown-compaction-message"/);

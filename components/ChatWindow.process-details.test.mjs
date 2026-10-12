@@ -178,6 +178,17 @@ test("only auto-scrolls process details when the list overflows", () => {
   );
 });
 
+test("manual disclosure clicks detach tail follow before content grows", () => {
+  assert.match(source, /ref=\{scrollContainerRef\}\s*onClickCapture=\{\(event\) => \{[\s\S]*?closest\('button\[aria-expanded\], summary'\)[\s\S]*?isNearBottomRef\.current = false;/);
+  assert.match(source, /userToggledRef\.current = true;\s*userScrolledUpRef\.current = true;\s*setExpanded\(\(v\) => !v\)/);
+});
+
+test("compaction file metadata uses UI typography without changing summary prose", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.compaction-file-details \{[^}]*font-family: var\(--font-ui\);[^}]*font-size: 11px;/);
+  assert.match(css, /\.compaction-file-list \{[^}]*font-family: var\(--font-ui\);[^}]*font-size: 11px;/);
+});
+
 test("disables scroll anchoring on chat container and steps list to prevent jitter", () => {
   assert.match(source, /ref=\{scrollContainerRef\}[\s\S]*?overflowAnchor:\s*"none"/);
   assert.match(source, /ref=\{scrollBoxRef\}[\s\S]*?overflowAnchor:\s*"none"/);

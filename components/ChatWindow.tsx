@@ -662,6 +662,7 @@ function ProcessDetailsGroup({
         aria-expanded={isPanelOpen}
         onClick={() => {
           userToggledRef.current = true;
+          userScrolledUpRef.current = true;
           setExpanded((v) => !v);
         }}
         className="process-details-summary"
@@ -1960,6 +1961,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         {!isEmptyNew && <>
         <div
           ref={scrollContainerRef}
+          onClickCapture={(event) => {
+            // Reading expanded content must not trigger ResizeObserver's tail follow.
+            if (event.target instanceof Element && event.target.closest('button[aria-expanded], summary')) {
+              isNearBottomRef.current = false;
+            }
+          }}
           className="chat-scroll-fade min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 pb-2 [scrollbar-width:none]"
           style={{
             overflowAnchor: "none",
