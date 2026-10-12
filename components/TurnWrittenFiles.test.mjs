@@ -27,6 +27,9 @@ test("renders a button per file showing the basename and full path", () => {
   assert.match(html, /data\.json/);
   assert.match(html, /title="\/abs\/out\/report\.html"/);
   assert.match(html, /title="\/abs\/out\/data\.json"/);
+  assert.match(html, /font-size:11px/);
+  assert.match(html, /font-family:var\(--font-ui\)/);
+  assert.doesNotMatch(html, /--chat-font-size-offset/);
 });
 
 test("renders nothing when no files were written", () => {

@@ -34,8 +34,9 @@ export function TurnWrittenFiles({ files, onOpenFile }: {
               gap: 5,
               padding: "2.5px 7px",
               minHeight: 22,
-              fontSize: "calc(11px + var(--chat-font-size-offset, 0px))",
-              lineHeight: 1,
+              fontSize: 11,
+              fontFamily: "var(--font-ui)",
+              lineHeight: 1.35,
               color: "var(--text-muted)",
               background: "color-mix(in srgb, var(--bg-subtle) 65%, var(--bg))",
               border: "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
@@ -55,7 +56,7 @@ export function TurnWrittenFiles({ files, onOpenFile }: {
             <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               {getFileIcon(name, 12)}
             </span>
-            <span style={{ lineHeight: 1 }}>{name}</span>
+            <span>{name}</span>
           </button>
         );
       })}
