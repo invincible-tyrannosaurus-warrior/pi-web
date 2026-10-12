@@ -2,7 +2,7 @@
 import { GeneratedImageResult, PendingGeneratedImage } from "./GeneratedImageResult";
 import { ImageGenerationDialog } from "./ImageGenerationDialog";
 import { displayToolName } from "@/lib/tool-names";
-import { encodeFilePathForApi, joinFilePath } from "@/lib/file-paths";
+import { encodeFilePathForApi, getFileName, joinFilePath } from "@/lib/file-paths";
 import { getImageGenerationResult, imageToolDisplayKind, IMAGE_RESULT_TYPE, type ImageConfigView, type ImageGenerationRequest, type ImageGenerationResult } from "@/lib/image-generation";
 import type { AttachedImage, Base64ImageAttachment } from "@/lib/image-attachments";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -71,7 +71,6 @@ interface Props {
   projectPaths?: string[];
   /** Project display names by root, shown in the new-session bar in place of the path. */
   projectNameByRoot?: ReadonlyMap<string, string>;
-  homeDir?: string;
   worktreeInfo?: {
     forCwd: string;
     projectRoot: string;
@@ -169,14 +168,12 @@ function NewSessionCwdControl({
   cwd,
   onChange,
   projectPaths,
-  homeDir,
   worktreeInfo,
   projectNameByRoot,
 }: {
   cwd: string;
   onChange: (cwd: string) => Promise<void>;
   projectPaths: string[];
-  homeDir: string;
   projectNameByRoot?: ReadonlyMap<string, string>;
   worktreeInfo: {
     forCwd: string;
@@ -233,9 +230,7 @@ function NewSessionCwdControl({
     ?? worktrees.find((w) => w.isMain);
   const currentBranch = currentWorktree?.branch ?? null;
   const displayProject = activeWorktree?.projectRoot ?? cwd;
-  const projectLabel = homeDir && displayProject.startsWith(homeDir)
-    ? `~${displayProject.slice(homeDir.length)}`
-    : displayProject;
+  const projectLabel = projectNameByRoot?.get(displayProject) ?? getFileName(displayProject);
   const closeMenus = () => {
     setMenuOpen(false);
     setBranchMenuOpen(false);
@@ -274,7 +269,7 @@ function NewSessionCwdControl({
         }}
       >
         <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", direction: "rtl", textAlign: "center" }}>
-          <span style={{ unicodeBidi: "plaintext" }}>{projectNameByRoot?.get(displayProject) ?? projectLabel}</span>
+          <span style={{ unicodeBidi: "plaintext" }}>{projectLabel}</span>
         </span>
       </button>
       {currentBranch && (
@@ -347,7 +342,7 @@ function NewSessionCwdControl({
                     <span style={{ width: 10, flexShrink: 0 }} />
                   )}
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {projectNameByRoot?.get(path) ?? (homeDir && path.startsWith(homeDir) ? `~${path.slice(homeDir.length)}` : path)}
+                    {projectNameByRoot?.get(path) ?? getFileName(path)}
                   </span>
                 </button>
               );
@@ -774,7 +769,7 @@ function ProcessDetailsGroup({
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onDraftChange, onKeepTabOpen, onNewSessionCwdChange, projectPaths = [], projectNameByRoot, homeDir = "", worktreeInfo = null, draftPersistenceWarning = false, onAgentEnd, onToolEnd, onFilesChanged, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, isFocusedPane = false, isVisiblePane = isFocusedPane, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onOutlineViewChange, onSessionStatsChange, onSessionStatsPanelOpen, sessionStatsOpen, onContextUsageChange, onOpenFile, onOpenSession, onOpenMcpSettings, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onDraftChange, onKeepTabOpen, onNewSessionCwdChange, projectPaths = [], projectNameByRoot, worktreeInfo = null, draftPersistenceWarning = false, onAgentEnd, onToolEnd, onFilesChanged, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, isFocusedPane = false, isVisiblePane = isFocusedPane, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onOutlineViewChange, onSessionStatsChange, onSessionStatsPanelOpen, sessionStatsOpen, onContextUsageChange, onOpenFile, onOpenSession, onOpenMcpSettings, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -2543,7 +2538,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   onChange={onNewSessionCwdChange}
                   projectPaths={projectPaths}
                   projectNameByRoot={projectNameByRoot}
-                  homeDir={homeDir}
                   worktreeInfo={worktreeInfo}
               />
             )}

@@ -1214,10 +1214,9 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     onProjectPathsChange?.(workspaceProjects.map((project) => project.root));
   }, [onProjectPathsChange, workspaceProjects]);
 
-  const projectNameByRoot = useMemo(() => new Map(workspaceProjects.flatMap((project) => {
-    const name = projectNames.get(project.key);
-    return name ? [[project.root, name] as const] : [];
-  })), [projectNames, workspaceProjects]);
+  const projectNameByRoot = useMemo(() => new Map(workspaceProjects.map((project) => [
+    project.root, projectNames.get(project.key) ?? getFileName(project.root),
+  ])), [projectNames, workspaceProjects]);
   useEffect(() => {
     onProjectNamesChange?.(projectNameByRoot);
   }, [onProjectNamesChange, projectNameByRoot]);

@@ -29,8 +29,8 @@ test("path menu renders sidebar workspace state; only opening the worktree menu 
 });
 
 test("the new-session bar shows a named project's alias, the path stays its tooltip, and AppShell feeds the names", async () => {
-  assert.match(control, /\{projectNameByRoot\?\.get\(displayProject\) \?\? projectLabel\}/);
-  assert.match(control, /\{projectNameByRoot\?\.get\(path\) \?\? \(homeDir/);
+  assert.match(control, /projectNameByRoot\?\.get\(displayProject\) \?\? getFileName\(displayProject\)/);
+  assert.match(control, /\{projectNameByRoot\?\.get\(path\) \?\? getFileName\(path\)\}/);
   assert.match(control, /onClick=\{\(\) => choose\(path\)\}\s*title=\{path\}/);
   const appShell = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
   assert.match(appShell, /onProjectNamesChange=\{setProjectNameByRoot\}/);
@@ -45,6 +45,23 @@ function evaluate(expression, bindings) {
   const js = ts.transpileModule(`return (${expression});`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   return new Function(...Object.keys(bindings), js)(...Object.values(bindings));
 }
+
+test("sidebar exports the same default and renamed project labels, and clearing a name restores the folder name", async () => {
+  const sidebar = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+  const paths = await readFile(new URL("../lib/file-paths.ts", import.meta.url), "utf8");
+  const module = ts.transpileModule(paths, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+  const { getFileName } = await import(`data:text/javascript;base64,${Buffer.from(module).toString("base64")}`);
+  const parsed = ts.createSourceFile("SessionSidebar.tsx", sidebar, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const declaration = find(parsed, (node) => ts.isVariableDeclaration(node) && node.name.getText(parsed) === "projectNameByRoot");
+  const workspaceProjects = [{ key: "repo", root: "/home/user/pi-web" }, { key: "win", root: "C:\\work\\research" }];
+  const projectNames = new Map();
+  const labels = () => evaluate(declaration.initializer.arguments[0].getText(parsed), { workspaceProjects, projectNames, getFileName })();
+  assert.deepEqual([...labels()], [["/home/user/pi-web", "pi-web"], ["C:\\work\\research", "research"]]);
+  projectNames.set("repo", "Web 项目");
+  assert.equal(labels().get("/home/user/pi-web"), "Web 项目");
+  projectNames.delete("repo");
+  assert.equal(labels().get("/home/user/pi-web"), "pi-web");
+});
 
 test("cwd menu receives the exact sidebar order after reorder, including empty projects and resolved worktree roots", async () => {
   const sidebar = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");

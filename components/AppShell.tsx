@@ -2048,7 +2048,6 @@ export function AppShell() {
           : undefined}
         projectPaths={projectPaths}
         projectNameByRoot={projectNameByRoot}
-        homeDir={homeDir}
         worktreeInfo={worktreeInfo}
         draftPersistenceWarning={draftTabsPersistenceFailed}
         onAgentEnd={handleAgentEnd}
