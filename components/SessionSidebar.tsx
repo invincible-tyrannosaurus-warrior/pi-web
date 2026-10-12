@@ -175,6 +175,7 @@ interface Props {
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
   onSessionsChange?: (sessions: SessionInfo[]) => void;
   /** Display names keyed by project root, for the pickers outside the sidebar. */
+  onProjectPathsChange?: (paths: string[]) => void;
   onProjectNamesChange?: (namesByRoot: ReadonlyMap<string, string>) => void;
   /** Explicitly added project directories (storage name predates the removed
       project-pin UI). They keep a project listed before it has any session. */
@@ -332,7 +333,7 @@ function sameIdSet(current: Set<string>, ids: string[] | undefined): Set<string>
   return next.length === current.size && next.every((id) => current.has(id)) ? current : new Set(next);
 }
 
-export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSelectSession, onOpenSessionInNewTab, onForkSession, forking = false, onNewSession, initialSessionId, skipInitialProjectSelection, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, onProjectNamesChange, pinnedCwds, onTogglePinnedCwd, onHomeDirChange, onWorktreeInfoChange }: Props) {
+export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSelectSession, onOpenSessionInNewTab, onForkSession, forking = false, onNewSession, initialSessionId, skipInitialProjectSelection, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, onProjectPathsChange, onProjectNamesChange, pinnedCwds, onTogglePinnedCwd, onHomeDirChange, onWorktreeInfoChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>([]);
@@ -1208,6 +1209,10 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     add(selectedProject);
     return orderProjects(projects, projectOrder);
   }, [pinnedCwds, projectFor, projectOrder, recentProjects, selectedProject]);
+
+  useEffect(() => {
+    onProjectPathsChange?.(workspaceProjects.map((project) => project.root));
+  }, [onProjectPathsChange, workspaceProjects]);
 
   const projectNameByRoot = useMemo(() => new Map(workspaceProjects.flatMap((project) => {
     const name = projectNames.get(project.key);

@@ -18,8 +18,9 @@ test("path menu and worktree menu are separate", () => {
 });
 
 test("path menu renders sidebar workspace state; only opening the worktree menu refreshes", () => {
-  assert.match(control, /recentPaths: string\[\]/);
-  assert.match(control, /pinnedPaths: string\[\]/);
+  assert.match(control, /projectPaths: string\[\]/);
+  assert.match(control, /projectPaths\.map\(\(path\) =>/);
+  assert.doesNotMatch(control, /recentPaths|pinnedPaths|cwdRows/);
   assert.match(control, /worktreeInfo:/);
   assert.doesNotMatch(control, /\/api\/sessions/);
   assert.doesNotMatch(control, /\/api\/home/);
@@ -44,6 +45,26 @@ function evaluate(expression, bindings) {
   const js = ts.transpileModule(`return (${expression});`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   return new Function(...Object.keys(bindings), js)(...Object.values(bindings));
 }
+
+test("cwd menu receives the exact sidebar order after reorder, including empty projects and resolved worktree roots", async () => {
+  const sidebar = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
+  const appShell = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+  const parsed = ts.createSourceFile("SessionSidebar.tsx", sidebar, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const effect = find(parsed, (node) => ts.isCallExpression(node) && node.expression.getText(parsed) === "useEffect"
+    && node.arguments[0].getText(parsed).includes("onProjectPathsChange"));
+  assert.equal(effect.arguments[1].getText(parsed), "[onProjectPathsChange, workspaceProjects]");
+  const writes = [];
+  const projects = [{ key: "empty", root: "/empty" }, { key: "repo", root: "/repo" }, { key: "other", root: "/other" }];
+  for (const workspaceProjects of [projects, [projects[2], projects[0], projects[1]]]) {
+    evaluate(effect.arguments[0].getText(parsed), {
+      workspaceProjects, onProjectPathsChange: (paths) => writes.push(paths),
+    })();
+  }
+  assert.deepEqual(writes, [["/empty", "/repo", "/other"], ["/other", "/empty", "/repo"]]);
+  assert.match(appShell, /onProjectPathsChange=\{setProjectPaths\}/);
+  assert.match(appShell, /projectPaths=\{projectPaths\}/);
+  assert.match(source, /projectPaths=\{projectPaths\}/);
+});
 
 test("worktree menu refreshes on every open, retaining the last list on failure and ignoring closed-menu replies", async () => {
   const parsed = ts.createSourceFile("ChatWindow.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);

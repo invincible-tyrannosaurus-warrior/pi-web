@@ -68,10 +68,9 @@ interface Props {
   /** Preserve the source tab when the user sends work or starts a fork. */
   onKeepTabOpen?: (sessionId: string) => void;
   onNewSessionCwdChange?: (cwd: string) => Promise<void>;
-  recentProjectPaths?: string[];
+  projectPaths?: string[];
   /** Project display names by root, shown in the new-session bar in place of the path. */
   projectNameByRoot?: ReadonlyMap<string, string>;
-  pinnedCwds?: string[];
   homeDir?: string;
   worktreeInfo?: {
     forCwd: string;
@@ -169,16 +168,14 @@ const CHAT_COLUMN_PADDING = 16;
 function NewSessionCwdControl({
   cwd,
   onChange,
-  recentPaths,
-  pinnedPaths,
+  projectPaths,
   homeDir,
   worktreeInfo,
   projectNameByRoot,
 }: {
   cwd: string;
   onChange: (cwd: string) => Promise<void>;
-  recentPaths: string[];
-  pinnedPaths: string[];
+  projectPaths: string[];
   homeDir: string;
   projectNameByRoot?: ReadonlyMap<string, string>;
   worktreeInfo: {
@@ -195,8 +192,6 @@ function NewSessionCwdControl({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Added projects without history first, then projects by recent activity (matches the sidebar).
-  const cwdRows = [...pinnedPaths.filter((path) => !recentPaths.includes(path)), ...recentPaths];
   const [refreshedWorktree, setRefreshedWorktree] = useState<typeof worktreeInfo>(null);
   useEffect(() => {
     if (!branchMenuOpen) return;
@@ -332,7 +327,7 @@ function NewSessionCwdControl({
           }}
         >
           <div style={{ maxHeight: 280, overflowY: "auto", scrollbarWidth: "none" }}>
-            {cwdRows.map((path) => {
+            {projectPaths.map((path) => {
               const isSelected = path === cwd || Boolean(activeWorktree?.projectRoot && path === activeWorktree.projectRoot);
               return (
                 <button
@@ -779,7 +774,7 @@ function ProcessDetailsGroup({
   );
 }
 
-export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onDraftChange, onKeepTabOpen, onNewSessionCwdChange, recentProjectPaths = [], projectNameByRoot, pinnedCwds = [], homeDir = "", worktreeInfo = null, draftPersistenceWarning = false, onAgentEnd, onToolEnd, onFilesChanged, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, isFocusedPane = false, isVisiblePane = isFocusedPane, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onOutlineViewChange, onSessionStatsChange, onSessionStatsPanelOpen, sessionStatsOpen, onContextUsageChange, onOpenFile, onOpenSession, onOpenMcpSettings, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
+export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, onDraftChange, onKeepTabOpen, onNewSessionCwdChange, projectPaths = [], projectNameByRoot, homeDir = "", worktreeInfo = null, draftPersistenceWarning = false, onAgentEnd, onToolEnd, onFilesChanged, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, isFocusedPane = false, isVisiblePane = isFocusedPane, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onOutlineViewChange, onSessionStatsChange, onSessionStatsPanelOpen, sessionStatsOpen, onContextUsageChange, onOpenFile, onOpenSession, onOpenMcpSettings, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const completionNotificationsEnabled = session?.relation?.kind !== "subagent";
@@ -2546,9 +2541,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               <NewSessionCwdControl
                   cwd={newSessionCwd}
                   onChange={onNewSessionCwdChange}
-                  recentPaths={recentProjectPaths}
+                  projectPaths={projectPaths}
                   projectNameByRoot={projectNameByRoot}
-                  pinnedPaths={pinnedCwds}
                   homeDir={homeDir}
                   worktreeInfo={worktreeInfo}
               />

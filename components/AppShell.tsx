@@ -82,7 +82,6 @@ function pathForChatMention(path: string, sourceCwd?: string, targetCwd?: string
 import { getInitialNavigation } from "@/lib/initial-navigation";
 import { clearDraft, getDraft, rekeyDraft } from "@/lib/draft-store";
 import { workspaceKeyOf } from "@/lib/workspace-key";
-import { getRecentProjects } from "@/lib/project-groups";
 import { loadPinnedCwds, savePinnedCwds, togglePinnedCwd } from "@/lib/pinned-cwds";
 import {
   getDefaultRightPanelWidth,
@@ -222,10 +221,7 @@ export function AppShell() {
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
   }, []);
-  const recentProjectPaths = useMemo(
-    () => getRecentProjects(sessionCatalog).map((project) => project.root),
-    [sessionCatalog],
-  );
+  const [projectPaths, setProjectPaths] = useState<string[]>([]);
   const [pinnedCwds, setPinnedCwds] = useState<string[]>(() => loadPinnedCwds());
   const [projectNameByRoot, setProjectNameByRoot] = useState<ReadonlyMap<string, string>>(() => new Map());
   const handleTogglePinnedCwd = useCallback((cwd: string) => {
@@ -2050,9 +2046,8 @@ export function AppShell() {
         onNewSessionCwdChange={!tabSession && effectiveCwd
           ? (cwd) => handleDraftCwdChange(effectiveDraftKey, cwd)
           : undefined}
-        recentProjectPaths={recentProjectPaths}
+        projectPaths={projectPaths}
         projectNameByRoot={projectNameByRoot}
-        pinnedCwds={pinnedCwds}
         homeDir={homeDir}
         worktreeInfo={worktreeInfo}
         draftPersistenceWarning={draftTabsPersistenceFailed}
@@ -2291,6 +2286,7 @@ export function AppShell() {
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onSessionsChange={handleSessionsChange}
+        onProjectPathsChange={setProjectPaths}
         onProjectNamesChange={setProjectNameByRoot}
         pinnedCwds={pinnedCwds}
         onTogglePinnedCwd={handleTogglePinnedCwd}
