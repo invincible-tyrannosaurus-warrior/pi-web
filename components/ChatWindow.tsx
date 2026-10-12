@@ -2088,7 +2088,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   locateEntryId,
                 );
               };
-              let liveTailItemCount = 0;
               for (let idx = 0; idx < messages.length;) {
                 const hasBoundary = isMessageGroupBoundary(messages[idx]);
                 const hasAnchor = isMessageGroupAnchor(messages[idx]);
@@ -2101,9 +2100,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
                 const finalAssistantIdx = findFinalAssistantIndex(messages, boundaryIdx, endIdx);
                 const isLiveTail = (sessionBusy || streamState.isStreaming) && endIdx === messages.length && boundaryIdx === lastBoundaryIdx;
-                if (isLiveTail) {
-                  liveTailItemCount = endIdx - firstIdx;
-                }
 
                 if (finalAssistantIdx === -1 && !notificationStartsProcess) {
                   for (let renderIdx = firstIdx; renderIdx < endIdx; renderIdx++) {
@@ -2343,10 +2339,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 }
                 idx = endIdx;
               }
-              const effectiveMountLimit = Math.max(mountLimit, MOUNTED_GROUP_LIMIT + liveTailItemCount);
+              // Count rendered groups, not raw live-turn messages: expanding the
+              // window after a locate prepends content above the aligned target.
               const { startIndex, endIndex } = outlineTargetIndex >= 0
                 ? getOutlineMountedRange(rendered.length, outlineTargetIndex)
-                : getMountedRange(rendered.length, unmountedNewerCount, effectiveMountLimit);
+                : getMountedRange(rendered.length, unmountedNewerCount, mountLimit);
               mountedRangeRef.current = { startIndex, endIndex, totalCount: rendered.length };
               const hasMore = startIndex > 0 || hasEarlierMessages;
               return (

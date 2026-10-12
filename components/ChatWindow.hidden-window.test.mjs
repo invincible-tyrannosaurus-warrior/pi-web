@@ -26,7 +26,7 @@ const code = ts.transpileModule(`${helpers}\nreturn (${renderBody.getText(file)}
   compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
 }).outputText;
 
-function render(messages, locate = null) {
+function render(messages, locate = null, overrides = {}) {
   const entryIds = messages.map((_, index) => `entry-${index}`);
   const mountedRangeRef = { current: null };
   const scope = {
@@ -51,6 +51,7 @@ function render(messages, locate = null) {
     mountLimit: lazy.MOUNTED_GROUP_LIMIT, unmountedNewerCount: 0, hasEarlierMessages: false,
     sentinelRef: { current: null }, newerSentinelRef: { current: null }, triggerLoadEarlier() {},
     t: (key) => key, formatDuration: () => "", displayToolName: (name) => name,
+    ...overrides,
   };
   const element = new Function(...Object.keys(scope), code)(...Object.values(scope));
   return { html: renderToStaticMarkup(element), range: mountedRangeRef.current, entryIds };
@@ -58,6 +59,22 @@ function render(messages, locate = null) {
 const hidden = () => ({ role: "custom", customType: "internal", display: false, content: "HIDDEN" });
 const user = { role: "user", content: "QUESTION" };
 const answer = { role: "assistant", content: [{ type: "text", text: "ANSWER" }], stopReason: "stop" };
+
+test("finishing an outline jump during a running turn preserves the mounted window", () => {
+  const messages = [
+    ...Array.from({ length: 60 }, () => [user, answer]).flat(),
+    user, ...Array.from({ length: 80 }, hidden),
+  ];
+  const running = { sessionBusy: true };
+  const located = render(messages, "entry-60", running);
+  const settled = render(messages, null, {
+    ...running,
+    unmountedNewerCount: located.range.totalCount - located.range.endIndex,
+  });
+  assert.deepEqual(settled.range, located.range);
+  assert.equal(settled.html, located.html);
+  assert.equal(settled.range.endIndex - settled.range.startIndex, lazy.MOUNTED_GROUP_LIMIT);
+});
 
 test("Q/A plus 60 hidden tail messages keeps the real answer in final mounted output", () => {
   const messages = [user, answer, ...Array.from({ length: 60 }, hidden)];
