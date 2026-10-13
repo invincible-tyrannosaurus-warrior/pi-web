@@ -24,6 +24,7 @@ npm run dev   # port 30143 (remote: https://nuc.tailb8ef79.ts.net:10446)
 - Port 30141 (tailscale :10443) is the stable npm-installed service (`~/.npm-global/.../@calmabacus/pi-web`), running its own packaged `.next`. This checkout is dev only (30143).
 - **Never stop/restart 30141, bind anything to it, or run `npm run start` from this checkout without explicit user confirmation.**
 - Dev and the service share `~/.pi/agent` (sessions, auth, models.json, skills, plugins). Destructive actions in dev hit the user's real data.
+- Upgrading pi: `npm install --save-exact` *every* `@earendil-works/*` package in the lockfile (incl. `pi-codemode`, `pi-mcp`, `pi-telemetry`); the published package ships no lockfile and pi uses `^` ranges internally. Enforced by `lib/pi-packages.test.mjs`.
 - Upgrades: verify in dev, publish to npm, update the global package, then output the exact restart command for the user to run.
 
 ### Dev server troubleshooting
