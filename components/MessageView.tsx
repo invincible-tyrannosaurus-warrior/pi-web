@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, memo, useContext, useState, useRef, useEffect, useMemo, useId, type ReactNode } from "react";
+import { memo, useState, useRef, useEffect, useMemo, useId, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownBody } from "./MarkdownBody";
 import { ImageGallery } from "./ImageGallery";
@@ -12,10 +12,8 @@ import { ToolIcon } from "./ToolIcon";
 import { SubagentIcon } from "./SubagentIcon";
 import { LivePulseBeacon } from "./LivePulseBeacon";
 import { copyText } from "@/lib/clipboard";
-import { exportMessageImage, type MessageImageResult } from "@/lib/message-image";
 import { useI18n } from "@/hooks/useI18n";
-import { useConfirm } from "@/hooks/useConfirm";
-import type { NoticeType } from "@/hooks/useAgentSession";
+import { ExportImageIcon, useExportImage } from "./ExportImage";
 import { formatDuration } from "@/lib/i18n/format";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantErrorMessage, getThinkingPreview, thinkingDurationSeconds, isEmptyThinkingBlock, isAssistantTruncated, isSubagentNotificationMessage } from "@/lib/message-display";
@@ -256,8 +254,7 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-/** Chat-level toasts; message actions report their outcome through it. */
-export const MessageNoticeContext = createContext<((notice: { message: string; type?: NoticeType }) => void) | null>(null);
+export { MessageNoticeContext } from "./ExportImage";
 
 export const MessageView = memo(function MessageView({ message, modelName, isStreaming, toolResults, cwd, onOpenFile, onOpenSession, entryId, searchBlock, onFork, forking, prevAssistantEntryId, onEditContent, onCancelEdit, isEditing, isTurnEnd, expandOutput, sessionId, writtenFiles, turnDurationSeconds, isProcess, runningToolIds, continuePrompt, onContinue, onCompact, isCompacting, compactError }: Props) {
   if (message.role === "user") {
@@ -625,10 +622,8 @@ function AssistantMessageView({
   compactError?: string | null;
 }) {
   const { t, locale } = useI18n();
-  const confirm = useConfirm();
-  const addNotice = useContext(MessageNoticeContext);
   const [copied, setCopied] = useState(false);
-  const [imageState, setImageState] = useState<"idle" | "busy" | MessageImageResult>("idle");
+  const image = useExportImage();
   const rootRef = useRef<HTMLDivElement>(null);
   const blockItems = useMemo(() => (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
@@ -671,31 +666,6 @@ function AssistantMessageView({
     });
   };
 
-  const exportImage = () => {
-    if (!rootRef.current || imageState === "busy") return;
-    setImageState("busy");
-    exportMessageImage(rootRef.current, `pi-answer-${entryId ?? message.timestamp}.png`).then(
-      (result) => {
-        if (result === "canceled") return setImageState("idle");
-        if (result === "retry") {
-          setImageState("idle");
-          addNotice?.({ type: "info", message: t("i18n.imageTapToShare") });
-          return;
-        }
-        setImageState(result);
-        setTimeout(() => setImageState("idle"), 1500);
-        // The share sheet is its own feedback; copy and download happen silently.
-        if (result === "copied") addNotice?.({ type: "success", message: t("i18n.imageCopied") });
-        if (result === "downloaded") addNotice?.({ type: "success", message: t("i18n.imageDownloaded") });
-      },
-      (error) => {
-        console.error(error);
-        setImageState("idle");
-        if (addNotice) addNotice({ type: "error", message: t("i18n.exportImageFailed") });
-        else void confirm(t("i18n.exportImageFailed"), { alert: true });
-      },
-    );
-  };
 
   // A truncated turn whose only block was empty thinking must still render, so its
   // notice is not silently swallowed by the empty-content guard.
@@ -859,24 +829,13 @@ function AssistantMessageView({
                 type="button"
                 className="answer-copy-button message-action-button"
                 style={{ marginLeft: -10 }}
-                data-copied={imageState !== "idle" && imageState !== "busy" ? "true" : undefined}
-                disabled={imageState === "busy"}
-                onClick={exportImage}
-                title={imageState === "copied" ? t("i18n.imageCopied") : imageState === "downloaded" ? t("i18n.imageDownloaded") : t("i18n.exportImage")}
+                data-copied={image.done ? "true" : undefined}
+                disabled={image.busy}
+                onClick={() => image.run(rootRef.current, `pi-answer-${entryId ?? message.timestamp}.png`)}
+                title={image.title}
                 aria-label={t("i18n.exportImage")}
               >
-                {imageState !== "idle" && imageState !== "busy" ? (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                ) : (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10l-3.1-3.1a2 2 0 0 0-2.814.014L6 21" />
-                    <path d="m14 19 3 3v-5.5" />
-                    <path d="m17 22 3-3" />
-                    <circle cx="9" cy="9" r="2" />
-                  </svg>
-                )}
+                <ExportImageIcon done={image.done} />
               </button>
           )}
         </div>

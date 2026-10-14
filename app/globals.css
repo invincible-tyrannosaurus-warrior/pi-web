@@ -1309,18 +1309,21 @@ pre, code {
 .markdown-table-block {
   position: relative;
 }
-.markdown-table-copy {
+.markdown-table-actions {
   position: absolute;
   /* Inside the wrap's 1px border, filling the header row's right end. */
   top: 1px;
   right: 1px;
+  display: flex;
+}
+.markdown-table-copy {
   display: grid;
   place-items: center;
   width: 28px;
   height: 28px;
   padding: 0;
   border: none;
-  border-radius: 0 calc(var(--ui-radius-md) - 1px) 0 0;
+  border-radius: 0;
   /* The header row's fill over the page color: opaque, so text scrolled under it never shows through. */
   background: linear-gradient(var(--table-copy-fill), var(--table-copy-fill)) var(--bg);
   --table-copy-fill: color-mix(in srgb, var(--bg-subtle) 85%, var(--bg));
@@ -1328,14 +1331,17 @@ pre, code {
   cursor: pointer;
   transition: color 0.12s ease, opacity 0.12s ease;
 }
+.markdown-table-copy:last-child {
+  border-radius: 0 calc(var(--ui-radius-md) - 1px) 0 0;
+}
 .markdown-table-copy:hover,
 .markdown-table-copy:focus-visible {
   color: var(--text);
   --table-copy-fill: var(--bg-hover);
 }
-/* Room for the chip, so it never sits on the last heading of a table that fits. */
+/* Room for the chips, so they never sit on the last heading of a table that fits. */
 .markdown-table-block th:last-child {
-  padding-right: 30px;
+  padding-right: 58px;
 }
 @media (hover: hover) and (pointer: fine) {
   .markdown-table-copy {

@@ -14,6 +14,7 @@ import { usePrismLanguages } from "@/hooks/usePrismLanguages";
 import { takeHighlightBudget, waitForHighlight } from "@/lib/highlight-queue";
 import { prismLanguagesLoaded } from "@/lib/prism-languages";
 import { CopyGlyph } from "./CopyGlyph";
+import { ExportImageIcon, useExportImage } from "./ExportImage";
 
 interface MermaidBlockProps {
   code: string;
@@ -67,6 +68,7 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
   const [renderState, setRenderState] = useState<RenderState | null>(null);
   const [zoomOpen, setZoomOpen] = useState(false);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
+  const image = useExportImage();
   const currentKey = `${palette}-${isDark ? "dark" : "light"}-${scheme}\n${code}`;
   const previewVisible = showPreview && !isStreaming;
 
@@ -181,6 +183,19 @@ export function MermaidBlock({ code, isStreaming, defaultPreview = false }: Merm
               onClick={() => downloadMermaidSvg(renderState.svg)}
             >
               SVG
+            </button>
+          )}
+          {renderState?.key === currentKey && renderState.status === "ready" && !zoomOpen && (
+            <button
+              type="button"
+              className="markdown-code-action"
+              disabled={image.busy}
+              title={image.title}
+              aria-label={image.title}
+              onClick={(event) => image.run(event.currentTarget.closest(".markdown-code-block")?.querySelector<HTMLElement>(".mermaid-block") ?? null, "pi-mermaid.png")}
+            >
+              <ExportImageIcon done={image.done} />
+              PNG
             </button>
           )}
           {previewButton}

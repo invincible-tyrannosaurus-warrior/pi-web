@@ -9,11 +9,18 @@ const PADDING = 24;
 const MAX_CANVAS_SIDE = 16000;
 const MAX_CANVAS_AREA = 16_000_000;
 // Interactive chrome that means nothing in a picture.
-const EXCLUDE = ".markdown-code-actions, .message-action-button, [data-export-exclude]";
+const EXCLUDE = ".markdown-code-actions, .markdown-table-actions, .message-action-button, [data-export-exclude]";
 // html-to-image freezes every element's computed size. A sub-pixel overflow in the clone
 // then paints a classic scrollbar inside a table/code wrapper's fixed height, covering
 // its last row. A picture cannot scroll, so hide scrollbars; !important beats the inline copies.
-const EXPORT_CSS = "*{scrollbar-width:none!important}*::-webkit-scrollbar{display:none!important}";
+const EXPORT_CSS = "*{scrollbar-width:none!important}*::-webkit-scrollbar{display:none!important}"
+  // Wide tables and code blocks scroll on screen; a picture cannot, so they unfold to full width
+  // (the bordered box grows with them) while the prose keeps its on-screen line length.
+  + ".markdown-table-wrap,.markdown-code-block{width:max-content!important;min-width:100%!important;max-width:none!important;overflow:visible!important}"
+  // flow-root keeps the block formatting context overflow:hidden gave, so margins and height stay put.
+  + ".markdown-body{overflow:visible!important;display:flow-root!important}"
+  + ".markdown-code-block>*{width:auto!important}.markdown-code-block pre{overflow:visible!important}";
+const SCROLLERS = ".markdown-table-wrap, .markdown-code-block pre";
 const FOOTER_KEY = "pi-export-image-footer";
 // Printable ASCII plus the list bullet, so markers and digits drawn outside the text still resolve.
 const BASE_CHARS = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join("") + "•";
@@ -72,23 +79,37 @@ export function exportPixelRatio(width: number, height: number): number {
 // The filter drops nodes from the clone, which reflows without them, but the canvas
 // size is fixed up front: subtract the dropped rows. Never hide them in the live DOM
 // to measure: the shorter layout clamps the chat's scrollTop and the view jumps.
-// Only direct children take up rows; nested excluded nodes (code actions, footer
-// buttons) are overlays or sit inside a row that stays.
+// Only in-flow direct children take up rows; nested excluded nodes (code actions, footer
+// buttons) and positioned ones (table actions) are overlays or sit inside a row that stays.
 function exportedHeight(el: HTMLElement, footer: HTMLElement | null): number {
   let height = el.offsetHeight;
+  const rows: CSSStyleDeclaration[] = [];
   for (const child of el.children) {
-    if (!(child instanceof HTMLElement) || (child !== footer && !child.matches(EXCLUDE))) continue;
+    if (!(child instanceof HTMLElement)) continue;
     const style = getComputedStyle(child);
-    height -= child.offsetHeight + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+    if (style.position === "absolute" || style.position === "fixed") continue;
+    if (child !== footer && !child.matches(EXCLUDE)) rows.push(style);
+    else height -= child.offsetHeight + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
   }
+  // On screen the edge rows' margins (a table's) collapse through an unpadded el; the clone's padding keeps them.
+  const own = getComputedStyle(el);
+  if (rows.length && parseFloat(own.paddingTop) + parseFloat(own.borderTopWidth) === 0) height += parseFloat(rows[0].marginTop);
+  if (rows.length && parseFloat(own.paddingBottom) + parseFloat(own.borderBottomWidth) === 0) height += parseFloat(rows[rows.length - 1].marginBottom);
   return height;
+}
+
+// Extra canvas width the unfolded scrollers need beyond the message's own width.
+function overflowWidth(el: HTMLElement): number {
+  return Math.max(0, ...[...el.querySelectorAll(SCROLLERS)].map((node) => node.scrollWidth - node.clientWidth));
 }
 
 async function renderPng(el: HTMLElement): Promise<Blob> {
   const { toBlob } = await import("html-to-image");
   const footer = isExportImageFooterEnabled() ? null : el.querySelector<HTMLElement>("[data-answer-footer]");
-  const width = el.offsetWidth + PADDING * 2;
-  const height = exportedHeight(el, footer) + PADDING * 2;
+  // The export padding replaces the element's own (a diagram's), so only its content box is kept.
+  const own = getComputedStyle(el);
+  const width = el.offsetWidth - parseFloat(own.paddingLeft) - parseFloat(own.paddingRight) + overflowWidth(el) + PADDING * 2;
+  const height = exportedHeight(el, footer) - parseFloat(own.paddingTop) - parseFloat(own.paddingBottom) + PADDING * 2;
   const pixelRatio = exportPixelRatio(width, height);
   const blob = await toBlob(el, {
     width,
@@ -109,7 +130,7 @@ export async function exportMessageImage(el: HTMLElement, fileName: string): Pro
   if (prefersShareSheet()) {
     const root = document.documentElement;
     // Everything that changes the rendered image, so a retry never shares an outdated one.
-    const renderKey = [fileName, isExportImageFooterEnabled(), el.offsetWidth, el.offsetHeight, getComputedStyle(el).fontSize, root.className, JSON.stringify(root.dataset)].join("|");
+    const renderKey = [fileName, isExportImageFooterEnabled(), el.offsetWidth, overflowWidth(el), el.offsetHeight, getComputedStyle(el).fontSize, root.className, JSON.stringify(root.dataset)].join("|");
     const { result, file } = await shareProducedFile(
       renderKey,
       async () => new File([await renderPng(el)], fileName, { type: "image/png" }),

@@ -5,6 +5,7 @@ import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { iconStroke } from "./iconStroke";
 import { CopyGlyph } from "./CopyGlyph";
+import { ExportImageIcon, useExportImage } from "./ExportImage";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { pdfPageFromHref, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
@@ -141,9 +142,14 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
           <div className="markdown-table-wrap">
             <table>{children}</table>
           </div>
-          {!isStreaming && start !== undefined && end !== undefined && (
-            // The table exactly as written in the message, so a paste keeps its Markdown.
-            <TableCopyButton getSource={() => tableSource(sourceRef.current, start, end)} />
+          {!isStreaming && (
+            <div className="markdown-table-actions">
+              {start !== undefined && end !== undefined && (
+                // The table exactly as written in the message, so a paste keeps its Markdown.
+                <TableCopyButton getSource={() => tableSource(sourceRef.current, start, end)} />
+              )}
+              <TableExportButton />
+            </div>
           )}
         </div>
       );
@@ -172,6 +178,23 @@ export function tableSource(markdown: string, start: number, end: number): strin
     .replace(/[-*+]|\d+[.)]/g, (marker) => " ".repeat(marker.length));
   const lines = markdown.slice(start, end).split("\n");
   return prefix ? lines.map((line, index) => (index > 0 && line.startsWith(prefix) ? line.slice(prefix.length) : line)).join("\n") : lines.join("\n");
+}
+
+function TableExportButton() {
+  const image = useExportImage();
+  return (
+    <button
+      type="button"
+      className="markdown-table-copy"
+      data-copied={image.done ? "true" : undefined}
+      disabled={image.busy}
+      title={image.title}
+      aria-label={image.title}
+      onClick={(event) => image.run(event.currentTarget.closest<HTMLElement>(".markdown-table-block"), "pi-table.png")}
+    >
+      <ExportImageIcon done={image.done} />
+    </button>
+  );
 }
 
 function TableCopyButton({ getSource }: { getSource: () => string }) {
