@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-light";
 import renderSyntaxNode from "react-syntax-highlighter/dist/esm/create-element";
@@ -161,8 +161,8 @@ function getSelectedSourceLineRange(root: HTMLElement, selection: Selection | nu
       selectedSuffix.selectNodeContents(startContent);
       selectedSuffix.setStart(range.startContainer, range.startOffset);
       if (selectedSuffix.toString().length === 0) {
-        const nextLine = startElement.nextElementSibling;
-        if (nextLine instanceof HTMLElement && nextLine.matches(".file-source-line[data-line-number]")) {
+        const nextLine = root.querySelector<HTMLElement>(`.file-source-line[data-line-number="${startLine + 1}"]`);
+        if (nextLine) {
           startElement = nextLine;
           startLine = Number(startElement.dataset.lineNumber);
         }
@@ -175,8 +175,8 @@ function getSelectedSourceLineRange(root: HTMLElement, selection: Selection | nu
       selectedPrefix.selectNodeContents(endContent);
       selectedPrefix.setEnd(range.endContainer, range.endOffset);
       if (selectedPrefix.toString().length === 0) {
-        const previousLine = endElement.previousElementSibling;
-        if (previousLine instanceof HTMLElement && previousLine.matches(".file-source-line[data-line-number]")) {
+        const previousLine = root.querySelector<HTMLElement>(`.file-source-line[data-line-number="${endLine - 1}"]`);
+        if (previousLine) {
           endElement = previousLine;
           endLine = Number(endElement.dataset.lineNumber);
         }
@@ -188,8 +188,20 @@ function getSelectedSourceLineRange(root: HTMLElement, selection: Selection | nu
   return { startLine, endLine };
 }
 
+const SOURCE_CHUNK_LINES = 100;
+
+// Wrapped lines reflow on every width change; chunks let the browser skip offscreen
+// ones (content-visibility in globals.css). Per-line skipping costs more than it saves.
+function chunkSourceLines(lines: ReactNode[]): ReactNode[] {
+  const chunks: ReactNode[] = [];
+  for (let start = 0; start < lines.length; start += SOURCE_CHUNK_LINES) {
+    chunks.push(<span className="file-source-chunk" key={`source-chunk-${start}`}>{lines.slice(start, start + SOURCE_CHUNK_LINES)}</span>);
+  }
+  return chunks;
+}
+
 function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: SourceCodeRendererProps) {
-  return rows.map((row, lineIndex) => {
+  return chunkSourceLines(rows.map((row, lineIndex) => {
     const children = row.children ?? [];
     const firstChildClasses = children[0]?.properties?.className;
     const hasLineNumber = Array.isArray(firstChildClasses)
@@ -228,7 +240,7 @@ function SourceCodeRenderer({ rows, stylesheet, useInlineStyles, wrapLines }: So
         </span>
       </span>
     );
-  });
+  }));
 }
 
 function getFileApiUrl(
@@ -1627,7 +1639,7 @@ function TextFileViewer({
     [isDark, language, palette, prismReady, showHighlightedSource, viewerContent, wrapLines],
   );
   const lightweightSourceLines = useMemo(
-    () => useLightweightSource ? sourceLines.map((line, lineIndex) => (
+    () => useLightweightSource ? chunkSourceLines(sourceLines.map((line, lineIndex) => (
       <span
         className="file-source-line"
         data-line-number={lineIndex + 1}
@@ -1649,7 +1661,7 @@ function TextFileViewer({
           {line}
         </span>
       </span>
-    )) : null,
+    ))) : null,
     [sourceLines, useLightweightSource, wrapLines],
   );
 
@@ -1718,6 +1730,9 @@ function TextFileViewer({
     content.scrollTop = viewerStateRef.current.scrollTop;
     content.scrollLeft = viewerStateRef.current.scrollLeft;
     scrollRestorePendingRef.current = false;
+    // Offscreen skipping (content-visibility) starts only after one full layout, so every block has a
+    // remembered real size; enabling it earlier restores scrollTop against estimated heights.
+    requestAnimationFrame(() => requestAnimationFrame(() => content.classList.add("is-laid-out")));
   }, [
     data?.content,
     displayMode,
@@ -1965,7 +1980,7 @@ function TextFileViewer({
           />
         ) : useLightweightSource ? (
           <div
-            className="file-source-view is-lightweight"
+            className={wrapLines ? "file-source-view is-lightweight is-wrapped" : "file-source-view is-lightweight"}
             style={{
               width: wrapLines ? "100%" : "max-content",
               minWidth: "100%",

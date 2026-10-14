@@ -75,7 +75,6 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
   const dragRef = useRef<DragState | null>(null);
   const restoredRef = useRef(false);
   const [width, setWidth] = useState(defaultWidth);
-  const [isResizing, setIsResizing] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
@@ -104,17 +103,25 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     return nextWidth;
   }, [applyLiveWidth, clampWidth, storageKey, widthRef]);
 
+  // Drag state lives on the DOM, not in React: a state flip re-rendered the whole app at grab and release.
+  const setResizingClasses = useCallback((target: HTMLElement, resizing: boolean) => {
+    target.classList.toggle("is-resizing", resizing);
+    panelRef.current?.classList.toggle("is-resizing", resizing);
+    if (resizing) document.documentElement.dataset.panelResizing = "";
+    else delete document.documentElement.dataset.panelResizing;
+  }, []);
+
   const restoreBodyState = useCallback((drag: DragState) => {
     document.body.style.cursor = drag.previousCursor;
     document.body.style.userSelect = drag.previousUserSelect;
-  }, []);
+    setResizingClasses(drag.target, false);
+  }, [setResizingClasses]);
 
   const finishResize = useCallback((pointerId: number) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== pointerId) return;
     dragRef.current = null;
     restoreBodyState(drag);
-    setIsResizing(false);
     commitWidth(widthRef.current, { forcePersist: true });
 
     try {
@@ -147,8 +154,8 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     };
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-    setIsResizing(true);
-  }, [finishResize, widthRef]);
+    setResizingClasses(target, true);
+  }, [finishResize, setResizingClasses, widthRef]);
 
   const onPointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
@@ -243,7 +250,6 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
   }, [commitWidth, widthRef]);
 
   useEffect(() => {
-    if (!isResizing) return;
     const cancelResize = () => {
       const drag = dragRef.current;
       if (drag) finishResize(drag.pointerId);
@@ -251,13 +257,20 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     const onVisibilityChange = () => {
       if (document.visibilityState !== "visible") cancelResize();
     };
+    // A handle unmounted mid-drag (panel closed) gets no React event; the browser reports lost capture to the document.
+    const onDetachedCaptureLoss = (event: globalThis.PointerEvent) => {
+      const drag = dragRef.current;
+      if (drag && drag.pointerId === event.pointerId && !drag.target.isConnected) finishResize(drag.pointerId);
+    };
     window.addEventListener("blur", cancelResize);
     document.addEventListener("visibilitychange", onVisibilityChange);
+    document.addEventListener("lostpointercapture", onDetachedCaptureLoss);
     return () => {
       window.removeEventListener("blur", cancelResize);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      document.removeEventListener("lostpointercapture", onDetachedCaptureLoss);
     };
-  }, [finishResize, isResizing]);
+  }, [finishResize]);
 
   useEffect(() => {
     return () => {
@@ -269,7 +282,6 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
   }, [restoreBodyState]);
 
   return {
-    isResizing,
     panelRef,
     reclampWidth,
     resetWidth,

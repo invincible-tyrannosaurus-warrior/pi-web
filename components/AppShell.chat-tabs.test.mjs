@@ -26,7 +26,7 @@ test("renders ChatTabBar when chat is active and tabs exist", () => {
 });
 
 test("supports split view with resizer and secondary pane", () => {
-  assert.match(source, /const canSplitChat = !isMobile && chatPanesWidth >= CHAT_SPLIT_MIN_WIDTH;/);
+  assert.match(source, /const canSplitChat = !isMobile && chatPanesWide;/);
   assert.match(source, /const isSplitActive = Boolean\(canSplitChat && splitChatTabId && secondaryTab && activeChatTabId !== splitChatTabId\);/);
   assert.match(source, /\{isSplitActive && \(/);
   assert.match(source, /role="separator"/);

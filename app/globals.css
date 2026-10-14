@@ -3169,6 +3169,14 @@ button.file-outline-fold:hover {
 
 /* File viewer markdown preview — larger headings */
 .markdown-file-preview :is(h1, h2, h3) { scroll-margin-top: 12px; }
+/* Long documents reflow on every panel-resize frame; let the browser skip offscreen blocks. */
+/* `auto` remembers each block's real size; skipping starts once the viewer has laid out (.is-laid-out). */
+/* contain: layout matches the containment content-visibility adds, so heights do not drift between modes. */
+.markdown-file-preview > * { contain: layout; contain-intrinsic-size: auto 4em; }
+.file-viewer-content.is-laid-out .markdown-file-preview > * { content-visibility: auto; }
+.file-source-chunk { display: block; contain: layout; contain-intrinsic-size: auto 2000px; }
+/* Only wrapped lines reflow with width; unwrapped skipping would change the scroll width. */
+.file-viewer-content.is-laid-out .file-source-view.is-wrapped .file-source-chunk { content-visibility: auto; }
 .markdown-file-preview h1 { font-size: 1.8em; }
 .markdown-file-preview h2 { font-size: 1.4em; }
 .markdown-file-preview h3 { font-size: 1.15em; }
@@ -3378,6 +3386,14 @@ span.token.table {
 .panel-resize-handle:focus-visible::after,
 .panel-resize-handle.is-resizing::after {
   background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
+}
+/* Delay the hover highlight so passing over a divider does not flash it; grabbing shows it at once. */
+.panel-resize-handle:hover::after {
+  transition-delay: 0.3s;
+}
+.panel-resize-handle:focus-visible::after,
+.panel-resize-handle.is-resizing::after {
+  transition-delay: 0s;
 }
 .right-panel-overlay-backdrop {
   display: none;
@@ -3896,8 +3912,15 @@ span.token.table {
     width: var(--sidebar-width, 260px);
     min-width: var(--sidebar-width, 260px);
   }
-  .sidebar-container.sidebar-resizing,
-  .sidebar-container.sidebar-resizing > * {
+  /* Only the panel and its direct children read the live width. Stopping the inherited
+     custom property here keeps a drag frame from restyling the whole subtree (large previews). */
+  .sidebar-container > * > *,
+  .right-panel-container > * > * {
+    --sidebar-width: initial;
+    --right-panel-width: initial;
+  }
+  .sidebar-container.is-resizing,
+  .sidebar-container.is-resizing > * {
     transition: none !important;
   }
 }
@@ -3928,13 +3951,8 @@ span.token.table {
     width: var(--right-panel-width, clamp(360px, 42vw, 640px));
     min-width: 300px;
   }
-  /* Pointer moves update the panel width directly; the committed preview width
-     changes only on release, avoiding full-document reflow on every move. */
-  .right-panel-container.right-panel-resizing > .file-preview-pane {
-    width: var(--right-panel-preview-width);
-  }
-  .right-panel-container.right-panel-resizing,
-  .right-panel-container.right-panel-resizing > * {
+  .right-panel-container.is-resizing,
+  .right-panel-container.is-resizing > * {
     transition: none !important;
   }
   /* The chat header toggle remains reachable in split layout. */

@@ -121,8 +121,13 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
       if (!container.offsetWidth || !container.offsetHeight) return;
       fit.fit();
     };
-    const onResize = terminal.onResize(({ cols, rows }) => {
-      if (connected && !exited && !inputFailed) writer.resize(cols, rows);
+    // A panel drag changes cols every few pixels; each PTY resize makes the shell or TUI redraw.
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+    const onResize = terminal.onResize(() => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (connected && !exited && !inputFailed) writer.resize(terminal.cols, terminal.rows);
+      }, 150);
     });
     const resizeObserver = new ResizeObserver(fitAndResize);
     resizeObserver.observe(container);
@@ -199,6 +204,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
       events?.close();
       void writer.stop();
       resizeObserver.disconnect();
+      clearTimeout(resizeTimer);
       onData.dispose();
       onResize.dispose();
       window.removeEventListener("pagehide", pageHide);

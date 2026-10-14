@@ -25,7 +25,7 @@ test("large source previews bypass the per-line syntax highlighter", () => {
   assert.notEqual(lightweightEnd, -1);
 
   const lightweightSource = source.slice(lightweightStart, lightweightEnd);
-  assert.match(lightweightSource, /useLightweightSource \? sourceLines\.map\(\(line, lineIndex\) =>/);
+  assert.match(lightweightSource, /useLightweightSource \? chunkSourceLines\(sourceLines\.map\(\(line, lineIndex\) =>/);
   assert.match(lightweightSource, /className="file-source-line"/);
   assert.match(lightweightSource, /className="file-source-line-content"/);
   assert.match(lightweightSource, /style=\{FILE_LINE_NUMBER_STYLE\}/);
@@ -33,7 +33,7 @@ test("large source previews bypass the per-line syntax highlighter", () => {
   // The lightweight branch still wins over the syntax highlighter in the JSX.
   const branchStart = source.indexOf(") : useLightweightSource ? (");
   assert.notEqual(branchStart, -1);
-  assert.match(source.slice(branchStart), /className="file-source-view is-lightweight"/);
+  assert.match(source.slice(branchStart), /className=\{wrapLines \? "file-source-view is-lightweight is-wrapped" : "file-source-view is-lightweight"\}/);
   assert.notEqual(source.indexOf("highlightedSource", branchStart), -1);
 });
 
@@ -46,14 +46,23 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
       ["isDelimitedTable", "viewerContent", "sourceLines", "language", "isHtml", "isMarkdown", "hasPreview", "effectiveDisplayMode", "useLightweightSource", "lightweightSourceLines"].includes(declaration.name.getText(file)),
     ),
   ).map((node) => node.getText(file)).join("\n");
+  const chunking = file.statements.filter((node) =>
+    (ts.isFunctionDeclaration(node) && node.name?.text === "chunkSourceLines")
+    || (ts.isVariableStatement(node) && node.declarationList.declarations.some((declaration) => declaration.name.getText(file) === "SOURCE_CHUNK_LINES")),
+  ).map((node) => node.getText(file)).join("\n");
   const { outputText } = ts.transpileModule(`
     return (data, displayMode, hasGitDiff = false, isDeletedDiff = false, wrapLines = false, filePath = "/tmp/file.txt") => {
       const isDelimitedTablePath = (path) => /\.(csv|tsv)$/i.test(path);
       const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
       const SOURCE_HIGHLIGHT_MAX_BYTES = 128 * 1024;
       const FILE_LINE_NUMBER_STYLE = {};
+      ${chunking}
       ${calculations}
-      return lightweightSourceLines;
+      return lightweightSourceLines && lightweightSourceLines.flatMap((chunk) => {
+        // Rows are grouped so the browser can skip offscreen wrapped chunks.
+        if (chunk.props.className !== "file-source-chunk" || chunk.props.children.length > SOURCE_CHUNK_LINES) throw new Error("bad chunk");
+        return chunk.props.children;
+      });
     };
   `, { compilerOptions: { jsx: ts.JsxEmit.React } });
   const render = new Function("React", "useMemo", outputText)(React, (calculate) => calculate());
@@ -95,4 +104,14 @@ test("an explicit diff request bypasses native media viewers", () => {
   assert.match(source, /if \(!data && !\(effectiveDisplayMode === "diff" && hasGitDiff\)\) return null;/);
   assert.match(source, /if \(skipContentLoad\) \{[\s\S]*setLoading\(false\);/);
   assert.match(source, /if \(!skipContentLoad\) void loadContent\(filePath, /);
+});
+
+test("offscreen skipping starts only after the restored layout, with heights stable across modes", async () => {
+  // Skipping before a full layout restored scrollTop against estimated block heights.
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const restore = source.slice(source.indexOf("scrollRestorePendingRef.current = false;"));
+  assert.match(restore, /^scrollRestorePendingRef\.current = false;[\s\S]{0,300}content\.classList\.add\("is-laid-out"\)/);
+  assert.match(css, /\.markdown-file-preview > \* \{ contain: layout; contain-intrinsic-size: auto 4em; \}/);
+  assert.match(css, /\.file-viewer-content\.is-laid-out \.markdown-file-preview > \* \{ content-visibility: auto; \}/);
+  assert.doesNotMatch(css, /^\.markdown-file-preview > \* \{[^}]*content-visibility/m);
 });

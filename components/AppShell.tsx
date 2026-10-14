@@ -313,7 +313,10 @@ export function AppShell() {
   const [chatSplitRatio, setChatSplitRatio] = useState<number>(0.5);
   const chatPanesContainerRef = useRef<HTMLDivElement>(null);
   const isResizingSplitRef = useRef(false);
-  const [chatPanesWidth, setChatPanesWidth] = useState(CHAT_SPLIT_MIN_WIDTH);
+  // Width lives in a ref: a per-pixel state update re-rendered the whole app on every panel-resize frame.
+  const chatPanesWidthRef = useRef(CHAT_SPLIT_MIN_WIDTH);
+  const splitHandleRef = useRef<HTMLDivElement>(null);
+  const [chatPanesWide, setChatPanesWide] = useState(true);
   const openSessionLeaseIds = useMemo(() => {
     if (chatTabs.length === 0) return selectedSession?.id ? [selectedSession.id] : [];
     return chatTabs.flatMap((tab) => (tab.kind === "session" && tab.session ? [tab.session.id] : []));
@@ -1565,7 +1568,7 @@ export function AppShell() {
   }, []);
 
   const handleSplitResizeKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    const bounds = getChatSplitRatioBounds(chatPanesWidth);
+    const bounds = getChatSplitRatioBounds(chatPanesWidthRef.current);
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
       const direction = e.key === "ArrowLeft" ? -1 : 1;
@@ -1574,7 +1577,7 @@ export function AppShell() {
       e.preventDefault();
       setChatSplitRatio(e.key === "Home" ? bounds.min : bounds.max);
     }
-  }, [chatPanesWidth]);
+  }, []);
 
   const primaryTabs = useMemo(() => chatTabsInPane(chatTabs, "primary"), [chatTabs]);
   const secondaryTabs = useMemo(() => chatTabsInPane(chatTabs, "secondary"), [chatTabs]);
@@ -1587,7 +1590,7 @@ export function AppShell() {
     return splitChatTabId ? chatTabs.find((t) => t.id === splitChatTabId) ?? null : null;
   }, [chatTabs, splitChatTabId]);
 
-  const canSplitChat = !isMobile && chatPanesWidth >= CHAT_SPLIT_MIN_WIDTH;
+  const canSplitChat = !isMobile && chatPanesWide;
   const isSplitActive = Boolean(canSplitChat && splitChatTabId && secondaryTab && activeChatTabId !== splitChatTabId);
   isSplitActiveRef.current = isSplitActive;
   const primaryPaneHasFocus = !isSplitActive || activeChatPane === "primary";
@@ -1633,10 +1636,14 @@ export function AppShell() {
     const container = chatPanesContainerRef.current;
     if (!container) return;
     const update = (width: number) => {
-      setChatPanesWidth(width);
+      chatPanesWidthRef.current = width;
+      setChatPanesWide(width >= CHAT_SPLIT_MIN_WIDTH);
       if (width < CHAT_SPLIT_MIN_WIDTH) return;
       const bounds = getChatSplitRatioBounds(width);
       setChatSplitRatio((ratio) => Math.max(bounds.min, Math.min(bounds.max, ratio)));
+      // The width is not state, so keep the split handle's aria range current here.
+      splitHandleRef.current?.setAttribute("aria-valuemin", String(Math.round(bounds.min * 100)));
+      splitHandleRef.current?.setAttribute("aria-valuemax", String(Math.round(bounds.max * 100)));
     };
     update(container.getBoundingClientRect().width);
     const observer = new ResizeObserver(([entry]) => update(entry.contentRect.width));
@@ -2732,7 +2739,7 @@ export function AppShell() {
         aria-label="Pi Web"
         aria-hidden={isMobile && !sidebarOpen ? true : undefined}
         inert={isMobile && !sidebarOpen ? true : undefined}
-        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
+        className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
           "--panel-transition": `${getPanelTransitionMs(sidebarResizer.width)}ms`,
@@ -2752,7 +2759,7 @@ export function AppShell() {
         <div
           {...sidebarResizer.separatorProps}
           aria-controls="session-sidebar"
-          className={`panel-resize-handle sidebar-resize-handle${sidebarResizer.isResizing ? " is-resizing" : ""}`}
+          className="panel-resize-handle sidebar-resize-handle"
           data-resize-handle="sidebar"
           title={`${translate("layout.resizeSidebar")}: ${translate("layout.resizeHint")}`}
         />
@@ -3314,12 +3321,13 @@ export function AppShell() {
                 {/* Split Resizer */}
                 {isSplitActive && (
                   <div
+                    ref={splitHandleRef}
                     className="split-chat-resize-handle"
                     style={{ gridColumn: 2, gridRow: 1 }}
                     role="separator"
                     aria-orientation="vertical"
-                    aria-valuemin={Math.round(getChatSplitRatioBounds(chatPanesWidth).min * 100)}
-                    aria-valuemax={Math.round(getChatSplitRatioBounds(chatPanesWidth).max * 100)}
+                    aria-valuemin={Math.round(getChatSplitRatioBounds(chatPanesWidthRef.current).min * 100)}
+                    aria-valuemax={Math.round(getChatSplitRatioBounds(chatPanesWidthRef.current).max * 100)}
                     aria-valuenow={Math.round(chatSplitRatio * 100)}
                     tabIndex={0}
                     title={translate("chatTabs.splitView", { defaultValue: "调整分屏大小" })}
@@ -3367,7 +3375,7 @@ export function AppShell() {
         <div
           {...rightPanelResizer.separatorProps}
           aria-controls="file-panel"
-          className={`panel-resize-handle right-panel-resize-handle${rightPanelResizer.isResizing ? " is-resizing" : ""}`}
+          className="panel-resize-handle right-panel-resize-handle"
           data-resize-handle="right-panel"
           title={`${translate("layout.resizeFilePanel")}: ${translate("layout.resizeHint")}`}
         />
@@ -3379,10 +3387,9 @@ export function AppShell() {
         id="file-panel"
         aria-hidden={!rightPanelOpen}
         inert={!rightPanelOpen ? true : undefined}
-        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelResizer.isResizing ? " right-panel-resizing" : ""}`}
+        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
         style={{
           "--right-panel-width": `${rightPanelResizer.width}px`,
-          "--right-panel-preview-width": `${rightPanelResizer.width}px`,
           "--panel-transition": `${getPanelTransitionMs(rightPanelResizer.width)}ms`,
           display: "flex",
           flexDirection: "column",
