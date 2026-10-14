@@ -8,6 +8,7 @@ interface OpenFileTabInput {
   modeHint?: "diff";
   /** PDF page to open, from a `#page=` link fragment. */
   page?: number;
+  preview?: boolean;
   sourceSessionId?: string | null;
   tabId: string;
 }
@@ -15,7 +16,7 @@ interface OpenFileTabInput {
 export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
   const existing = tabs.find((tab) => tab.id === input.tabId);
   if (!existing) {
-    return [...tabs, {
+    const nextTab: Tab = {
       id: input.tabId,
       label: input.fileName,
       filePath: input.filePath,
@@ -29,8 +30,12 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
         scrollTop: 0,
         scrollLeft: 0,
       } : undefined,
+      preview: input.preview ?? false,
       viewerRevision: 0,
-    }];
+    };
+    const previewIndex = input.preview ? tabs.findIndex((tab) => tab.preview) : -1;
+    return previewIndex === -1 ? [...tabs, nextTab]
+      : tabs.map((tab, index) => index === previewIndex ? nextTab : tab);
   }
 
   const sourceChanged = Boolean(
@@ -43,11 +48,13 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
   // page lives in the iframe URL. A plain open (no fragment) clears any page the tab
   // was left on, so opening the same PDF from the file tree returns to page 1.
   const pageChanged = (input.page ?? undefined) !== existing.pdfPage;
-  if (!sourceChanged && !cwdChanged && !input.modeHint && !pageChanged) return tabs;
+  const pinPreview = existing.preview && !input.preview;
+  if (!sourceChanged && !cwdChanged && !input.modeHint && !pageChanged && !pinPreview) return tabs;
 
   return tabs.map((tab) => {
     if (tab.id !== input.tabId) return tab;
     const next: Tab = { ...tab };
+    if (pinPreview) next.preview = false;
     if (sourceChanged) next.sourceSessionId = input.sourceSessionId;
     if (cwdChanged) next.cwd = input.cwd;
     if (pageChanged) {
@@ -75,49 +82,6 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
   });
 }
 
-export interface FileWorkspaceState {
-  tabs: Tab[];
-  activeTabId: string | null;
-  open: boolean;
-}
-
-// A parked workspace keeps the generation its tabs were live in: the viewer that
-// unmounts after the switch reports under it, so its state lands in these tabs
-// even when the workspace switched to has the same file open.
-export interface ParkedFileWorkspace extends FileWorkspaceState {
-  generation: number;
-}
-
-export function switchFileWorkspace(
-  states: Map<string, ParkedFileWorkspace>,
-  currentKey: string | null,
-  nextKey: string,
-  current: FileWorkspaceState,
-  generation: number,
-): FileWorkspaceState {
-  if (currentKey === nextKey) return current;
-  if (currentKey) states.set(currentKey, { ...current, generation });
-  const parked = states.get(nextKey);
-  if (!parked) return { tabs: [], activeTabId: null, open: false };
-  // Live tabs are never parked: the map holds only the workspaces left.
-  states.delete(nextKey);
-  return { tabs: parked.tabs, activeTabId: parked.activeTabId, open: parked.open };
-}
-
-export function saveParkedFileViewerState(
-  states: Map<string, ParkedFileWorkspace>,
-  generation: number,
-  tabId: string,
-  viewerRevision: number,
-  viewerState: FileViewerState,
-): void {
-  for (const [key, workspace] of states) {
-    if (workspace.generation !== generation) continue;
-    states.set(key, { ...workspace, tabs: saveFileViewerState(workspace.tabs, tabId, viewerRevision, viewerState) });
-    return;
-  }
-}
-
 export function saveFileViewerState(
   tabs: Tab[],
   tabId: string,
@@ -130,6 +94,117 @@ export function saveFileViewerState(
   const next = [...tabs];
   next[index] = { ...next[index], viewerState };
   return next;
+}
+
+export function pinFileTab(tabs: Tab[], tabId: string): Tab[] {
+  if (!tabs.some((tab) => tab.id === tabId && tab.preview)) return tabs;
+  return tabs.map((tab) => tab.id === tabId ? { ...tab, preview: false } : tab);
+}
+
+export const FILE_TABS_KEY = "pi-file-tabs";
+
+/** File tabs are one list for the whole window, independent of the sidebar's project. */
+export interface StoredFileTabs {
+  tabs: Tab[];
+  activeTabId: string | null;
+  open: boolean;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isOffset(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function readViewerState(value: unknown): FileViewerState | undefined {
+  if (!isRecord(value) || !["source", "preview", "diff"].includes(value.displayMode as string)
+    || typeof value.wrapLines !== "boolean" || !isOffset(value.scrollTop) || !isOffset(value.scrollLeft)
+    || (value.loadedBytes !== undefined && !isOffset(value.loadedBytes))) return undefined;
+  const scrollByMode: FileViewerState["scrollByMode"] = {};
+  if (value.scrollByMode !== undefined) {
+    if (!isRecord(value.scrollByMode)) return undefined;
+    for (const mode of ["source", "preview", "diff"] as const) {
+      const offset = value.scrollByMode[mode];
+      if (offset === undefined) continue;
+      if (!isRecord(offset) || !isOffset(offset.scrollTop) || !isOffset(offset.scrollLeft)) return undefined;
+      scrollByMode[mode] = { scrollTop: offset.scrollTop, scrollLeft: offset.scrollLeft };
+    }
+  }
+  return {
+    displayMode: value.displayMode as FileViewerState["displayMode"],
+    wrapLines: value.wrapLines,
+    scrollTop: value.scrollTop,
+    scrollLeft: value.scrollLeft,
+    ...(value.loadedBytes !== undefined ? { loadedBytes: value.loadedBytes as number } : {}),
+    ...(value.scrollByMode !== undefined ? { scrollByMode } : {}),
+  };
+}
+
+// Whitelist metadata: never persist file contents, even if a caller adds fields.
+export function serializeFileTabs(state: StoredFileTabs): string {
+  return JSON.stringify({
+    version: 2,
+    activeTabId: state.activeTabId,
+    open: state.open,
+    tabs: state.tabs.map((tab) => ({
+      id: tab.id, label: tab.label, filePath: tab.filePath, cwd: tab.cwd,
+      sourceSessionId: tab.sourceSessionId, initialDisplayMode: tab.initialDisplayMode,
+      pdfPage: tab.pdfPage, preview: tab.preview, viewerRevision: tab.viewerRevision,
+      viewerState: readViewerState(tab.viewerState),
+    })),
+  });
+}
+
+function readStoredTab(value: unknown): Tab | null {
+  if (!isRecord(value) || typeof value.filePath !== "string" || !value.filePath
+    || value.id !== `file:${value.filePath}` || typeof value.label !== "string"
+    || (value.cwd !== undefined && typeof value.cwd !== "string")
+    || (value.sourceSessionId !== undefined && value.sourceSessionId !== null && typeof value.sourceSessionId !== "string")
+    || (value.preview !== undefined && typeof value.preview !== "boolean")
+    || (value.initialDisplayMode !== undefined && !["source", "preview", "diff"].includes(value.initialDisplayMode as string))
+    || (value.pdfPage !== undefined && (!isOffset(value.pdfPage) || !Number.isInteger(value.pdfPage) || value.pdfPage < 1))
+    || (value.viewerRevision !== undefined && (!isOffset(value.viewerRevision) || !Number.isInteger(value.viewerRevision)))
+    || (value.viewerState !== undefined && !readViewerState(value.viewerState))) return null;
+  return {
+    id: value.id, label: value.label, filePath: value.filePath,
+    cwd: value.cwd as Tab["cwd"], sourceSessionId: value.sourceSessionId as Tab["sourceSessionId"],
+    preview: value.preview as Tab["preview"], initialDisplayMode: value.initialDisplayMode as Tab["initialDisplayMode"],
+    pdfPage: value.pdfPage as Tab["pdfPage"], viewerRevision: value.viewerRevision as Tab["viewerRevision"],
+    viewerState: readViewerState(value.viewerState),
+  };
+}
+
+/** Malformed tabs are dropped one by one; an unknown payload restores nothing. */
+export function restoreFileTabs(raw: string | null): StoredFileTabs {
+  const empty: StoredFileTabs = { tabs: [], activeTabId: null, open: false };
+  try {
+    const saved: unknown = JSON.parse(raw ?? "null");
+    if (!isRecord(saved) || saved.version !== 2 || !Array.isArray(saved.tabs)) return empty;
+    const tabs: Tab[] = [];
+    for (const value of saved.tabs) {
+      const tab = readStoredTab(value);
+      if (!tab || tabs.some((existing) => existing.id === tab.id)) continue;
+      // Only one preview tab: later ones are kept as pinned.
+      tabs.push(tab.preview && tabs.some((existing) => existing.preview) ? { ...tab, preview: false } : tab);
+    }
+    const activeTabId = tabs.some((tab) => tab.id === saved.activeTabId) ? saved.activeTabId as string : null;
+    return { tabs, activeTabId, open: activeTabId !== null && saved.open === true };
+  } catch {
+    return empty;
+  }
+}
+
+export function mergeFileViewerStates(
+  tabs: Tab[],
+  states: Map<string, { viewerRevision: number; viewerState: FileViewerState }>,
+): Tab[] {
+  return tabs.map((tab) => {
+    const latest = states.get(tab.id);
+    return latest && latest.viewerRevision === (tab.viewerRevision ?? 0)
+      ? { ...tab, viewerState: latest.viewerState } : tab;
+  });
 }
 
 export function getAdjacentTabId(tabs: Tab[], closingId: string): string | null {

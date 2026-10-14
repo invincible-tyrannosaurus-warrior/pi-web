@@ -5,47 +5,43 @@ import test from "node:test";
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 
 function fileContentBlock() {
-  const start = source.indexOf("{/* Only the active viewer");
+  const start = source.indexOf("{/* The active viewer plus a few recent");
   const end = source.indexOf("</div>\n      </div>\n    </div>", start);
   assert.notEqual(start, -1, "file content comment not found");
   assert.notEqual(end, -1, "end of file content block not found");
   return source.slice(start, end);
 }
 
-test("only the active file tab mounts a FileViewer", () => {
+test("recent file tabs stay mounted but hidden, capped", () => {
   const block = fileContentBlock();
-  assert.match(block, /activeFileTab\?\.filePath \? \(/);
-  assert.doesNotMatch(block, /fileTabs\.map\(/);
+  assert.match(source, /const MOUNTED_FILE_VIEWERS = 3;/);
+  assert.match(source, /\[activeFileTabId, \.\.\.recentFileTabIdsRef\.current\][\s\S]*?\.slice\(0, MOUNTED_FILE_VIEWERS\)/);
+  assert.match(block, /fileTabs\.map\(/);
+  assert.match(block, /!mountedFileTabIds\.has\(tab\.id\)/);
+  assert.match(block, /inert=\{active \? undefined : true\}/);
+  assert.match(block, /visibility: "hidden", contentVisibility: "hidden"/);
   assert.equal(block.match(/<FileViewer/g)?.length, 1);
 });
 
-test("the active viewer restores tab state and saves it with a revision", () => {
+test("each viewer restores tab state and saves it with a revision", () => {
   const block = fileContentBlock();
-  assert.match(block, /key=\{`\$\{fileWorkspaceGeneration\}:\$\{activeFileTab\.id\}:\$\{activeFileTab\.viewerRevision \?\? 0\}`\}/);
-  assert.match(block, /cwd=\{activeFileTab\.cwd \?\? activeCwd \?\? undefined\}/);
-  assert.match(block, /initialState=\{activeFileTab\.viewerState\}/);
-  assert.match(block, /handleFileViewerStateChange\(\s*fileWorkspaceGeneration,\s*activeFileTab\.id,\s*activeFileTab\.viewerRevision \?\? 0,/);
-  assert.match(block, /onMentionLines=\{rightPanelOpen \? handleFileLineMention : undefined\}/);
+  assert.match(block, /key=\{`\$\{tab\.id\}:\$\{tab\.viewerRevision \?\? 0\}`\}/);
+  assert.match(block, /cwd=\{tab\.cwd \?\? activeCwd \?\? undefined\}/);
+  assert.match(block, /initialState=\{tab\.viewerState\}/);
+  assert.match(block, /handleFileViewerStateChange\(\s*tab\.id,\s*tab\.viewerRevision \?\? 0,/);
+  assert.match(block, /onMentionLines=\{rightPanelOpen && active \? handleFileLineMention : undefined\}/);
 });
 
-test("a project switch parks the file tabs and brings back the target's", () => {
+test("a project switch leaves the file tabs alone", () => {
   const start = source.indexOf("const handleCwdChange = useCallback(");
   const body = source.slice(start, source.indexOf("const handleSelectSession = useCallback(", start));
-  assert.match(body, /changeFileWorkspace\(currentProject, newProject\)/);
-  assert.doesNotMatch(body, /setFileTabs\(\[\]\)/);
+  assert.doesNotMatch(body, /setFileTabs|setActiveFileTabId|FileWorkspace/);
 });
 
 test("choosing a chat leaves the file tabs alone", () => {
   const start = source.indexOf("const handleSelectSession = useCallback(");
   const body = source.slice(start, source.indexOf("const handleNewSession = useCallback(", start));
   assert.doesNotMatch(body, /changeFileWorkspace|setFileTabs|setActiveFileTabId|setRightPanelOpen/);
-});
-
-test("a viewer report from a workspace just left is parked, not applied to live tabs", () => {
-  assert.match(source, /if \(generation !== fileWorkspaceGenerationRef\.current\) \{\s*saveParkedFileViewerState\(/);
-  const changeStart = source.indexOf("const changeFileWorkspace = useCallback(");
-  const changeBody = source.slice(changeStart, source.indexOf("}, [activeFileTabId, fileTabs, rightPanelOpen]);", changeStart));
-  assert.doesNotMatch(changeBody, /setTerminalTabs/);
 });
 
 test("file mentions carry their source cwd into the focused chat", () => {
@@ -55,7 +51,7 @@ test("file mentions carry their source cwd into the focused chat", () => {
 });
 
 test("closing the file panel pauses the active viewer watcher", () => {
-  assert.match(source, /watchEnabled=\{fileWatchEnabled\}/);
+  assert.match(source, /watchEnabled=\{fileWatchEnabled && active\}/);
   assert.match(source, /setFileWatchEnabled\(false\)/);
   assert.match(source, /addEventListener\("transitionend", onTransitionEnd\)/);
 });

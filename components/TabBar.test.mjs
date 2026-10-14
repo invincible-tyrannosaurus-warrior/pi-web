@@ -117,6 +117,14 @@ test("keeps tab roles, keyboard tabindexes, and close controls", () => {
   assert.equal([...html.matchAll(/class="file-tab-close"/g)].length, 2);
 });
 
+test("preview tabs reuse the dotted underline convention and show the pin hint", () => {
+  const html = render([{ id: "file:/repo/a.ts", label: "a.ts", filePath: "/repo/a.ts", preview: true }]);
+  assert.match(html, /text-decoration:underline dotted/);
+  assert.match(html, /Preview tab, double-click to keep open/);
+  assert.doesNotMatch(html, /font-style:italic|font-weight:/);
+  assert.match(source, /onDoubleClick=\{\(\) => \{ if \(tab\.preview\) onPinTab\?\.\(tab\.id\); \}\}/);
+});
+
 test("keeps the active tab visible and restores focus after closing", () => {
   assert.match(source, /scrollIntoView\(\{ block: "nearest", inline: "nearest" \}\)/);
   assert.match(source, /setHoveredClose\(null\);\s+focusAfterCloseRef\.current = true;\s+onCloseTab\(tab\.id\)/);

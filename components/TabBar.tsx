@@ -17,6 +17,7 @@ export interface Tab {
   initialDisplayMode?: FileViewerDisplayMode;
   /** PDF page to open, carried from a `#page=` link fragment. */
   pdfPage?: number;
+  preview?: boolean;
   viewerState?: FileViewerState;
   viewerRevision?: number;
 }
@@ -25,10 +26,11 @@ interface Props {
   tabs: Tab[];
   activeTabId: string;
   onSelectTab: (id: string) => void;
+  onPinTab?: (id: string) => void;
   onCloseTab: (id: string) => void;
 }
 
-export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
+export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab }: Props) {
   const { t } = useI18n();
   const [hoveredClose, setHoveredClose] = useState<string | null>(null);
   const activeTabRef = useRef<HTMLDivElement>(null);
@@ -84,6 +86,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               }
             }}
             onClick={() => onSelectTab(tab.id)}
+            onDoubleClick={() => { if (tab.preview) onPinTab?.(tab.id); }}
             onMouseDown={(e) => {
               if (e.button === 1) e.preventDefault();
             }}
@@ -128,9 +131,13 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 flex: 1,
+                textDecoration: tab.preview ? "underline dotted" : undefined,
+                textDecorationColor: "var(--text-dim)",
+                textUnderlineOffset: 5,
+                paddingBlock: tab.preview ? 5 : undefined,
                 lineHeight: 1.3,
               }}
-              title={tab.filePath}
+              title={tab.preview ? `${tab.filePath} · ${t("files.previewTabHint")}` : tab.filePath}
             >
               {displayLabel}
             </span>

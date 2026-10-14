@@ -27,13 +27,14 @@ for (const [name, nextName] of [
     const block = functionBlock(name, nextName);
     const guard = block.indexOf("if (!watchEnabled) return;");
     const eventSource = block.indexOf("new EventSource", guard);
-    const synchronize = block.indexOf("synchronize(reconnecting);", eventSource);
+    const synchronize = block.indexOf("synchronize(seen !== undefined && seen !== version);", eventSource);
 
     assert.ok(guard >= 0, "watchEnabled guard missing");
     assert.ok(eventSource > guard, "EventSource created before watchEnabled guard");
     assert.ok(synchronize > eventSource, "connected synchronization missing");
-    // Only a reconnect reloads the element; the first connect would load the file twice.
+    // The first connect would load the file twice; a reconnect or resumed watch reloads only a changed file.
     assert.match(block, /if \(reload\) setBust/);
+    assert.match(block, /seenVersionRef\.current = d\.version \?\? null;/);
     assert.match(block, /\}, \[[^\]]*watchEnabled[^\]]*\]\);/);
   });
 }
@@ -45,19 +46,20 @@ test("TextFileViewer compares the connected version before refreshing its snapsh
   assert.match(block, /if \(esRef\.current !== es \|\| connectedVersion === contentVersionRef\.current\) return;/);
   assert.match(block, /connectedVersion === contentVersionRef\.current\) return;[\s\S]*loadContent\(filePath, [\s\S]*fetchGitDiff\(filePath\)/);
   assert.match(block, /es\.addEventListener\("change", synchronize\)/);
-  assert.match(block, /if \(reconnecting\) void fetchGitDiff\(filePath\)/);
+  assert.match(block, /if \(reconnecting \|\| diffStaleRef\.current\) \{[\s\S]*?void fetchGitDiff\(filePath\)/);
+  // Bursts of change events reload once; paused viewers skip refresh bumps and catch up on resume.
+  assert.match(block, /changeTimer = setTimeout\([\s\S]*?WATCH_CHANGE_DEBOUNCE_MS\)/);
+  assert.match(block, /if \(diffRequestedRef\.current && !watchEnabledRef\.current\) \{\s*diffStaleRef\.current = true;/);
 });
 
-test("TextFileViewer keeps paginated content on one file version and restores loaded depth", () => {
+test("TextFileViewer publishes each multi-chunk load once and restores loaded depth", () => {
+  // The chunk loop itself is covered by lib/text-chunk-reader.test.mjs.
   const block = functionBlock("TextFileViewer", null);
-  assert.match(block, /contentVersionRef\.current !== next\.version/);
-  assert.match(block, /contentNextOffsetRef\.current !== effectiveOffset/);
-  assert.match(block, /effectiveOffset = 0;[\s\S]*next = await readAt\(0\)/);
-  assert.match(block, /effectiveOffset && next\.error === "Invalid text preview offset"/);
-  assert.match(block, /viewerStateRef\.current\.loadedBytes = next\.nextOffset/);
+  assert.match(block, /await readTextChunks\(readAt, \{/);
+  assert.match(block, /startOffset: startOffset === contentNextOffsetRef\.current \? startOffset : 0/);
+  assert.match(block, /viewerStateRef\.current\.loadedBytes = chunk\.nextOffset/);
   assert.match(block, /loadContent\(filePath, Math\.max\(initialLoadedBytes, autoLoadBytes\)\)/);
   assert.match(block, /active = false;[\s\S]*contentRequestRef\.current \+= 1/);
-  assert.match(block, /while \(chunk\?\.truncated && chunk\.nextOffset < minBytes\)/);
 });
 
 test("TextFileViewer does not render a truncated document as a preview", () => {

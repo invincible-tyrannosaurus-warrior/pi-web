@@ -31,7 +31,7 @@ import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import type { ContextBreakdown } from "@/lib/context-breakdown";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
-import { getAdjacentTabId, openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
+import { FILE_TABS_KEY, getAdjacentTabId, mergeFileViewerStates, openFileTab, pinFileTab, restoreFileTabs, serializeFileTabs, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel } from "./SettingsPanel";
 import { SubagentIcon } from "./SubagentIcon";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
@@ -125,6 +125,7 @@ const AGENT_PANEL_WIDTH = 420;
 // pi's built-in tools that never change a file; any other tool may (#1144).
 const READ_ONLY_TOOL_NAMES = new Set(PRESET_READ_ONLY);
 const EXPLORER_REFRESH_MS = 1000;
+const MOUNTED_FILE_VIEWERS = 3;
 const BRANCH_PANEL_WIDTH = 520;
 const SESSION_PANEL_WIDTH = 400;
 const DRAFT_TABS_STORAGE_KEY = "pi-chat-draft-tabs";
@@ -913,18 +914,15 @@ export function AppShell() {
     };
   }, [activeTopPanel, closeTopPanel]);
 
-  // Files unmount when inactive; workspace terminals stay mounted until closed.
+  // File tabs are one list for the window: the panel never follows the sidebar's project.
+  // A few recent viewers stay mounted (mountedFileTabIds); workspace terminals stay mounted until closed.
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
-  // File tabs of workspaces left behind (in page memory only, no file contents).
-  const fileWorkspaceStatesRef = useRef(new Map<string, ParkedFileWorkspace>());
-  // Bumped on every workspace switch. The active viewer reports its state as it
-  // unmounts, tagged with the generation it rendered in, so a report from the
-  // workspace just left cannot land in a same-path tab of the one switched to.
-  const [fileWorkspaceGeneration, setFileWorkspaceGeneration] = useState(0);
-  const fileWorkspaceGenerationRef = useRef(0);
+  const latestFileViewerStatesRef = useRef(new Map<string, { viewerRevision: number; viewerState: FileViewerState }>());
+  const filePersistenceRef = useRef({ tabs: fileTabs, activeTabId: activeFileTabId, open: rightPanelOpen });
+  filePersistenceRef.current = { tabs: fileTabs, activeTabId: activeFileTabId, open: rightPanelOpen };
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
-  const [terminalsRestored, setTerminalsRestored] = useState(false);
+  const [panelTabsRestored, setPanelTabsRestored] = useState(false);
   const panelTabs = useMemo<Tab[]>(() => [
     ...fileTabs,
     ...terminalTabs.map((tab) => ({
@@ -939,17 +937,21 @@ export function AppShell() {
   useEffect(() => {
     try {
       const saved = restoreTerminalTabs(window.sessionStorage.getItem(TERMINAL_TABS_KEY));
+      const files = restoreFileTabs(window.sessionStorage.getItem(FILE_TABS_KEY));
       setTerminalTabs(saved.tabs);
-      if (saved.activeId) {
-        setActiveFileTabId(saved.activeId);
-        setRightPanelOpen(saved.open);
+      setFileTabs(files.tabs);
+      // An active terminal keeps the panel; otherwise the active file tab does.
+      const active = saved.activeId ? saved : { activeId: files.activeTabId, open: files.open };
+      if (active.activeId) {
+        setActiveFileTabId(active.activeId);
+        setRightPanelOpen(active.open);
       }
     } catch { /* storage is optional */ }
-    setTerminalsRestored(true);
+    setPanelTabsRestored(true);
   }, []);
 
   useEffect(() => {
-    if (!terminalsRestored) return;
+    if (!panelTabsRestored) return;
     try {
       window.sessionStorage.setItem(TERMINAL_TABS_KEY, JSON.stringify({
         tabs: terminalTabs.map(({ id, cwd }) => ({ id, cwd })),
@@ -957,39 +959,44 @@ export function AppShell() {
         open: rightPanelOpen,
       }));
     } catch { /* storage is optional */ }
-  }, [terminalTabs, activeFileTabId, rightPanelOpen, terminalsRestored]);
+  }, [terminalTabs, activeFileTabId, rightPanelOpen, panelTabsRestored]);
+
+  const persistFileTabs = useCallback(() => {
+    if (!panelTabsRestored) return;
+    const current = filePersistenceRef.current;
+    try {
+      window.sessionStorage.setItem(FILE_TABS_KEY, serializeFileTabs({
+        ...current,
+        tabs: mergeFileViewerStates(current.tabs, latestFileViewerStatesRef.current),
+      }));
+    } catch { /* storage is optional */ }
+  }, [panelTabsRestored]);
+
+  useEffect(() => {
+    if (!panelTabsRestored) return;
+    for (const tabId of latestFileViewerStatesRef.current.keys()) {
+      if (!fileTabs.some((tab) => tab.id === tabId)) latestFileViewerStatesRef.current.delete(tabId);
+    }
+    persistFileTabs();
+  }, [fileTabs, activeFileTabId, rightPanelOpen, panelTabsRestored, persistFileTabs]);
+
+  useEffect(() => {
+    // Re-register after child mounts so every viewer reports before we persist.
+    window.addEventListener("pagehide", persistFileTabs);
+    return () => window.removeEventListener("pagehide", persistFileTabs);
+  }, [persistFileTabs, fileTabs, activeFileTabId]);
 
   const handleFileViewerStateChange = useCallback((
-    generation: number,
     tabId: string,
     viewerRevision: number,
     viewerState: FileViewerState,
   ) => {
-    if (generation !== fileWorkspaceGenerationRef.current) {
-      saveParkedFileViewerState(fileWorkspaceStatesRef.current, generation, tabId, viewerRevision, viewerState);
-      return;
+    const liveTab = filePersistenceRef.current.tabs.find((tab) => tab.id === tabId);
+    if (liveTab && (liveTab.viewerRevision ?? 0) === viewerRevision) {
+      latestFileViewerStatesRef.current.set(tabId, { viewerRevision, viewerState });
     }
     setFileTabs((prev) => saveFileViewerState(prev, tabId, viewerRevision, viewerState));
   }, []);
-
-  // Park this workspace's file tabs and bring back the target's. Terminal tabs
-  // span workspaces and keep control of the panel while one is active.
-  const changeFileWorkspace = useCallback((currentKey: string | null, nextKey: string) => {
-    if (currentKey === nextKey) return;
-    const activeFileId = activeFileTabId?.startsWith("file:") ? activeFileTabId : null;
-    const next = switchFileWorkspace(fileWorkspaceStatesRef.current, currentKey, nextKey, {
-      tabs: fileTabs,
-      activeTabId: activeFileId,
-      open: rightPanelOpen && Boolean(activeFileId),
-    }, fileWorkspaceGenerationRef.current);
-    fileWorkspaceGenerationRef.current += 1;
-    setFileWorkspaceGeneration(fileWorkspaceGenerationRef.current);
-    setFileTabs(next.tabs);
-    if (!activeFileTabId || activeFileId) {
-      setActiveFileTabId(next.activeTabId);
-      setRightPanelOpen(next.open);
-    }
-  }, [activeFileTabId, fileTabs, rightPanelOpen]);
 
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
   const getFocusedChatCwd = useCallback(() => {
@@ -1027,6 +1034,7 @@ export function AppShell() {
 
   const initialSessionId = initialNavigation.sessionId;
   const activeProjectKeyRef = useRef<string | null>(null);
+
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
   const suppressCwdBumpRef = useRef(false);
 
@@ -1129,14 +1137,8 @@ export function AppShell() {
     setSystemTools(null);
     setSystemInfoLoading(false);
     setActiveTopPanel(null);
-    if (currentProject !== newProject) {
-      // File tabs are keyed by absolute path, so each project keeps its own set:
-      // park the previous one's and bring back this one's. Same-project worktree
-      // switches keep them.
-      changeFileWorkspace(currentProject, newProject);
-    }
     router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
-  }, [activeCwd, changeFileWorkspace, newSessionCwd, router, selectedSession]);
+  }, [activeCwd, newSessionCwd, router, selectedSession]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number, pinned = false, inPlace = false) => {
     setSearchTarget(entryId ? { sessionId: session.id, entryId, blockIndex } : null);
@@ -1926,7 +1928,7 @@ export function AppShell() {
   const handleOpenFile = useCallback((
     filePath: string,
     fileName: string,
-    options?: { sourceSessionId?: string | null; modeHint?: "diff"; cwd?: string; page?: number },
+    options?: { sourceSessionId?: string | null; modeHint?: "diff"; cwd?: string; page?: number; preview?: boolean },
   ) => {
     const sourceSessionId = options?.sourceSessionId;
     const modeHint = options?.modeHint;
@@ -1937,6 +1939,7 @@ export function AppShell() {
       cwd: options?.cwd ?? activeCwd ?? undefined,
       modeHint,
       sourceSessionId,
+      preview: options?.preview,
       ...(options?.page !== undefined ? { page: options.page } : {}),
       tabId,
     }));
@@ -2265,6 +2268,17 @@ export function AppShell() {
   }, [projectTrustBusy, projectTrustCwd]);
 
   const activeFileTab = fileTabs.find((tab) => tab.id === activeFileTabId) ?? null;
+  // Recently viewed file tabs stay mounted but hidden, so switching back skips the refetch and the
+  // full re-render of a large preview. Capped because each one keeps its whole DOM in memory.
+  const recentFileTabIdsRef = useRef<string[]>([]);
+  const mountedFileTabIds = useMemo(() => {
+    const open = new Set(fileTabs.flatMap((tab) => tab.filePath ? [tab.id] : []));
+    const next = [activeFileTabId, ...recentFileTabIdsRef.current]
+      .filter((id, index, ids): id is string => id != null && open.has(id) && ids.indexOf(id) === index)
+      .slice(0, MOUNTED_FILE_VIEWERS);
+    recentFileTabIdsRef.current = next;
+    return new Set(next);
+  }, [activeFileTabId, fileTabs]);
   const handleActiveFileOpen = useCallback((filePath: string, page?: number) => {
     handleOpenFile(filePath, getFileName(filePath), {
       sourceSessionId: activeFileTab?.sourceSessionId,
@@ -3423,6 +3437,7 @@ export function AppShell() {
               tabs={panelTabs}
               activeTabId={activeFileTabId ?? ""}
               onSelectTab={setActiveFileTabId}
+              onPinTab={(tabId) => setFileTabs((tabs) => pinFileTab(tabs, tabId))}
               onCloseTab={handleCloseFileTab}
             />
           </div>
@@ -3448,30 +3463,41 @@ export function AppShell() {
           </button>
         </div>
 
-        {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
-        <div className="file-preview-pane" style={{ flex: 1, minHeight: 0, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
-          {activeFileTab?.filePath ? (
-            <FileViewer
-              key={`${fileWorkspaceGeneration}:${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
-              filePath={activeFileTab.filePath}
-              cwd={activeFileTab.cwd ?? activeCwd ?? undefined}
-              sourceSessionId={activeFileTab.sourceSessionId}
-              gitRefreshKey={explorerRefreshKey}
-              initialDisplayMode={activeFileTab.initialDisplayMode}
-              initialState={activeFileTab.viewerState}
-              watchEnabled={fileWatchEnabled}
-              pdfPage={activeFileTab.pdfPage}
-              onStateChange={(viewerState) => handleFileViewerStateChange(
-                fileWorkspaceGeneration,
-                activeFileTab.id,
-                activeFileTab.viewerRevision ?? 0,
-                viewerState,
-              )}
-              onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
-              onAtMention={handleAtMention}
-              onOpenFile={handleActiveFileOpen}
-            />
-          ) : !terminalTabs.some((tab) => tab.id === activeFileTabId) ? (
+        {/* The active viewer plus a few recent ones are mounted; evicted tabs save their state on unmount and restore it on activation. */}
+        <div className="file-preview-pane" style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
+          {fileTabs.map((tab) => {
+            if (!tab.filePath || !mountedFileTabIds.has(tab.id)) return null;
+            const active = tab.id === activeFileTabId;
+            return (
+              // content-visibility: hidden skips layout but keeps the scroll position, unlike display: none.
+              <div
+                key={`${tab.id}:${tab.viewerRevision ?? 0}`}
+                aria-hidden={active ? undefined : true}
+                inert={active ? undefined : true}
+                style={{ position: "absolute", inset: 0, ...(active ? null : { visibility: "hidden", contentVisibility: "hidden" }) }}
+              >
+                <FileViewer
+                  filePath={tab.filePath}
+                  cwd={tab.cwd ?? activeCwd ?? undefined}
+                  sourceSessionId={tab.sourceSessionId}
+                  gitRefreshKey={explorerRefreshKey}
+                  initialDisplayMode={tab.initialDisplayMode}
+                  initialState={tab.viewerState}
+                  watchEnabled={fileWatchEnabled && active}
+                  pdfPage={tab.pdfPage}
+                  onStateChange={(viewerState) => handleFileViewerStateChange(
+                    tab.id,
+                    tab.viewerRevision ?? 0,
+                    viewerState,
+                  )}
+                  onMentionLines={rightPanelOpen && active ? handleFileLineMention : undefined}
+                  onAtMention={handleAtMention}
+                  onOpenFile={handleActiveFileOpen}
+                />
+              </div>
+            );
+          })}
+          {!activeFileTab?.filePath && !terminalTabs.some((tab) => tab.id === activeFileTabId) ? (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
                {translate("files.noneOpen")}
             </div>

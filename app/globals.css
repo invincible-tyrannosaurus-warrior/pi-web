@@ -2598,6 +2598,54 @@ pre, code {
   font-size: 11px;
 }
 
+/* In-file find (components/FileFindBar.tsx), floating under the viewer toolbar. */
+.file-find-bar {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 24px);
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-md);
+  background: var(--bg-panel);
+  box-shadow: var(--ui-shadow-popover);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+.file-find-bar input {
+  width: 200px;
+  min-width: 80px;
+  flex: 1 1 auto;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.3;
+}
+.file-find-status {
+  padding: 0 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+::highlight(file-find) {
+  background-color: color-mix(in srgb, var(--warning, #d9a400) 35%, transparent);
+}
+::highlight(file-find-current) {
+  background-color: color-mix(in srgb, var(--warning, #d9a400) 75%, transparent);
+  color: var(--text);
+}
+.markdown-file-preview img:not(a img) {
+  cursor: zoom-in;
+}
+
 /* CSV/TSV table (components/DelimitedTable.tsx): the markdown table cells (.markdown-body th/td)
    on one fixed-height row per record, cells ellipsized. The header and gutter are opaque
    because they stay over the scrolled body. */

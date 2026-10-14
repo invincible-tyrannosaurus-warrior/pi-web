@@ -251,7 +251,7 @@ function TreeNode({
       const next = !open;
       onToggleExpanded(node.fullPath, next);
     } else {
-      onOpenFile(node.fullPath, node.name, { cwd });
+      onOpenFile(node.fullPath, node.name, { cwd, preview: true });
     }
   }, [cwd, node.isDir, node.fullPath, node.name, open, onOpenFile, onToggleExpanded]);
 
@@ -263,6 +263,11 @@ function TreeNode({
     <div>
       <div
         onClick={handleClick}
+        onDoubleClick={(event) => {
+          if (!node.isDir && !(event.target as HTMLElement).closest(".file-row-action")) {
+            onOpenFile(node.fullPath, node.name, { cwd });
+          }
+        }}
         onContextMenu={node.isDir ? undefined : (event) => {
           event.preventDefault();
           if (longPressedRef.current) return;
@@ -450,7 +455,7 @@ function TreeNode({
   );
 }
 
-type OpenFileOptions = { sourceSessionId?: string | null; modeHint?: "diff"; cwd?: string };
+type OpenFileOptions = { sourceSessionId?: string | null; modeHint?: "diff"; cwd?: string; preview?: boolean };
 
 type OpenFileHandler = (filePath: string, fileName: string, options?: OpenFileOptions) => void;
 

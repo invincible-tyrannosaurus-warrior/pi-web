@@ -1,7 +1,95 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getAdjacentTabId, openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace } from "./file-tab-state.ts";
+import { getAdjacentTabId, mergeFileViewerStates, openFileTab, pinFileTab, restoreFileTabs, serializeFileTabs, saveFileViewerState } from "./file-tab-state.ts";
+
+test("preview opens replace the previous preview in place without touching pinned tabs", () => {
+  const tabs = [{ ...tabB, preview: true }, tabA];
+  const input = { ...openA, tabId: "file:/repo/c.ts", filePath: "/repo/c.ts", fileName: "c.ts", preview: true };
+  const next = openFileTab(tabs, input);
+  assert.equal(next.length, 2);
+  assert.equal(next[0].id, input.tabId);
+  assert.equal(next[0].preview, true);
+  assert.strictEqual(next[1], tabA);
+  assert.equal(tabs[0].id, tabB.id, "input is not mutated");
+  assert.equal(openFileTab([tabA], input)[1].preview, true);
+  const appendedPinned = openFileTab(tabs, { ...input, preview: false });
+  assert.strictEqual(appendedPinned[0], tabs[0]);
+  assert.equal(appendedPinned[2].preview, false);
+});
+
+test("opening an existing tab never demotes a pinned tab, pinned paths pin previews", () => {
+  const pinned = [{ ...tabA, cwd: "/repo" }];
+  assert.strictEqual(openFileTab(pinned, { ...openA, preview: true }), pinned);
+  const preview = [{ ...pinned[0], preview: true }, tabB];
+  assert.strictEqual(openFileTab(preview, { ...openA, preview: true }), preview);
+  const kept = openFileTab(preview, openA);
+  assert.equal(kept[0].preview, false);
+  assert.strictEqual(kept[0].viewerState, tabA.viewerState);
+  assert.equal(kept[0].viewerRevision, 0);
+  assert.strictEqual(kept[1], tabB);
+  assert.equal(pinFileTab(preview, tabA.id)[0].preview, false);
+  assert.strictEqual(pinFileTab(pinned, tabA.id), pinned);
+  assert.strictEqual(pinFileTab(preview, "missing"), preview);
+  assert.equal(openFileTab([], openA)[0].preview, false);
+});
+
+test("file tabs round-trip including preview and all viewer state, without contents", () => {
+  const state = {
+    activeTabId: tabA.id, open: true,
+    tabs: [{ ...tabA, preview: true, cwd: "/repo", pdfPage: 3, sourceSessionId: "session-1", initialDisplayMode: "preview",
+      contents: "secret file contents",
+      viewerState: { ...tabA.viewerState, loadedBytes: 4096, contents: "also secret", scrollByMode: { source: { scrollTop: 240, scrollLeft: 16 } } },
+    }, tabB],
+  };
+  const raw = serializeFileTabs(state);
+  assert.doesNotMatch(raw, /secret|contents/);
+  const saved = restoreFileTabs(raw);
+  assert.equal(saved.activeTabId, tabA.id);
+  assert.equal(saved.open, true);
+  assert.deepEqual(saved.tabs.map((tab) => tab.id), [tabA.id, tabB.id]);
+  assert.equal(saved.tabs[0].preview, true);
+  assert.equal(saved.tabs[0].pdfPage, 3);
+  assert.equal(saved.tabs[0].viewerState.loadedBytes, 4096);
+  assert.deepEqual(saved.tabs[0].viewerState.scrollByMode, state.tabs[0].viewerState.scrollByMode);
+  assert.equal(saved.tabs[0].sourceSessionId, "session-1");
+  assert.equal(saved.tabs[0].initialDisplayMode, "preview");
+});
+
+test("malformed storage restores nothing; malformed tabs are dropped one by one", () => {
+  const empty = { tabs: [], activeTabId: null, open: false };
+  for (const raw of [null, "{", "null", "[]", JSON.stringify({ tabs: [tabA] }), JSON.stringify({ version: 1, tabs: [tabA] })]) {
+    assert.deepEqual(restoreFileTabs(raw), empty);
+  }
+  const valid = { version: 2, tabs: [tabA], activeTabId: "missing", open: true };
+  const missingActive = restoreFileTabs(JSON.stringify(valid));
+  assert.deepEqual([missingActive.tabs.length, missingActive.activeTabId, missingActive.open], [1, null, false], "no active tab, no open panel");
+  const bad = [
+    { ...tabA, id: "bad" }, { ...tabA, preview: "yes" }, { ...tabA, pdfPage: -1 },
+    { ...tabA, viewerRevision: 0.5 }, { ...tabA, viewerState: { ...tabA.viewerState, scrollTop: "240" } },
+    { ...tabA, viewerState: { ...tabA.viewerState, scrollByMode: { source: null } } }, null,
+  ];
+  assert.deepEqual(restoreFileTabs(JSON.stringify({ ...valid, tabs: [...bad, tabB, tabB] })).tabs.map((tab) => tab.id), [tabB.id]);
+  const twoPreviews = restoreFileTabs(JSON.stringify({ ...valid, tabs: [{ ...tabA, preview: true }, { ...tabB, preview: true }] }));
+  assert.deepEqual(twoPreviews.tabs.map((tab) => tab.preview), [true, false]);
+});
+
+test("unload merges the latest states of several mounted viewers, ignoring stale revisions", () => {
+  const latestA = { ...tabA.viewerState, scrollTop: 600 };
+  const latestB = { ...tabA.viewerState, scrollTop: 900 };
+  const states = new Map([
+    [tabA.id, { viewerRevision: 0, viewerState: latestA }],
+    [tabB.id, { viewerRevision: 0, viewerState: latestB }],
+  ]);
+  const merged = mergeFileViewerStates([tabA, tabB], states);
+  assert.strictEqual(merged[0].viewerState, latestA);
+  assert.strictEqual(merged[1].viewerState, latestB);
+  const saved = restoreFileTabs(serializeFileTabs({ tabs: merged, activeTabId: tabB.id, open: true }));
+  assert.equal(saved.tabs[0].viewerState.scrollTop, 600);
+  assert.equal(saved.tabs[1].viewerState.scrollTop, 900);
+  const remounted = { ...tabA, viewerRevision: 1 };
+  assert.strictEqual(mergeFileViewerStates([remounted], states)[0], remounted);
+});
 
 const tabA = {
   id: "file:/repo/a.ts",
@@ -133,47 +221,4 @@ test("opening a PDF again without a page fragment returns it to the first page",
   // Re-opening on the same page is a no-op rather than a needless remount.
   const again = openFileTab(opened, { ...base, page: 12 });
   assert.equal(again, opened);
-});
-
-test("switching workspaces parks the left tabs and brings back the target's", () => {
-  const states = new Map();
-  const left = { tabs: [tabA], activeTabId: tabA.id, open: true };
-  const arrived = switchFileWorkspace(states, "/proj-a", "/proj-b", left, 0);
-  assert.deepEqual(arrived, { tabs: [], activeTabId: null, open: false });
-
-  const back = switchFileWorkspace(states, "/proj-b", "/proj-a", arrived, 1);
-  assert.deepEqual(back, { tabs: [tabA], activeTabId: tabA.id, open: true });
-  assert.equal(states.has("/proj-a"), false, "live workspace is not kept in the parked map");
-});
-
-test("switching to the same workspace changes nothing", () => {
-  const states = new Map();
-  const current = { tabs: [tabA], activeTabId: tabA.id, open: true };
-  assert.strictEqual(switchFileWorkspace(states, "/proj-a", "/proj-a", current, 0), current);
-  assert.equal(states.size, 0);
-});
-
-test("a viewer report tagged with a left workspace's generation lands only there", () => {
-  const states = new Map();
-  // A is live under generation 0; switching to B (also showing tabA's path) bumps to 1.
-  switchFileWorkspace(states, "/proj-a", "/proj-b", { tabs: [tabA], activeTabId: tabA.id, open: true }, 0);
-  switchFileWorkspace(states, "/proj-b", "/proj-c", { tabs: [tabA], activeTabId: tabA.id, open: true }, 1);
-
-  // A's viewer unmounts late, reporting generation 0: A's parked copy changes, B's does not.
-  const scrolled = { ...tabA.viewerState, scrollTop: 480 };
-  saveParkedFileViewerState(states, 0, tabA.id, 0, scrolled);
-  assert.equal(states.get("/proj-a").tabs[0].viewerState.scrollTop, 480);
-  assert.equal(states.get("/proj-b").tabs[0].viewerState.scrollTop, 240);
-});
-
-test("a parked report with a stale revision or an unknown generation is ignored", () => {
-  const states = new Map();
-  switchFileWorkspace(states, "/proj-a", "/proj-b", { tabs: [tabA], activeTabId: tabA.id, open: true }, 0);
-  const before = states.get("/proj-a").tabs;
-
-  saveParkedFileViewerState(states, 0, tabA.id, 9, { ...tabA.viewerState, scrollTop: 1 });
-  assert.strictEqual(states.get("/proj-a").tabs, before);
-
-  saveParkedFileViewerState(states, 7, tabA.id, 0, { ...tabA.viewerState, scrollTop: 1 });
-  assert.strictEqual(states.get("/proj-a").tabs, before);
 });

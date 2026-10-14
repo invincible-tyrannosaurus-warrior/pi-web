@@ -100,18 +100,31 @@ test("an explicit diff request bypasses native media viewers", () => {
   assert.match(source, /\(isFilePreviewPath\(filePath\) \|\| isDelimitedTablePath\(filePath\)\) \? "preview"/);
 
   assert.match(source, /if \(!diffRequested && isImagePath\(filePath\)\)/);
-  assert.match(source, /if \(error && !\(effectiveDisplayMode === "diff" && hasGitDiff\)\)/);
+  assert.match(source, /if \(error && !data && !\(effectiveDisplayMode === "diff" && hasGitDiff\)\)/);
   assert.match(source, /if \(!data && !\(effectiveDisplayMode === "diff" && hasGitDiff\)\) return null;/);
   assert.match(source, /if \(skipContentLoad\) \{[\s\S]*setLoading\(false\);/);
   assert.match(source, /if \(!skipContentLoad\) void loadContent\(filePath, /);
 });
 
-test("offscreen skipping starts only after the restored layout, with heights stable across modes", async () => {
+test("offscreen skipping starts at once without a position to restore, else after the restored layout", async () => {
   // Skipping before a full layout restored scrollTop against estimated block heights.
+  assert.match(source, /const offscreenSkipFromStart = initialScrollTop === 0 && initialScrollLeft === 0;/);
+  assert.match(source, /className=\{offscreenSkipFromStart \? "file-viewer-content is-laid-out" : "file-viewer-content"\}/);
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   const restore = source.slice(source.indexOf("scrollRestorePendingRef.current = false;"));
   assert.match(restore, /^scrollRestorePendingRef\.current = false;[\s\S]{0,300}content\.classList\.add\("is-laid-out"\)/);
   assert.match(css, /\.markdown-file-preview > \* \{ contain: layout; contain-intrinsic-size: auto 4em; \}/);
   assert.match(css, /\.file-viewer-content\.is-laid-out \.markdown-file-preview > \* \{ content-visibility: auto; \}/);
   assert.doesNotMatch(css, /^\.markdown-file-preview > \* \{[^}]*content-visibility/m);
+});
+
+test("a failed diff refresh keeps the last diff and offers a retry", () => {
+  assert.match(source, /if \(!response\.ok\) setGitDiffError\([^;]*\);\s*else setGitDiff\(/);
+  assert.match(source, /gitDiffResolved && gitDiffError && !hasGitDiff\)/);
+  assert.match(source, /const refreshError = \(data \? error : null\) \?\? \(hasGitDiff \? gitDiffError : null\);/);
+});
+
+test("a hidden or closed viewer reports its state and stops media playback", () => {
+  assert.match(source, /if \(!watchEnabled\) onStateChangeRef\.current\?\.\(\{ \.\.\.viewerStateRef\.current \}\);/);
+  assert.equal(source.match(/if \(!watchEnabled\) mediaRef\.current\?\.pause\(\);/g)?.length, 2);
 });
