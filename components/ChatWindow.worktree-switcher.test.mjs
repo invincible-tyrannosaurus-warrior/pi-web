@@ -49,8 +49,8 @@ function evaluate(expression, bindings) {
 test("sidebar exports the same default and renamed project labels, and clearing a name restores the folder name", async () => {
   const sidebar = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
   const paths = await readFile(new URL("../lib/file-paths.ts", import.meta.url), "utf8");
-  const module = ts.transpileModule(paths, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-  const { getFileName } = await import(`data:text/javascript;base64,${Buffer.from(module).toString("base64")}`);
+  const compiled = ts.transpileModule(paths, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+  const { getFileName } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
   const parsed = ts.createSourceFile("SessionSidebar.tsx", sidebar, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const declaration = find(parsed, (node) => ts.isVariableDeclaration(node) && node.name.getText(parsed) === "projectNameByRoot");
   const workspaceProjects = [{ key: "repo", root: "/home/user/pi-web" }, { key: "win", root: "C:\\work\\research" }];
