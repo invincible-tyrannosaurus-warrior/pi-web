@@ -9,6 +9,14 @@ export const RIGHT_PANEL_FALLBACK_WIDTH = 560;
 export const RIGHT_PANEL_MIN_WIDTH = 300;
 export const RIGHT_PANEL_MAX_WIDTH = 1200;
 
+/** Fired on window when a panel divider drag ends. Width observers that skip work while
+ * `isPanelResizing()` catch up on it (the release itself changes no size, so they get no callback). */
+export const PANEL_RESIZE_END_EVENT = "pi:panel-resize-end";
+
+export function isPanelResizing(): boolean {
+  return typeof document !== "undefined" && document.documentElement.dataset.panelResizing !== undefined;
+}
+
 export const CHAT_SPLIT_MIN_WIDTH = 600;
 export const CHAT_SPLIT_PANE_MIN_WIDTH = 280;
 export const CHAT_SPLIT_HANDLE_WIDTH = 12;

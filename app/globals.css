@@ -4849,3 +4849,6 @@ span.token.table {
     line-height: 1.4 !important;
   }
 }
+/* The chat's bottom fade is a mask, which repaints the whole chat column through an offscreen
+   surface on every divider-drag frame; drop it while dragging. */
+html[data-panel-resizing] .chat-scroll-fade { mask-image: none; }

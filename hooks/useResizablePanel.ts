@@ -10,7 +10,7 @@ import {
   type MutableRefObject,
   type PointerEvent,
 } from "react";
-import { clampPanelWidth } from "@/lib/panel-layout";
+import { clampPanelWidth, getPanelTransitionMs, PANEL_RESIZE_END_EVENT } from "@/lib/panel-layout";
 
 interface DragState {
   pointerId: number;
@@ -88,27 +88,46 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     [effectiveMaxWidth, minWidth],
   );
 
+  // The DOM owns the live width: a drag release no longer sets React state (that re-rendered the
+  // whole app), so `width` state can be stale and React would not rewrite props equal to it.
+  const separatorRef = useRef<HTMLDivElement | null>(null);
   const applyLiveWidth = useCallback((nextWidth: number) => {
     widthRef.current = nextWidth;
     panelRef.current?.style.setProperty(cssVariable, `${nextWidth}px`);
+    separatorRef.current?.setAttribute("aria-valuenow", String(nextWidth));
+    separatorRef.current?.setAttribute("aria-valuetext", `${nextWidth} px`);
   }, [cssVariable, widthRef]);
+  // A remounted handle (panel reopened) starts from the live width, not the stale state.
+  const attachSeparator = useCallback((element: HTMLDivElement | null) => {
+    separatorRef.current = element;
+    element?.setAttribute("aria-valuenow", String(widthRef.current));
+    element?.setAttribute("aria-valuetext", `${widthRef.current} px`);
+  }, [widthRef]);
+  // Once per settled width, not per drag frame: the variable is inherited, so a change restyles the panel subtree.
+  const settleWidth = useCallback((nextWidth: number) => {
+    applyLiveWidth(nextWidth);
+    panelRef.current?.style.setProperty("--panel-transition", `${getPanelTransitionMs(nextWidth)}ms`);
+  }, [applyLiveWidth]);
 
   const commitWidth = useCallback((candidate: number, commitOptions: CommitOptions = {}) => {
     const { forcePersist = false, persist = true } = commitOptions;
     const nextWidth = clampWidth(candidate);
     const changed = nextWidth !== widthRef.current;
-    applyLiveWidth(nextWidth);
+    settleWidth(nextWidth);
     setWidth(nextWidth);
     if (persist && (changed || forcePersist)) writeStoredWidth(storageKey, nextWidth);
     return nextWidth;
-  }, [applyLiveWidth, clampWidth, storageKey, widthRef]);
+  }, [clampWidth, settleWidth, storageKey, widthRef]);
 
   // Drag state lives on the DOM, not in React: a state flip re-rendered the whole app at grab and release.
   const setResizingClasses = useCallback((target: HTMLElement, resizing: boolean) => {
     target.classList.toggle("is-resizing", resizing);
     panelRef.current?.classList.toggle("is-resizing", resizing);
     if (resizing) document.documentElement.dataset.panelResizing = "";
-    else delete document.documentElement.dataset.panelResizing;
+    else {
+      delete document.documentElement.dataset.panelResizing;
+      window.dispatchEvent(new Event(PANEL_RESIZE_END_EVENT));
+    }
   }, []);
 
   const restoreBodyState = useCallback((drag: DragState) => {
@@ -121,8 +140,11 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== pointerId) return;
     dragRef.current = null;
+    // Release settles the width on the DOM only; no React state (see applyLiveWidth).
+    const finalWidth = clampWidth(widthRef.current);
+    settleWidth(finalWidth);
+    writeStoredWidth(storageKey, finalWidth);
     restoreBodyState(drag);
-    commitWidth(widthRef.current, { forcePersist: true });
 
     try {
       if (drag.target.hasPointerCapture(pointerId)) {
@@ -131,7 +153,7 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     } catch {
       // The browser may have already released capture after pointer cancellation.
     }
-  }, [commitWidth, restoreBodyState, widthRef]);
+  }, [clampWidth, restoreBodyState, settleWidth, storageKey, widthRef]);
 
   const onPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -169,8 +191,6 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
     const direction = growthDirection === "right" ? 1 : -1;
     const nextWidth = clampWidth(drag.startWidth + ((event.clientX - drag.startX) * direction));
     applyLiveWidth(nextWidth);
-    event.currentTarget.setAttribute("aria-valuenow", String(nextWidth));
-    event.currentTarget.setAttribute("aria-valuetext", `${nextWidth} px`);
   }, [applyLiveWidth, clampWidth, finishResize, growthDirection]);
 
   const onPointerUp = useCallback((event: PointerEvent<HTMLDivElement>) => {
@@ -299,6 +319,7 @@ export function useResizablePanel(options: UseResizablePanelOptions) {
       onPointerDown,
       onPointerMove,
       onPointerUp,
+      ref: attachSeparator,
       role: "separator" as const,
       tabIndex: 0,
     },

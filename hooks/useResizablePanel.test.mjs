@@ -21,7 +21,9 @@ test("panel drags never set React state per pointer move", async () => {
   // The chat panes observer fires on every drag frame: storing the raw width in state re-rendered the whole app.
   const shell = await readFile(new URL("../components/AppShell.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(shell, /setChatPanesWidth/);
-  assert.match(shell, /chatPanesWidthRef\.current = width;\s*setChatPanesWide\(width >= CHAT_SPLIT_MIN_WIDTH\);/);
+  // Crossing the split threshold mid-drag re-rendered the app; it settles on the resize-end event.
+  assert.match(shell, /chatPanesWidthRef\.current = width;[\s\S]{0,160}if \(!isPanelResizing\(\)\) setChatPanesWide\(width >= CHAT_SPLIT_MIN_WIDTH\);/);
+  assert.match(shell, /window\.addEventListener\(PANEL_RESIZE_END_EVENT, onResizeEnd\)/);
   const move = source.slice(source.indexOf("const onPointerMove ="), source.indexOf("const onPointerUp ="));
   assert.match(move, /applyLiveWidth\(nextWidth\)/);
   assert.doesNotMatch(move, /setWidth\(|commitWidth\(/);
@@ -30,7 +32,21 @@ test("panel drags never set React state per pointer move", async () => {
   // Grab and release toggle DOM classes instead of React state (a state flip re-rendered the whole app).
   assert.doesNotMatch(source, /setIsResizing/);
   assert.match(source, /target\.classList\.toggle\("is-resizing", resizing\)/);
-  assert.match(finish, /commitWidth\(widthRef\.current/);
+  // Release writes the DOM and storage only: a setWidth there re-rendered the whole app after every drag.
+  assert.doesNotMatch(finish, /setWidth\(|commitWidth\(/);
+  assert.match(finish, /settleWidth\(finalWidth\);/);
+  assert.match(finish, /writeStoredWidth\(storageKey, finalWidth\);/);
+  // --panel-transition is inherited: set it once on release, never per move.
+  assert.doesNotMatch(move, /--panel-transition/);
+  assert.match(source, /window\.dispatchEvent\(new Event\(PANEL_RESIZE_END_EVENT\)\)/);
+});
+
+test("drag frames skip the minimap and the chat's mask", async () => {
+  const minimap = await readFile(new URL("../components/ChatMinimap.tsx", import.meta.url), "utf8");
+  assert.match(minimap, /frame = 0;\s*\/\/[^\n]*\n\s*if \(isPanelResizing\(\)\) return;/);
+  assert.match(minimap, /window\.addEventListener\(PANEL_RESIZE_END_EVENT, invalidate\)/);
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /html\[data-panel-resizing\] \.chat-scroll-fade \{ mask-image: none; \}/);
 });
 
 test("the live panel width variable stops at the panel's direct children", async () => {

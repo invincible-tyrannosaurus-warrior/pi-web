@@ -90,6 +90,8 @@ import {
   getSidebarMaxWidth,
   getPanelTransitionMs,
   CHAT_SPLIT_MIN_WIDTH,
+  isPanelResizing,
+  PANEL_RESIZE_END_EVENT,
   RIGHT_PANEL_FALLBACK_WIDTH,
   RIGHT_PANEL_MAX_WIDTH,
   RIGHT_PANEL_MIN_WIDTH,
@@ -1641,7 +1643,8 @@ export function AppShell() {
     if (!container) return;
     const update = (width: number) => {
       chatPanesWidthRef.current = width;
-      setChatPanesWide(width >= CHAT_SPLIT_MIN_WIDTH);
+      // Crossing the split threshold re-renders the app (and can close a split): settle it on release.
+      if (!isPanelResizing()) setChatPanesWide(width >= CHAT_SPLIT_MIN_WIDTH);
       if (width < CHAT_SPLIT_MIN_WIDTH) return;
       const bounds = getChatSplitRatioBounds(width);
       setChatSplitRatio((ratio) => Math.max(bounds.min, Math.min(bounds.max, ratio)));
@@ -1652,7 +1655,12 @@ export function AppShell() {
     update(container.getBoundingClientRect().width);
     const observer = new ResizeObserver(([entry]) => update(entry.contentRect.width));
     observer.observe(container);
-    return () => observer.disconnect();
+    const onResizeEnd = () => update(container.getBoundingClientRect().width);
+    window.addEventListener(PANEL_RESIZE_END_EVENT, onResizeEnd);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener(PANEL_RESIZE_END_EVENT, onResizeEnd);
+    };
   }, []);
 
   useEffect(() => {

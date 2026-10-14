@@ -9,6 +9,7 @@ import {
   findActiveUser, mapEntriesToUsers, markerIndexAt, markerWindow, minimapReadingLine, minimapTriggerHeight,
   outlineWindow, revealOutlineEntry, visibleMarkerCount, type MinimapAnchor,
 } from "@/lib/chat-minimap";
+import { isPanelResizing, PANEL_RESIZE_END_EVENT } from "@/lib/panel-layout";
 import styles from "./ChatMinimap.module.css";
 
 /** Rows kept visible above/below the scrubbed row before the directory glides. */
@@ -329,6 +330,8 @@ function LocatedMinimap({ items, scrollContainer, contentContainer, loadedEntryI
     const invalidate = () => { dirty = true; schedule(); };
     function sync() {
       frame = 0;
+      // Hidden while a divider drags (CSS); measuring and re-rendering every frame cost the drag its frames.
+      if (isPanelResizing()) return;
       if (dirty) {
         dirty = false;
         const viewport = scroll!.getBoundingClientRect();
@@ -368,6 +371,7 @@ function LocatedMinimap({ items, scrollContainer, contentContainer, loadedEntryI
     mutation.observe(content, { subtree: true, childList: true, characterData: true, attributes: true });
     scroll.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", invalidate);
+    window.addEventListener(PANEL_RESIZE_END_EVENT, invalidate);
     const onOuterScroll = (event: Event) => { if (event.target !== scroll && event.target instanceof Node && event.target.contains(scroll)) invalidate(); };
     window.addEventListener("scroll", onOuterScroll, true);
     schedule();
@@ -377,6 +381,7 @@ function LocatedMinimap({ items, scrollContainer, contentContainer, loadedEntryI
       mutation.disconnect();
       scroll.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", invalidate);
+      window.removeEventListener(PANEL_RESIZE_END_EVENT, invalidate);
       window.removeEventListener("scroll", onOuterScroll, true);
     };
   }, [items.length, owners, scrollContainer, contentContainer]);
