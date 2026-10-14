@@ -237,7 +237,7 @@ test("reveals row action buttons on hover, keyboard focus (:has(:focus-visible))
 
 test("collapse all shows only while two or more listed projects are expanded", () => {
   assert.match(source, /sidebar\.collapseAll/);
-  assert.match(source, /!singleProject && workspaceProjects\.filter\(\(p\) => \(expandedWorkspaceKeys \?\? defaultExpandedWorkspaceKeys\)\.has\(p\.key\)\)\.length >= 2/);
+  assert.match(source, /!singleProject && \(archiveView\s*\? archiveProjectKeys\.filter\(\(key\) => !collapsedArchiveProjectKeys\.has\(key\)\)\.length\s*: workspaceProjects\.filter\(\(p\) => \(expandedWorkspaceKeys \?\? defaultExpandedWorkspaceKeys\)\.has\(p\.key\)\)\.length\) >= 2/);
   assert.match(source, /setExpandedWorkspaceKeys\(new Set\(\)\)/);
 });
 
@@ -275,7 +275,7 @@ test("folding a project drops its show-more window on every explicit fold path, 
   assert.match(source, /const forgetWorkspaceWindow = useCallback\(\(key: string\) => \{\s*setWorkspaceSessionLimits\(\(current\) => \{\s*if \(!\(key in current\)\) return current;/);
   assert.match(source, /if \(expanded\) forgetWorkspaceWindow\(row\.project\.key\);/, "toggle");
   assert.match(source, /next\.delete\(key\);\s*return next;\s*\}\);\s*forgetWorkspaceWindow\(key\);\s*moveProject\(key, anchor, position\);/, "drag keeps the lifted project folded");
-  assert.match(source, /onClick=\{\(\) => \{\s*setExpandedWorkspaceKeys\(new Set\(\)\);\s*setWorkspaceSessionLimits\(\{\}\);\s*\}\}/, "collapse all");
+  assert.match(source, /onClick=\{\(\) => \{\s*if \(archiveView\) \{\s*setCollapsedArchiveProjectKeys\(new Set\(archiveProjectKeys\)\);\s*return;\s*\}\s*setExpandedWorkspaceKeys\(new Set\(\)\);\s*setWorkspaceSessionLimits\(\{\}\);\s*\}\}/, "collapse all, archive view included");
 });
 
 test("the changed-files button hands focus to the key after it only when it had focus and goes away", () => {

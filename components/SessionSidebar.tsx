@@ -1379,6 +1379,11 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     return rows;
   }, [allFamilies, archiveView, archivedSessionIds, collapsedArchiveProjectKeys, defaultExpandedWorkspaceKeys, draggedProjectKey, expandedWorkspaceKeys, pinnedSessionIds, runningSessionIds, unreadSessionIds, selectedProject, selectedSessionId, singleProject, workspaceProjects, workspaceSessionLimits]);
 
+  // Archive view lists only projects that have archived families.
+  const archiveProjectKeys = archiveView
+    ? workspaceRows.flatMap((row) => row.kind === "workspace" ? [row.project.key] : [])
+    : [];
+
   const projectDragBlocks = useMemo(() => {
     const blocks: ProjectDragBlock[] = [];
     workspaceRows.forEach((row, index) => {
@@ -1898,9 +1903,15 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
           <span>{archiveView ? t("sidebar.archivedCount", { count: archivedCount }) : t("sidebar.projects")}</span>
         </button>
         <div className="sidebar-header-actions">
-          {projectsOpen && !archiveView && !singleProject && workspaceProjects.filter((p) => (expandedWorkspaceKeys ?? defaultExpandedWorkspaceKeys).has(p.key)).length >= 2 && (
+          {projectsOpen && !singleProject && (archiveView
+            ? archiveProjectKeys.filter((key) => !collapsedArchiveProjectKeys.has(key)).length
+            : workspaceProjects.filter((p) => (expandedWorkspaceKeys ?? defaultExpandedWorkspaceKeys).has(p.key)).length) >= 2 && (
             <ToolbarIconButton
               onClick={() => {
+                if (archiveView) {
+                  setCollapsedArchiveProjectKeys(new Set(archiveProjectKeys));
+                  return;
+                }
                 setExpandedWorkspaceKeys(new Set());
                 setWorkspaceSessionLimits({});
               }}
