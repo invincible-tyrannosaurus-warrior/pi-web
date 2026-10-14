@@ -677,6 +677,11 @@ function AssistantMessageView({
     exportMessageImage(rootRef.current, `pi-answer-${entryId ?? message.timestamp}.png`).then(
       (result) => {
         if (result === "canceled") return setImageState("idle");
+        if (result === "retry") {
+          setImageState("idle");
+          addNotice?.({ type: "info", message: t("i18n.imageTapToShare") });
+          return;
+        }
         setImageState(result);
         setTimeout(() => setImageState("idle"), 1500);
         // The share sheet is its own feedback; copy and download happen silently.

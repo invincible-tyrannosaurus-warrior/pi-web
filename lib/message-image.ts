@@ -1,7 +1,7 @@
 // Renders a chat answer to PNG in the browser (html-to-image snapshots the live DOM).
-import { downloadBlob, prefersShareSheet, shareFile } from "./save-file";
+import { downloadBlob, prefersShareSheet, shareProducedFile } from "./save-file";
 
-export type MessageImageResult = "copied" | "shared" | "downloaded" | "canceled";
+export type MessageImageResult = "copied" | "shared" | "downloaded" | "canceled" | "retry";
 
 const PADDING = 24;
 // Canvas limits: Chrome stops rendering past ~16k px per side, iOS Safari past
@@ -106,11 +106,20 @@ async function renderPng(el: HTMLElement): Promise<Blob> {
 
 // Touch devices get the share sheet; desktops get the clipboard; download is the fallback.
 export async function exportMessageImage(el: HTMLElement, fileName: string): Promise<MessageImageResult> {
-  const png = renderPng(el);
   if (prefersShareSheet()) {
-    const shared = await shareFile(new File([await png], fileName, { type: "image/png" }));
-    if (shared !== "unavailable") return shared;
-  } else if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+    const root = document.documentElement;
+    // Everything that changes the rendered image, so a retry never shares an outdated one.
+    const renderKey = [fileName, isExportImageFooterEnabled(), el.offsetWidth, el.offsetHeight, getComputedStyle(el).fontSize, root.className, JSON.stringify(root.dataset)].join("|");
+    const { result, file } = await shareProducedFile(
+      renderKey,
+      async () => new File([await renderPng(el)], fileName, { type: "image/png" }),
+    );
+    if (result !== "unavailable") return result;
+    downloadBlob(file, fileName);
+    return "downloaded";
+  }
+  const png = renderPng(el);
+  if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
     try {
       // Pass the pending blob so Safari still sees the write inside the click gesture.
       await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);

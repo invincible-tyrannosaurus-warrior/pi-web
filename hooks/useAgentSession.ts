@@ -41,6 +41,7 @@ import {
 } from "@/lib/streaming-message";
 import { PromptRunGate, dispatchBashRun, dispatchPromptRun, resolveStopCommand } from "@/lib/prompt-run-control";
 import { recalledQueuedPrompts } from "@/lib/queued-messages";
+import { copyPendingText } from "@/lib/clipboard";
 import type { AttachedImage, Base64ImageAttachment } from "@/lib/image-attachments";
 import { IMAGE_ABORT_COMMAND, IMAGE_DIRECT_COMMAND, type ImageGenerationRequest, type ImageGenerationResult } from "@/lib/image-generation";
 import {
@@ -2265,10 +2266,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         case "copy": {
           if (!sid) return complete({ handled: true, error: "No active session" });
-          const data = await sendAgentCommand<LastAssistantTextResponse>(sid, { type: "get_last_assistant_text" });
-          const textToCopy = data?.text ?? "";
-          if (!textToCopy) return complete({ handled: true, error: "No assistant message to copy" });
-          await navigator.clipboard.writeText(textToCopy);
+          const text = sendAgentCommand<LastAssistantTextResponse>(sid, { type: "get_last_assistant_text" })
+            .then((data) => data?.text ?? "");
+          // Start the write before awaiting (Safari); an empty reply rejects so the clipboard is left alone.
+          const copied = copyPendingText(text.then((value) => value || Promise.reject(new Error("empty"))));
+          copied.catch(() => {});
+          if (!(await text)) return complete({ handled: true, error: "No assistant message to copy" });
+          await copied;
           return complete({ handled: true, message: "Copied last assistant message" });
         }
 

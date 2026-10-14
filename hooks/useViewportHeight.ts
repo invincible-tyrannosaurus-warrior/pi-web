@@ -35,6 +35,24 @@ function hasFocusedEditableElement(): boolean {
  * which puts the composer behind the keyboard and may scroll the page itself.
  */
 export function useViewportHeight(): void {
+  // iOS zooms into inputs under 16px on focus; maximum-scale stops that and iOS still allows
+  // pinch zoom (Android would lose it, hence iOS only). Patched after hydration and on every
+  // re-insert: Next remounts its viewport meta, and editing it before hydration makes React
+  // append a second, unmodified one.
+  useEffect(() => {
+    const isIOS = /iP(hone|od|ad)/.test(navigator.platform) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (!isIOS) return;
+    const capZoom = () => {
+      document.querySelectorAll<HTMLMetaElement>('meta[name="viewport"]').forEach((meta) => {
+        if (!meta.content.includes("maximum-scale")) meta.content += ", maximum-scale=1";
+      });
+    };
+    capZoom();
+    const observer = new MutationObserver(capZoom);
+    observer.observe(document.head, { childList: true });
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;

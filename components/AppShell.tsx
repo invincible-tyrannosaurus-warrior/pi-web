@@ -62,7 +62,7 @@ import { copyText } from "@/lib/clipboard";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getFileName, joinFilePath, normalizeFilePathSlashes } from "@/lib/file-paths";
 import { getForkSessionName, getSessionDisplayTitle } from "@/lib/session-display-title";
-import { downloadBlob, prefersShareSheet, shareFile } from "@/lib/save-file";
+import { downloadBlob, prefersShareSheet, shareProducedFile } from "@/lib/save-file";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
 import {
   claimExtensionAttentionNotification,
@@ -521,6 +521,8 @@ export function AppShell() {
   const [sessionForking, setSessionForking] = useState(false);
   const forkInFlightRef = useRef(false);
   const [historyExportError, setHistoryExportError] = useState<string | null>(null);
+  const [historyShareReady, setHistoryShareReady] = useState(false);
+  const historyExportRunRef = useRef(0);
   const branchLeafChangeFnRef = useRef<((leafId: string | null, anchorEntryId?: string) => void) | null>(null);
   const sessionHasBranches = hasSessionBranches(branchTree);
 
@@ -828,6 +830,8 @@ export function AppShell() {
   useEffect(() => {
     setHistoryMenuOpen(false);
     setHistoryExportError(null);
+    setHistoryShareReady(false);
+    historyExportRunRef.current += 1; // a late export result belongs to the previous session
   }, [isMobile, selectedSession?.id, newSessionDraftId]);
 
   useEffect(() => {
@@ -2098,6 +2102,7 @@ export function AppShell() {
       infoRequestRef.current += 1; // cancels a pending open
       setInfoPending(null);
       setHistoryExportError(null);
+      setHistoryShareReady(false);
     }
     setHistoryMenuOpen(open);
   }, []);
@@ -2105,29 +2110,35 @@ export function AppShell() {
   const handleExportMarkdown = useCallback(async () => {
     if (!selectedSession) return;
     setHistoryExportError(null);
+    setHistoryShareReady(false);
     setHistoryExporting(true);
-    try {
-      const params = new URLSearchParams({ format: "md" });
-      if (branchActiveLeafId) params.set("leafId", branchActiveLeafId);
-      params.set("tz", String(-new Date().getTimezoneOffset()));
-      params.set("lang", locale);
-      const response = await fetch(`/api/sessions/${encodeURIComponent(selectedSession.id)}/export?${params}`);
+    const run = ++historyExportRunRef.current;
+    const params = new URLSearchParams({ format: "md" });
+    if (branchActiveLeafId) params.set("leafId", branchActiveLeafId);
+    params.set("tz", String(-new Date().getTimezoneOffset()));
+    params.set("lang", locale);
+    const url = `/api/sessions/${encodeURIComponent(selectedSession.id)}/export?${params}`;
+    const fetchFile = async () => {
+      const response = await fetch(url);
       if (!response.ok) {
         const data = await response.json().catch(() => null) as { error?: string } | null;
-        setHistoryExportError(
-          data?.error === "empty" ? translate("history.exportEmpty") : translate("history.exportFailed"),
-        );
+        throw new Error(data?.error === "empty" ? translate("history.exportEmpty") : translate("history.exportFailed"), { cause: "export" });
+      }
+      const fileName = filenameFromContentDisposition(response.headers.get("Content-Disposition")) ?? "session.md";
+      return new File([await response.blob()], fileName, { type: "text/markdown" });
+    };
+    try {
+      const { result, file } = prefersShareSheet()
+        ? await shareProducedFile(url, fetchFile)
+        : { result: "unavailable" as const, file: await fetchFile() };
+      if (result === "retry") {
+        if (historyExportRunRef.current === run) setHistoryShareReady(true);
         return;
       }
-      const blob = await response.blob();
-      const fileName = filenameFromContentDisposition(response.headers.get("Content-Disposition")) ?? "session.md";
-      const shared = prefersShareSheet()
-        ? await shareFile(new File([blob], fileName, { type: "text/markdown" }))
-        : "unavailable";
-      if (shared === "unavailable") downloadBlob(blob, fileName);
+      if (result === "unavailable") downloadBlob(file, file.name);
       setHistoryMenuOpen(false);
-    } catch {
-      setHistoryExportError(translate("history.exportFailed"));
+    } catch (error) {
+      setHistoryExportError(error instanceof Error && error.cause === "export" ? error.message : translate("history.exportFailed"));
     } finally {
       setHistoryExporting(false);
     }
@@ -2543,7 +2554,7 @@ export function AppShell() {
             full: translate("history.full"),
             unsaved: translate("history.unsaved"),
             menu: translate("session.moreActions"),
-            exportMarkdown: translate("history.exportMarkdown"),
+            exportMarkdown: translate(historyShareReady ? "history.exportMarkdownShare" : "history.exportMarkdown"),
             exportMarkdownTitle: translate("history.exportMarkdownTitle"),
             fork: translate("session.fork"),
             forkTitle: translate("session.forkTitle"),
