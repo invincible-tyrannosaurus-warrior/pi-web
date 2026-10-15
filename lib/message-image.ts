@@ -19,8 +19,11 @@ const EXPORT_CSS = "*{scrollbar-width:none!important}*::-webkit-scrollbar{displa
   + ".markdown-table-wrap,.markdown-code-block{width:max-content!important;min-width:100%!important;max-width:none!important;overflow:visible!important}"
   // flow-root keeps the block formatting context overflow:hidden gave, so margins and height stay put.
   + ".markdown-body{overflow:visible!important;display:flow-root!important}"
-  + ".markdown-code-block>*{width:auto!important}.markdown-code-block pre{overflow:visible!important}";
+  + ".markdown-code-block>*{width:auto!important}.markdown-code-block pre{overflow:visible!important}"
+  // A diagram preview scrolls vertically past min(600px, 60dvh); the picture shows all of it.
+  + ".mermaid-preview-button{max-height:none!important;overflow:visible!important}";
 const SCROLLERS = ".markdown-table-wrap, .markdown-code-block pre";
+const V_SCROLLERS = ".mermaid-preview-button";
 const FOOTER_KEY = "pi-export-image-footer";
 // Printable ASCII plus the list bullet, so markers and digits drawn outside the text still resolve.
 const BASE_CHARS = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join("") + "•";
@@ -83,18 +86,21 @@ export function exportPixelRatio(width: number, height: number): number {
 // buttons) and positioned ones (table actions) are overlays or sit inside a row that stays.
 function exportedHeight(el: HTMLElement, footer: HTMLElement | null): number {
   let height = el.offsetHeight;
-  const rows: CSSStyleDeclaration[] = [];
+  const rows: HTMLElement[] = [];
   for (const child of el.children) {
     if (!(child instanceof HTMLElement)) continue;
     const style = getComputedStyle(child);
     if (style.position === "absolute" || style.position === "fixed") continue;
-    if (child !== footer && !child.matches(EXCLUDE)) rows.push(style);
+    if (child !== footer && !child.matches(EXCLUDE)) rows.push(child);
     else height -= child.offsetHeight + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
   }
-  // On screen the edge rows' margins (a table's) collapse through an unpadded el; the clone's padding keeps them.
-  const own = getComputedStyle(el);
-  if (rows.length && parseFloat(own.paddingTop) + parseFloat(own.borderTopWidth) === 0) height += parseFloat(rows[0].marginTop);
-  if (rows.length && parseFloat(own.paddingBottom) + parseFloat(own.borderBottomWidth) === 0) height += parseFloat(rows[rows.length - 1].marginBottom);
+  // Where the edge rows' margins (a table's) collapse through el on screen, the clone's padding keeps them.
+  // Measured, not inferred from el's padding: a block formatting context (flow-root) also stops the collapse.
+  const box = el.getBoundingClientRect();
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  if (first && first.getBoundingClientRect().top - box.top < 0.5) height += parseFloat(getComputedStyle(first).marginTop);
+  if (last && box.bottom - last.getBoundingClientRect().bottom < 0.5) height += parseFloat(getComputedStyle(last).marginBottom);
   return height;
 }
 
@@ -103,19 +109,28 @@ function overflowWidth(el: HTMLElement): number {
   return Math.max(0, ...[...el.querySelectorAll(SCROLLERS)].map((node) => node.scrollWidth - node.clientWidth));
 }
 
+// Extra canvas height the unfolded diagram previews add; they stack, so their overflows sum.
+// The exported element may itself be one (a diagram's own PNG button).
+function overflowHeight(el: HTMLElement): number {
+  return [el, ...el.querySelectorAll(V_SCROLLERS)]
+    .filter((node) => node.matches(V_SCROLLERS))
+    .reduce((sum, node) => sum + node.scrollHeight - node.clientHeight, 0);
+}
+
 async function renderPng(el: HTMLElement): Promise<Blob> {
   const { toBlob } = await import("html-to-image");
   const footer = isExportImageFooterEnabled() ? null : el.querySelector<HTMLElement>("[data-answer-footer]");
   // The export padding replaces the element's own (a diagram's), so only its content box is kept.
   const own = getComputedStyle(el);
   const width = el.offsetWidth - parseFloat(own.paddingLeft) - parseFloat(own.paddingRight) + overflowWidth(el) + PADDING * 2;
-  const height = exportedHeight(el, footer) - parseFloat(own.paddingTop) - parseFloat(own.paddingBottom) + PADDING * 2;
+  const height = exportedHeight(el, footer) + overflowHeight(el) - parseFloat(own.paddingTop) - parseFloat(own.paddingBottom) + PADDING * 2;
   const pixelRatio = exportPixelRatio(width, height);
   const blob = await toBlob(el, {
     width,
     height,
     pixelRatio,
-    backgroundColor: getComputedStyle(document.body).backgroundColor,
+    // A diagram keeps its own panel color (its edge labels are painted to match); a message has none, so the page's.
+    backgroundColor: own.backgroundColor !== "rgba(0, 0, 0, 0)" ? own.backgroundColor : getComputedStyle(document.body).backgroundColor,
     // fontEmbedCSS is injected as a <style> inside the clone, so it carries the export CSS too.
     fontEmbedCSS: EXPORT_CSS + await buildFontEmbedCSS(el),
     style: { margin: "0", padding: `${PADDING}px`, boxSizing: "border-box" },
@@ -130,7 +145,7 @@ export async function exportMessageImage(el: HTMLElement, fileName: string): Pro
   if (prefersShareSheet()) {
     const root = document.documentElement;
     // Everything that changes the rendered image, so a retry never shares an outdated one.
-    const renderKey = [fileName, isExportImageFooterEnabled(), el.offsetWidth, overflowWidth(el), el.offsetHeight, getComputedStyle(el).fontSize, root.className, JSON.stringify(root.dataset)].join("|");
+    const renderKey = [fileName, isExportImageFooterEnabled(), el.offsetWidth, overflowWidth(el), el.offsetHeight, overflowHeight(el), getComputedStyle(el).fontSize, root.className, JSON.stringify(root.dataset)].join("|");
     const { result, file } = await shareProducedFile(
       renderKey,
       async () => new File([await renderPng(el)], fileName, { type: "image/png" }),

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";
 import { iconStroke } from "./iconStroke";
@@ -138,20 +138,12 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
       const start = node?.position?.start.offset;
       const end = node?.position?.end.offset;
       return (
-        <div className="markdown-table-block">
-          <div className="markdown-table-wrap">
-            <table>{children}</table>
-          </div>
-          {!isStreaming && (
-            <div className="markdown-table-actions">
-              {start !== undefined && end !== undefined && (
-                // The table exactly as written in the message, so a paste keeps its Markdown.
-                <TableCopyButton getSource={() => tableSource(sourceRef.current, start, end)} />
-              )}
-              <TableExportButton />
-            </div>
-          )}
-        </div>
+        <MarkdownTableBlock
+          actions={!isStreaming}
+          getSource={start !== undefined && end !== undefined ? () => tableSource(sourceRef.current, start, end) : undefined}
+        >
+          {children}
+        </MarkdownTableBlock>
       );
     },
   }), [cwd, isStreaming, onOpenFile, sessionId]);
@@ -178,6 +170,24 @@ export function tableSource(markdown: string, start: number, end: number): strin
     .replace(/[-*+]|\d+[.)]/g, (marker) => " ".repeat(marker.length));
   const lines = markdown.slice(start, end).split("\n");
   return prefix ? lines.map((line, index) => (index > 0 && line.startsWith(prefix) ? line.slice(prefix.length) : line)).join("\n") : lines.join("\n");
+}
+
+/** A Markdown table with copy-as-Markdown (when its source is known) and export-as-image chips. */
+export function MarkdownTableBlock({ children, actions = true, getSource }: { children: ReactNode; actions?: boolean; getSource?: () => string }) {
+  return (
+    <div className="markdown-table-block">
+      <div className="markdown-table-wrap">
+        <table>{children}</table>
+      </div>
+      {actions && (
+        <div className="markdown-table-actions">
+          {/* The table exactly as written, so a paste keeps its Markdown. */}
+          {getSource && <TableCopyButton getSource={getSource} />}
+          <TableExportButton />
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TableExportButton() {

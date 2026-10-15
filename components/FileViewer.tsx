@@ -27,6 +27,7 @@ import { parseFrontmatter } from "@/lib/frontmatter";
 import { extractMarkdownOutline, findHeadingBySlug } from "@/lib/markdown-outline";
 import { markdownAppUrlTransform, markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
+import { MarkdownTableBlock, tableSource } from "./MarkdownBody";
 import { DelimitedTable } from "./DelimitedTable";
 import { isDelimitedTablePath } from "@/lib/delimited-table";
 import { FrontmatterCard } from "./FrontmatterCard";
@@ -1262,11 +1263,13 @@ const MarkdownFilePreview = memo(function MarkdownFilePreview({
                 </code>
               );
             },
-            table({ children }) {
+            table({ children, node }) {
+              const start = node?.position?.start.offset;
+              const end = node?.position?.end.offset;
               return (
-                <div className="markdown-table-wrap">
-                  <table>{children}</table>
-                </div>
+                <MarkdownTableBlock getSource={start !== undefined && end !== undefined ? () => tableSource(markdownPreview, start, end) : undefined}>
+                  {children}
+                </MarkdownTableBlock>
               );
             },
             pre({ children }) {
