@@ -884,7 +884,7 @@ export const enLocale: LocalePlugin = {
     "i18n.notWatching": "Not watching",
     "i18n.fileViewMode": "File view mode",
     "i18n.compareHead": "Compare working tree with HEAD",
-    "i18n.mentionSelectedLines": "Mention selected lines",
+    "i18n.mentionSelectedLines": "Add selection to chat",
     "i18n.disableWrap": "Disable word wrap",
     "i18n.enableWrap": "Enable word wrap",
     "i18n.loadAll": "Load all",

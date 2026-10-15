@@ -1,18 +1,34 @@
 // Quotes travel inside the prompt text as leading <quote> blocks so the model, the
 // .jsonl file and the pi TUI all see plain text; the web UI parses them back into cards.
-// `source` is the entry id of the quoted message, used to jump back to it.
+// `source` is the entry id of a quoted chat message; `file` (as mentioned in the chat's cwd)
+// and `lines` ("12" or "10-20") mark an excerpt attached from the file viewer.
 export interface Quote {
   text: string;
   source?: string;
+  file?: string;
+  lines?: string;
 }
 
-const LEADING_QUOTE = /^<quote(?: source="([\w-]+)")?>\n([\s\S]*?)\n<\/quote>(?:\n\n|\n?$)/;
+const LEADING_QUOTE = /^<quote((?: \w+="[^"]*")*)>\n([\s\S]*?)\n<\/quote>(?:\n\n|\n?$)/;
+const ATTRIBUTE = / (\w+)="([^"]*)"/g;
+
+const escapeAttribute = (value: string) => value.replace(/[\r\n]/g, " ").replaceAll("&", "&amp;").replaceAll("\"", "&quot;");
+const unescapeAttribute = (value: string) => value.replaceAll("&quot;", "\"").replaceAll("&amp;", "&");
+
+/** Drops surrounding blank lines but keeps the first line's indentation (code excerpts). */
+export function trimQuoteText(text: string): string {
+  return text.replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd();
+}
 
 export function buildQuotedPrompt(quotes: Quote[], message: string): string {
-  const blocks = quotes.map(({ text, source }) => {
+  const blocks = quotes.map(({ text, source, file, lines }) => {
+    const attributes = [
+      source && /^[\w-]+$/.test(source) ? ` source="${source}"` : "",
+      file ? ` file="${escapeAttribute(file)}"` : "",
+      file && lines && /^\d+(?:-\d+)?$/.test(lines) ? ` lines="${lines}"` : "",
+    ].join("");
     // A literal closing tag inside a quote would end the block early.
-    const body = text.trim().replaceAll("</quote>", "</ quote>");
-    return `<quote${source && /^[\w-]+$/.test(source) ? ` source="${source}"` : ""}>\n${body}\n</quote>`;
+    return `<quote${attributes}>\n${trimQuoteText(text).replaceAll("</quote>", "</ quote>")}\n</quote>`;
   });
   return [...blocks, message.trim()].filter(Boolean).join("\n\n");
 }
@@ -47,7 +63,11 @@ export function splitQuotedPrompt(text: string): { quotes: Quote[]; message: str
   const quotes: Quote[] = [];
   let rest = text;
   for (let match = LEADING_QUOTE.exec(rest); match; match = LEADING_QUOTE.exec(rest)) {
-    quotes.push(match[1] ? { text: match[2], source: match[1] } : { text: match[2] });
+    const quote: Quote = { text: match[2] };
+    for (const [, name, value] of match[1].matchAll(ATTRIBUTE)) {
+      if (name === "source" || name === "file" || name === "lines") quote[name] = unescapeAttribute(value);
+    }
+    quotes.push(quote);
     rest = rest.slice(match[0].length);
   }
   return { quotes, message: rest };

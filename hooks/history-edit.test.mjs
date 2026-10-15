@@ -167,6 +167,7 @@ test("replaceMessage returns false for occupied or stale composers and true only
       textareaRef: ref(null), valueRef: ref(refusal === "text" ? "my draft" : ""),
       attachedImagesRef: ref(refusal === "image" ? [{}] : []), pendingImageCountRef: ref(refusal === "pending-image" ? 1 : 0),
       draftKeyRef: ref("session"), imageProcessEpochRef: ref(0),
+      quotesRef: ref([]), setQuotes: noop, splitQuotedPrompt: (text) => ({ quotes: [], message: text }),
       canRestoreUserMessage: (value, images, pending) => !value.trim() && !images && !pending,
       getUserMessageText: (message) => message.content,
       getUserMessageDraftImages: () => media.promise, draftImagesToAttachedImages: (images) => images,

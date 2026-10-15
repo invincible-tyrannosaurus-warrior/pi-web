@@ -884,7 +884,7 @@ export const zhCNLocale: LocalePlugin = {
     "i18n.notWatching": "未监视",
     "i18n.fileViewMode": "文件视图模式",
     "i18n.compareHead": "比较工作区与 HEAD",
-    "i18n.mentionSelectedLines": "提及所选行",
+    "i18n.mentionSelectedLines": "将所选内容添加到对话",
     "i18n.disableWrap": "禁用自动换行",
     "i18n.enableWrap": "启用自动换行",
     "i18n.loadAll": "加载全部",

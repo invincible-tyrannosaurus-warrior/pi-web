@@ -8,6 +8,8 @@ import renderSyntaxNode from "react-syntax-highlighter/dist/esm/create-element";
 import vs from "react-syntax-highlighter/dist/esm/styles/prism/vs";
 import vscDarkPlus from "react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus";
 import ReactMarkdown from "react-markdown";
+import { createPortal } from "react-dom";
+import { findQuoteInSegments } from "@/lib/quoted-selection";
 import { useTheme } from "@/hooks/useTheme";
 import { usePrismLanguages } from "@/hooks/usePrismLanguages";
 import { claudeCodeStyle, claudeDarkCodeStyle } from "@/lib/claude-theme";
@@ -32,7 +34,7 @@ import { DelimitedTable } from "./DelimitedTable";
 import { isDelimitedTablePath } from "@/lib/delimited-table";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { MarkdownOutlineMenu } from "./MarkdownOutlineMenu";
-import { FileFindBar } from "./FileFindBar";
+import { FileFindBar, scrollIntoScroller } from "./FileFindBar";
 import { ImageViewer as ImageLightbox } from "./ImageViewer";
 import { ImagePreview } from "./ImagePreview";
 import { parseUnifiedPatch } from "@/lib/patch";
@@ -64,7 +66,11 @@ interface Props {
   cwd?: string;
   sourceSessionId?: string | null;
   onOpenFile?: (filePath: string, page?: number) => void;
-  onMentionLines?: (relativePath: string, startLine: number, endLine: number, sourceCwd?: string) => void;
+  /** Add the selection to the chat as a quote chip: whole source lines, or markdown preview text. */
+  onAttachSelection?: (attachment: FileSelectionAttachment) => void;
+  /** Scroll to and mark these source lines, or this preview text, once; then call onRevealed. */
+  reveal?: FileReveal;
+  onRevealed?: () => void;
   /** Insert this file's relative path into the chat input (@ mention). */
   onAtMention?: (relativePath: string, isDir: boolean, sourceCwd?: string) => void;
   gitRefreshKey?: number;
@@ -74,6 +80,16 @@ interface Props {
   watchEnabled?: boolean;
   /** PDF page to open, from a `#page=` link fragment. */
   pdfPage?: number;
+}
+
+export type FileReveal = { start: number; end: number } | { text: string };
+
+export interface FileSelectionAttachment {
+  relativePath: string;
+  text: string;
+  sourceCwd?: string;
+  startLine?: number;
+  endLine?: number;
 }
 
 interface FileData extends TextChunk {
@@ -122,6 +138,10 @@ type SourceCodeRendererProps = Parameters<NonNullable<SyntaxHighlighterProps["re
 interface SelectedLineRange {
   startLine: number;
   endLine: number;
+}
+
+function sameAttachment(a: FileSelectionAttachment | null, b: FileSelectionAttachment | null): boolean {
+  return a === b || (a !== null && b !== null && a.text === b.text && a.startLine === b.startLine && a.endLine === b.endLine);
 }
 
 function MentionIcon() {
@@ -1146,7 +1166,9 @@ export function FileViewer({
   cwd,
   sourceSessionId,
   onOpenFile,
-  onMentionLines,
+  onAttachSelection,
+  reveal,
+  onRevealed,
   onAtMention,
   gitRefreshKey,
   initialDisplayMode,
@@ -1174,7 +1196,9 @@ export function FileViewer({
       cwd={cwd}
       sourceSessionId={sourceSessionId}
       onOpenFile={onOpenFile}
-      onMentionLines={onMentionLines}
+      onAttachSelection={onAttachSelection}
+      reveal={reveal}
+      onRevealed={onRevealed}
       onAtMention={onAtMention}
       gitRefreshKey={gitRefreshKey}
       initialDisplayMode={initialDisplayMode}
@@ -1333,7 +1357,9 @@ function TextFileViewer({
   cwd,
   sourceSessionId,
   onOpenFile,
-  onMentionLines,
+  onAttachSelection,
+  reveal,
+  onRevealed,
   onAtMention,
   gitRefreshKey,
   initialDisplayMode,
@@ -1394,7 +1420,8 @@ function TextFileViewer({
     scrollByMode: { ...initialState?.scrollByMode },
   });
   const onStateChangeRef = useRef(onStateChange);
-  const [selectedLineRange, setSelectedLineRange] = useState<SelectedLineRange | null>(null);
+  const [selectionAttachment, setSelectionAttachment] = useState<FileSelectionAttachment | null>(null);
+  const [attachAnchor, setAttachAnchor] = useState<{ top: number; left: number } | null>(null);
   // Whole file for an HTML preview whose source view is still chunked.
   const [htmlFull, setHtmlFull] = useState<{ text?: string; error?: string } | null>(null);
 
@@ -1778,40 +1805,56 @@ function TextFileViewer({
     [sourceLines, useLightweightSource, wrapLines],
   );
 
+  // What the current selection would attach: whole source lines, or the selected markdown preview text.
+  const readSelectionAttachment = useCallback((): FileSelectionAttachment | null => {
+    const root = contentRef.current;
+    const selection = window.getSelection();
+    if (!onAttachSelection || !root || !selection || selection.isCollapsed || !selection.rangeCount) return null;
+    const relativePath = getRelativeFilePath(filePath, cwd);
+    if (effectiveDisplayMode === "source") {
+      const lineRange = getSelectedSourceLineRange(root, selection);
+      if (!lineRange) return null;
+      const text = sourceLines.slice(lineRange.startLine - 1, lineRange.endLine).join("\n");
+      return text.trim() ? { relativePath, sourceCwd: cwd, text, ...lineRange } : null;
+    }
+    if (!isMarkdown || effectiveDisplayMode !== "preview" || !root.contains(selection.getRangeAt(0).commonAncestorContainer)) return null;
+    const text = selection.toString().trim();
+    return text ? { relativePath, sourceCwd: cwd, text } : null;
+  }, [cwd, effectiveDisplayMode, filePath, isMarkdown, onAttachSelection, sourceLines]);
+
   useEffect(() => {
-    const updateSelectedLineRange = () => {
-      const root = contentRef.current;
-      setSelectedLineRange((current) => {
-        const next = onMentionLines && displayMode === "source" && root
-          ? getSelectedSourceLineRange(root, window.getSelection())
-          : null;
-        // Skip no-op updates: selectionchange fires continuously while dragging,
-        // and a fresh-but-equal range object would re-render the whole viewer.
-        if (current === null && next === null) return current;
-        if (current && next && current.startLine === next.startLine && current.endLine === next.endLine) return current;
-        return next;
-      });
+    const update = () => {
+      const next = readSelectionAttachment();
+      // selectionchange fires continuously while dragging; skip equal results so the viewer does not re-render.
+      setSelectionAttachment((current) => sameAttachment(current, next) ? current : next);
+      if (!next) setAttachAnchor(null);
     };
+    update();
+    if (!onAttachSelection) return;
+    document.addEventListener("selectionchange", update);
+    return () => document.removeEventListener("selectionchange", update);
+  }, [readSelectionAttachment, onAttachSelection]);
 
-    updateSelectedLineRange();
-    if (!onMentionLines || displayMode !== "source") return;
+  const attachSelection = useCallback((attachment: FileSelectionAttachment | null) => {
+    if (!onAttachSelection || !attachment) return;
+    onAttachSelection(attachment);
+    setAttachAnchor(null);
+    window.getSelection()?.removeAllRanges();
+  }, [onAttachSelection]);
 
-    document.addEventListener("selectionchange", updateSelectedLineRange);
-    return () => document.removeEventListener("selectionchange", updateSelectedLineRange);
-  }, [data?.content, displayMode, onMentionLines]);
-
-  const mentionLineRange = useCallback((lineRange: SelectedLineRange | null) => {
-    if (!onMentionLines || !lineRange) return;
-    onMentionLines(
-      getRelativeFilePath(filePath, cwd),
-      lineRange.startLine,
-      lineRange.endLine,
-      cwd,
-    );
-  }, [cwd, filePath, onMentionLines]);
+  // The floating "Add to chat" button appears once a selection gesture ends, under the selection.
+  const showAttachButton = useCallback(() => {
+    const selection = window.getSelection();
+    if (!readSelectionAttachment() || !selection?.rangeCount) return;
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    setAttachAnchor({
+      top: Math.min(window.innerHeight - 40, rect.bottom + 6),
+      left: Math.max(8, Math.min(window.innerWidth - 120, rect.left)),
+    });
+  }, [readSelectionAttachment]);
 
   useEffect(() => {
-    if (!onMentionLines || displayMode !== "source") return;
+    if (!onAttachSelection) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || event.key.toLowerCase() !== "i" || (!event.metaKey && !event.ctrlKey) || event.altKey || event.shiftKey) return;
@@ -1819,17 +1862,66 @@ function TextFileViewer({
       const target = event.target;
       if (target instanceof Element && target.closest("input, textarea, [contenteditable='true']")) return;
 
-      const root = contentRef.current;
-      const lineRange = root ? getSelectedSourceLineRange(root, window.getSelection()) : null;
-      if (!lineRange) return;
+      const attachment = readSelectionAttachment();
+      if (!attachment) return;
 
       event.preventDefault();
-      mentionLineRange(lineRange);
+      attachSelection(attachment);
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [displayMode, mentionLineRange, onMentionLines]);
+  }, [attachSelection, onAttachSelection, readSelectionAttachment]);
+
+  const revealHighlightTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!reveal || !data) return;
+    // Text came from the markdown preview, lines from the source view: show the view it came from.
+    const wantedMode = "text" in reveal ? (isMarkdown && hasPreview ? "preview" : effectiveDisplayMode) : "source";
+    if (effectiveDisplayMode !== wantedMode) {
+      updateDisplayMode(wantedMode);
+      return;
+    }
+    const root = contentRef.current;
+    const ranges: Range[] = [];
+    if (root && "text" in reveal) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const nodes: Text[] = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+      const found = findQuoteInSegments(nodes.map((node) => node.data), reveal.text);
+      if (found) {
+        const range = document.createRange();
+        range.setStart(nodes[found.start[0]], found.start[1]);
+        range.setEnd(nodes[found.end[0]], found.end[1]);
+        ranges.push(range);
+      }
+    } else if (root && "start" in reveal) {
+      const lineElement = (line: number) => root.querySelector<HTMLElement>(`.file-source-line[data-line-number="${line}"] .file-source-line-content`)
+        ?? root.querySelector<HTMLElement>(`.file-source-line[data-line-number="${line}"]`);
+      // One range per line, so the line-number gutter between them stays unmarked.
+      // shortcut: lines past a partially loaded file are not revealed; load more first if this matters.
+      for (let line = reveal.start; line <= reveal.end; line++) {
+        const element = lineElement(line);
+        if (!element) break;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        ranges.push(range);
+      }
+    }
+    if (root && ranges.length) {
+      // Offscreen blocks only have estimated heights (content-visibility) until laid out,
+      // so re-aim once the scroll has made them real.
+      const aim = () => scrollIntoScroller(root, ranges[0]);
+      aim();
+      requestAnimationFrame(() => { aim(); requestAnimationFrame(aim); });
+      if (typeof Highlight !== "undefined") {
+        CSS.highlights.set("quote-source", new Highlight(...ranges));
+        if (revealHighlightTimerRef.current !== null) window.clearTimeout(revealHighlightTimerRef.current);
+        revealHighlightTimerRef.current = window.setTimeout(() => CSS.highlights.delete("quote-source"), 2000);
+      }
+    }
+    onRevealed?.();
+  }, [data, effectiveDisplayMode, hasPreview, highlightedSource, isMarkdown, lightweightSourceLines, markdownPreview, onRevealed, reveal, updateDisplayMode]);
 
   // Cmd/Ctrl+F opens the in-file find once the viewer was last clicked or holds focus;
   // anywhere else the browser's own find stays.
@@ -2012,7 +2104,7 @@ function TextFileViewer({
             {isMarkdown && effectiveDisplayMode === "preview" && (
               <MarkdownOutlineMenu items={outlineItems} scrollRoot={contentRef} />
             )}
-            {(onAtMention || onMentionLines) && (
+            {(onAtMention || onAttachSelection) && (
               <button
                 type="button"
                 onPointerDown={(event) => event.preventDefault()}
@@ -2020,19 +2112,19 @@ function TextFileViewer({
                   // Mention selected lines when a range is active (and line
                   // mention is wired up); otherwise fall back to a whole-file
                   // @mention. Same button, behavior follows the selection.
-                  if (selectedLineRange && onMentionLines) {
-                    mentionLineRange(selectedLineRange);
+                  if (selectionAttachment) {
+                    attachSelection(selectionAttachment);
                   } else {
                     onAtMention?.(getRelativeFilePath(filePath, cwd), false, cwd);
                   }
                 }}
                 title={
-                  selectedLineRange && onMentionLines
-                    ? `${t("i18n.mentionSelectedLines")} (L${selectedLineRange.startLine}${selectedLineRange.startLine !== selectedLineRange.endLine ? `-L${selectedLineRange.endLine}` : ""})`
-                    : t("files.insertPath")
+                  selectionAttachment?.startLine
+                    ? `${t("i18n.mentionSelectedLines")} (L${selectionAttachment.startLine}${selectionAttachment.startLine !== selectionAttachment.endLine ? `-L${selectionAttachment.endLine}` : ""})`
+                    : selectionAttachment ? t("i18n.mentionSelectedLines") : t("files.insertPath")
                 }
                 aria-label={t("files.mention")}
-                disabled={!onAtMention && !onMentionLines}
+                disabled={!onAtMention && !onAttachSelection}
                 className="file-viewer-icon-button"
               >
                 <MentionIcon />
@@ -2119,7 +2211,10 @@ function TextFileViewer({
       <div
         ref={contentRef}
         className={offscreenSkipFromStart ? "file-viewer-content is-laid-out" : "file-viewer-content"}
+        onPointerUp={showAttachButton}
+        onKeyUp={(event) => { if (event.shiftKey) showAttachButton(); }}
         onScroll={(event) => {
+          setAttachAnchor(null);
           const position = {
             scrollTop: event.currentTarget.scrollTop,
             scrollLeft: event.currentTarget.scrollLeft,
@@ -2178,6 +2273,20 @@ function TextFileViewer({
           highlightedSource
         )}
       </div>
+      {attachAnchor && selectionAttachment && createPortal(
+        <div role="toolbar" aria-label={t("i18n.mentionSelectedLines")} className="popover-surface" style={{ position: "fixed", top: attachAnchor.top, left: attachAnchor.left, zIndex: 130, padding: 2 }}>
+          <button
+            type="button"
+            className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-[4px] border-0 bg-transparent px-2 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={() => attachSelection(selectionAttachment)}
+          >
+            <span aria-hidden="true">+</span>
+            <span>{t("chat.askInCurrent")}</span>
+          </button>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

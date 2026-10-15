@@ -4716,9 +4716,33 @@ span.token.table {
   border-radius: var(--ui-radius-md);
 }
 
-.quote-chip-body svg {
+.quote-chip-body > svg,
+.quote-chip-icon {
+  display: flex;
   flex-shrink: 0;
   margin-top: 2px;
+}
+
+.quote-chip-file {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.quote-chip-title {
+  overflow: hidden;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A file excerpt previews its first line only, dimmer than the file label. */
+.quote-chip-text.is-code {
+  -webkit-line-clamp: 1;
+  color: var(--text-dim);
+  font-size: 11px;
 }
 
 .quote-chip-text {

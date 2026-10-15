@@ -15,6 +15,8 @@ import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantB
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { summarizeTurnActivity, type TurnActivity } from "@/lib/turn-activity";
 import { findQuoteInSegments } from "@/lib/quoted-selection";
+import { scrollIntoScroller } from "./FileFindBar";
+import type { FileReveal } from "./FileViewer";
 import {
   classifyMissingChatEntry,
   decideSearchScrollCommit,
@@ -98,7 +100,7 @@ interface Props {
   /** The stats panel is open for this pane: drives the pill's pressed state. */
   sessionStatsOpen?: boolean;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
-  onOpenFile?: (filePath: string, sourceSessionId: string | null, page?: number) => void;
+  onOpenFile?: (filePath: string, sourceSessionId: string | null, page?: number, reveal?: FileReveal) => void;
   onOpenSession?: (sessionId: string) => void;
   /** Pi's MCP extension points to `/mcp`, whose manager is the Settings > MCP page here. */
   onOpenMcpSettings?: () => void;
@@ -1687,12 +1689,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     const range = document.createRange();
     range.setStart(nodes[found.start[0]], found.start[1]);
     range.setEnd(nodes[found.end[0]], found.end[1]);
-    nodes[found.start[0]].parentElement?.scrollIntoView({ block: "center" });
+    if (scrollContainerRef.current) scrollIntoScroller(scrollContainerRef.current, range);
     if (typeof Highlight === "undefined") return;
     CSS.highlights.set("quote-source", new Highlight(range));
     if (quoteHighlightTimerRef.current !== null) window.clearTimeout(quoteHighlightTimerRef.current);
     quoteHighlightTimerRef.current = window.setTimeout(() => CSS.highlights.delete("quote-source"), 2000);
-  }, [jumpToOutlineEntry]);
+  }, [jumpToOutlineEntry, scrollContainerRef]);
   // Runs after the switched branch has committed, so the jump sees the new leaf and entries.
   useEffect(() => {
     if (!pendingBranchJump) return;
@@ -1895,8 +1897,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onDrop={handleDrop}
       onClick={(event) => {
         // Quote chips (composer and sent messages) carry their source entry; see QuoteCard.
-        const chip = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-quote-source]") : null;
-        if (chip?.dataset.quoteSource) void jumpToQuote(chip.dataset.quoteSource, chip.dataset.quoteText ?? "");
+        const chip = event.target instanceof Element ? event.target.closest<HTMLElement>(".quote-chip-body") : null;
+        const { quoteSource, quoteFile, quoteLines, quoteText } = chip?.dataset ?? {};
+        if (quoteFile) {
+          const absolute = quoteFile.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(quoteFile) || !messageCwd ? quoteFile : joinFilePath(messageCwd, quoteFile);
+          const [start, end = start] = (quoteLines ?? "").split("-").map(Number);
+          onOpenFile?.(absolute, sessionIdRef.current ?? session?.id ?? null, undefined, start ? { start, end } : { text: quoteText ?? "" });
+        } else if (quoteSource) void jumpToQuote(quoteSource, quoteText ?? "");
       }}
     >
       {isDragOver && (

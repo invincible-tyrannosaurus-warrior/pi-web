@@ -29,7 +29,7 @@ test("each viewer restores tab state and saves it with a revision", () => {
   assert.match(block, /cwd=\{tab\.cwd \?\? activeCwd \?\? undefined\}/);
   assert.match(block, /initialState=\{tab\.viewerState\}/);
   assert.match(block, /handleFileViewerStateChange\(\s*tab\.id,\s*tab\.viewerRevision \?\? 0,/);
-  assert.match(block, /onMentionLines=\{rightPanelOpen && active \? handleFileLineMention : undefined\}/);
+  assert.match(block, /onAttachSelection=\{rightPanelOpen && active \? handleFileAttach : undefined\}/);
 });
 
 test("a project switch leaves the file tabs alone", () => {

@@ -27,7 +27,7 @@ import {
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
 import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
-import { buildQuotedPrompt, joinQuotedDraft, splitQuotedPrompt, type Quote } from "@/lib/quoted-selection";
+import { buildQuotedPrompt, joinQuotedDraft, splitQuotedPrompt, trimQuoteText, type Quote } from "@/lib/quoted-selection";
 import { QuoteCard } from "./QuoteCard";
 import { ImageMentionChip } from "./GeneratedImageResult";
 import { ImageAttachmentStrip } from "./ImageAttachmentStrip";
@@ -857,10 +857,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ta.setSelectionRange(ta.value.length, ta.value.length);
       });
     },
-    addQuote({ text, source }: Quote) {
-      const quote = { text: text.trim(), ...(source ? { source } : {}) };
-      if (!quote.text) return;
-      const next = quotesRef.current.some((item) => item.text === quote.text && item.source === quote.source)
+    addQuote(added: Quote) {
+      const quote = { ...added, text: trimQuoteText(added.text) };
+      if (!quote.text.trim()) return;
+      const next = quotesRef.current.some((item) => buildQuotedPrompt([item], "") === buildQuotedPrompt([quote], ""))
         ? quotesRef.current
         : [...quotesRef.current, quote];
       quotesRef.current = next;

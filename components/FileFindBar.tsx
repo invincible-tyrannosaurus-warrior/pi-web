@@ -73,7 +73,7 @@ export function findTextRanges(root: HTMLElement, query: string, limit = MAX_MAT
   return ranges;
 }
 
-function scrollIntoScroller(scroller: HTMLElement, range: Range) {
+export function scrollIntoScroller(scroller: HTMLElement, range: Range) {
   const target = range.startContainer.parentElement;
   if (!target) return;
   const box = scroller.getBoundingClientRect();

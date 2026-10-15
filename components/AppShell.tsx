@@ -29,7 +29,7 @@ import {
 } from "@/lib/chat-tab-state";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import type { ContextBreakdown } from "@/lib/context-breakdown";
-import { FileViewer } from "./FileViewer";
+import { FileViewer, type FileReveal, type FileSelectionAttachment } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { FILE_TABS_KEY, getAdjacentTabId, mergeFileViewerStates, openFileTab, pinFileTab, restoreFileTabs, serializeFileTabs, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel } from "./SettingsPanel";
@@ -63,7 +63,7 @@ import { sendAgentCommand } from "@/lib/agent-client";
 import { getFileName, joinFilePath, normalizeFilePathSlashes } from "@/lib/file-paths";
 import { getForkSessionName, getSessionDisplayTitle } from "@/lib/session-display-title";
 import { downloadBlob, prefersShareSheet, shareProducedFile } from "@/lib/save-file";
-import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
+import { buildAtMentionText, buildFileAtMentionsText } from "@/lib/file-fuzzy";
 import {
   claimExtensionAttentionNotification,
   shouldShowBrowserNotification,
@@ -1026,9 +1026,13 @@ export function AppShell() {
     if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
   }, [getFocusedChatCwd, isMobile]);
 
-  const handleFileLineMention = useCallback((relativePath: string, startLine: number, endLine: number, sourceCwd?: string) => {
-    const path = pathForChatMention(relativePath, sourceCwd, getFocusedChatCwd());
-    chatInputRef.current?.insertText(buildFileLineMentionText(path, startLine, endLine));
+  const handleFileAttach = useCallback((attachment: FileSelectionAttachment) => {
+    const { relativePath, text, startLine, endLine, sourceCwd } = attachment;
+    chatInputRef.current?.addQuote({
+      text,
+      file: pathForChatMention(relativePath, sourceCwd, getFocusedChatCwd()),
+      ...(startLine ? { lines: startLine === endLine ? `${startLine}` : `${startLine}-${endLine}` } : {}),
+    });
     if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
   }, [getFocusedChatCwd, isMobile]);
 
@@ -1949,7 +1953,10 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
   }, [activeCwd, isMobile, openRightPanelAfterRender]);
 
-  const handleOpenLinkedFile = useCallback((filePath: string, sourceSessionId: string | null, page?: number) => {
+  // One-shot request for the viewer of `path` to scroll to and mark lines (quote chips).
+  const [fileReveal, setFileReveal] = useState<{ path: string; target: FileReveal } | null>(null);
+  const handleOpenLinkedFile = useCallback((filePath: string, sourceSessionId: string | null, page?: number, reveal?: FileReveal) => {
+    setFileReveal(reveal ? { path: filePath, target: reveal } : null);
     const sourceCwd = sourceSessionId
       ? chatTabsRef.current.find((tab) => tab.id === sourceSessionId)?.session?.cwd
       : undefined;
@@ -3490,7 +3497,9 @@ export function AppShell() {
                     tab.viewerRevision ?? 0,
                     viewerState,
                   )}
-                  onMentionLines={rightPanelOpen && active ? handleFileLineMention : undefined}
+                  onAttachSelection={rightPanelOpen && active ? handleFileAttach : undefined}
+                  reveal={fileReveal?.path === tab.filePath ? fileReveal.target : undefined}
+                  onRevealed={() => setFileReveal(null)}
                   onAtMention={handleAtMention}
                   onOpenFile={handleActiveFileOpen}
                 />
