@@ -38,7 +38,7 @@ export interface EnabledModelsPanelState extends EnabledModelsDocument {
    * is the only evidence that justifies editing the list on the user's behalf.
    */
   defined: string[];
-  /** Exact patterns the resolver could not settle, e.g. an ambiguous bare id. */
+  /** Patterns matching the same id on several providers (all enabled), e.g. a bare id. */
   ambiguous?: string[];
 }
 

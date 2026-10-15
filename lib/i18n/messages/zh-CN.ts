@@ -941,7 +941,7 @@ export const zhCNLocale: LocalePlugin = {
     "models.pickSelected": "已选 {count} 个",
     "models.pickApply": "应用（{count} 个）",
     "models.ambiguous": "有歧义（{count}）",
-    "models.ambiguousHint": "这些条目匹配到多个模型。可以移出，或改写成 provider/modelId。",
+    "models.ambiguousHint": "这些条目在多个提供方下都有同名模型，已全部启用。改写成 provider/modelId 可只保留一个。",
     "models.unavailable": "不可用（{count}）",
     "models.unavailableHint": "这些条目还在名单里，但当前解析不到对应模型（未登录，或上游已下线）。移出只影响聊天名单。",
     "models.removedWithDefinition": "已从聊天名单移除 {count} 项",

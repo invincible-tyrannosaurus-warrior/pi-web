@@ -30,9 +30,8 @@ export interface ModelScopeResult {
   /** Resolver diagnostics, e.g. a pattern that matched no model. */
   warnings: string[];
   /**
-   * Exact patterns that matched more than one model, so the scope could not be
-   * settled. Reported instead of thrown: an ambiguous bare id must not take the
-   * whole model list down with it.
+   * Patterns that matched the same id on several providers. pi (>= 1.3) enables
+   * every match and warns; the user can narrow it with `provider/id`.
    */
   ambiguous: string[];
 }
@@ -67,37 +66,6 @@ function isSuppressibleUnmatchedGlob(pattern: string): boolean {
     || THINKING_LEVEL_SUFFIXES.has(pattern.slice(colonIndex + 1) as ThinkingLevel);
 }
 
-function exactReferenceMatches(pattern: string, models: readonly Model<Api>[]): Model<Api>[] {
-  const normalized = pattern.toLowerCase();
-  const canonical = models.filter(
-    (model) => `${model.provider}/${model.id}`.toLowerCase() === normalized,
-  );
-  if (canonical.length > 0) return canonical;
-  return models.filter((model) => model.id.toLowerCase() === normalized);
-}
-
-/** Ambiguous exact patterns, left to the caller to surface. */
-function findAmbiguousExactPatterns(
-  patterns: readonly string[],
-  models: readonly Model<Api>[],
-): string[] {
-  const ambiguous: string[] = [];
-  for (const pattern of patterns) {
-    if (hasGlob(pattern)) continue;
-
-    let matches = exactReferenceMatches(pattern, models);
-    if (matches.length === 0) {
-      const colonIndex = pattern.lastIndexOf(":");
-      const suffix = colonIndex >= 0 ? pattern.slice(colonIndex + 1) : "";
-      if (THINKING_LEVEL_SUFFIXES.has(suffix as ThinkingLevel)) {
-        matches = exactReferenceMatches(pattern.slice(0, colonIndex), models);
-      }
-    }
-
-    if (matches.length > 1) ambiguous.push(pattern);
-  }
-  return ambiguous;
-}
 
 /**
  * Resolve the visible model list for `patterns`.
@@ -122,20 +90,21 @@ export async function resolveVisibleModels(
   }
 
   const available = await modelRuntime.getAvailable();
-  // An ambiguous bare id cannot be resolved, but it must not take the rest of
-  // the list with it: report it and resolve the patterns that do settle.
-  const ambiguous = findAmbiguousExactPatterns(cleaned, available);
-  const resolvable = cleaned.filter((pattern) => !ambiguous.includes(pattern));
   const snapshotRuntime = {
     getAvailable: async () => available,
   } as ModelRuntime;
-  const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(resolvable, snapshotRuntime);
+  const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, snapshotRuntime);
+  const ambiguous = [...new Set(diagnostics
+    .filter((diagnostic) => diagnostic.code === "ambiguous")
+    .map((diagnostic) => diagnostic.pattern))];
   // A leftover valid glob after a model was removed is not a chat-level problem
   // when other enabledModels entries still matched. Keep exact and malformed
   // pattern warnings, and keep all no-match warnings for a total miss, where
   // the UI falls back to every available model and the user needs to know the
   // scope did not apply.
+  // Ambiguity is reported through `ambiguous`, not as a chat warning.
   const warnings = diagnostics
+    .filter((diagnostic) => diagnostic.code !== "ambiguous")
     .filter((diagnostic) => (
       diagnostic.code !== "no-match"
       || scopedModels.length === 0
@@ -144,7 +113,7 @@ export async function resolveVisibleModels(
     .map((diagnostic) => diagnostic.message);
   if (scopedModels.length === 0) {
     return {
-      visible: ambiguous.length > 0 ? await modelRuntime.getAvailable() : available,
+      visible: available,
       scopedModels: [],
       thinkingLevelPins: {},
       warnings,

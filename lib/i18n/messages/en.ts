@@ -941,7 +941,7 @@ export const enLocale: LocalePlugin = {
     "models.pickSelected": "{count} selected",
     "models.pickApply": "Apply ({count})",
     "models.ambiguous": "Ambiguous ({count})",
-    "models.ambiguousHint": "These entries match more than one model. Remove one, or write it as provider/modelId.",
+    "models.ambiguousHint": "These entries match the same model on several providers; all of them are enabled. Write provider/modelId to keep one.",
     "models.unavailable": "Unavailable ({count})",
     "models.unavailableHint": "These entries are in the list but no model resolves to them right now (signed out, or removed upstream). Removing one only changes the chat list.",
     "models.removedWithDefinition": "Removed {count} entries from the chat list",

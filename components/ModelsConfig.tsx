@@ -489,8 +489,8 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null, onModelsCh
   // the list back, so they must stay visible and removable.
   const unresolved = scopeDoc
     ? unresolvedPatterns({ patterns: scopeDoc.patterns, visible: [...listedRefs] })
-      // An ambiguous entry is not "unavailable" — it resolves to several models
-      // and needs the qualified form instead. It gets its own notice.
+      // An ambiguous entry is not "unavailable" — it enables the model on every
+      // provider that offers it. It gets its own notice.
       .filter((pattern) => !(scopeDoc.ambiguous ?? []).includes(pattern))
     : [];
 
