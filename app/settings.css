@@ -473,8 +473,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* The scrim fades by opacity on ::backdrop so it runs on the compositor: a background-color fade
+   is main-thread and jumped whenever the panel's first render stalled it. */
+.settings-dialog-backdrop::backdrop {
   background: var(--settings-scrim, rgba(0, 0, 0, 0.38));
-  animation: settings-backdrop-in 0.12s ease-out;
+  animation: settings-scrim-in 0.12s ease-out;
+}
+
+@keyframes settings-scrim-in {
+  from { opacity: 0; }
 }
 
 /* Settings motion is the menu motion (menu-surface-in, globals.css). `.settings-page`
