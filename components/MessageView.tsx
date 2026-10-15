@@ -6,6 +6,8 @@ import { MarkdownBody } from "./MarkdownBody";
 import { ImageGallery } from "./ImageGallery";
 import { ImageThumbs } from "./ImageThumbs";
 import { mentionImageUrl } from "./GeneratedImageResult";
+import { QuoteCard } from "./QuoteCard";
+import { splitQuotedPrompt } from "@/lib/quoted-selection";
 import { imageToolDisplayKind, splitImageMentions } from "@/lib/image-generation";
 import { ThinkingIcon } from "./ThinkingIcon";
 import { ToolIcon } from "./ToolIcon";
@@ -310,7 +312,18 @@ export const MessageView = memo(function MessageView({ message, modelName, isStr
     && prev.compactError === next.compactError;
 });
 
-function UserTextWithMentions({ text, cwd, onOpenFile }: { text: string; cwd?: string; onOpenFile?: (filePath: string) => void }) {
+function UserTextWithMentions({ text: fullText, cwd, onOpenFile }: { text: string; cwd?: string; onOpenFile?: (filePath: string) => void }) {
+  const { quotes, message: text } = splitQuotedPrompt(fullText);
+  if (quotes.length) {
+    return (
+      <>
+        <div className="quote-card-strip" style={{ marginBottom: text.trim() ? 8 : 0 }}>
+          {quotes.map((quote, index) => <QuoteCard key={index} quote={quote} />)}
+        </div>
+        {text.trim() ? <UserTextWithMentions text={text} cwd={cwd} onOpenFile={onOpenFile} /> : null}
+      </>
+    );
+  }
   const parts = splitImageMentions(text);
   const mentions = parts.filter((part): part is { type: "mention"; path: string } => part.type === "mention");
   const rest = parts.filter((part) => part.type === "text").map((part) => part.value).join("").trim();

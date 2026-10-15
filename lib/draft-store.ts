@@ -1,4 +1,5 @@
 import { MAX_ATTACHED_IMAGES } from "./image-attachments";
+import { joinQuotedDraft, splitQuotedPrompt } from "./quoted-selection";
 
 export interface ChatDraftImage {
   data: string;
@@ -85,7 +86,11 @@ export function clearDraft(key: string): void {
 export function mergeRestoredSubmissionText(submitted: string, current: string): string {
   if (!submitted.trim()) return current;
   if (!current.trim()) return submitted;
-  return `${submitted}\n\n${current}`;
+  // Quote blocks must stay leading, or they would no longer parse back into cards.
+  const a = splitQuotedPrompt(submitted);
+  const b = splitQuotedPrompt(current);
+  const text = !a.message.trim() ? b.message : !b.message.trim() ? a.message : `${a.message}\n\n${b.message}`;
+  return joinQuotedDraft([...a.quotes, ...b.quotes], text);
 }
 
 export function exceedsAttachedImageSendLimit(count: number): boolean {

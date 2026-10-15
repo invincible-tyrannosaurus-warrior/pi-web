@@ -14,7 +14,7 @@ import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, hasTrailingFinalAnswer, isAbortedAssistantError, isHiddenCustomMessage, isMessageGroupAnchor, isMessageGroupBoundary, isSubagentNotificationMessage, partitionAssistantMessage } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { summarizeTurnActivity, type TurnActivity } from "@/lib/turn-activity";
-import { buildQuotedSelection } from "@/lib/quoted-selection";
+import { findQuoteInSegments } from "@/lib/quoted-selection";
 import {
   classifyMissingChatEntry,
   decideSearchScrollCommit,
@@ -102,7 +102,7 @@ interface Props {
   onOpenSession?: (sessionId: string) => void;
   /** Pi's MCP extension points to `/mcp`, whose manager is the Settings > MCP page here. */
   onOpenMcpSettings?: () => void;
-  onAskInNewChat?: (prompt: string, sourceSessionId: string, sourceEntryId: string) => Promise<void>;
+  onAskInNewChat?: (prompt: string, sourceSessionId: string, leafId: string | null) => Promise<void>;
   quoteSelectionEnabled?: boolean;
   initialPrompt?: string;
   onInitialPromptConsumed?: (sessionId: string) => void;
@@ -884,7 +884,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     text: string;
     top: number;
     left: number;
-    sourceEntryId?: string;
+    source?: string;
   } | null>(null);
   const [quoteInputOpen, setQuoteInputOpen] = useState(false);
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
@@ -994,34 +994,19 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       return;
     }
     const rect = range.getBoundingClientRect();
-    const ancestor = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-      ? range.commonAncestorContainer as Element
-      : range.commonAncestorContainer.parentElement;
-    const start = range.startContainer.nodeType === Node.ELEMENT_NODE
-      ? range.startContainer as Element
-      : range.startContainer.parentElement;
-    const end = range.endContainer.nodeType === Node.ELEMENT_NODE
-      ? range.endContainer as Element
-      : range.endContainer.parentElement;
-    const sourceEntryId = [ancestor, start, end]
-      .map((element) => element?.closest<HTMLElement>("[data-message-role=\"assistant\"]")?.dataset.entryId)
-      .find((entryId): entryId is string => Boolean(entryId));
+    const startElement = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
     setQuotedSelection({
       text,
       top: Math.min(window.innerHeight - 44, rect.bottom + 8),
       left: Math.max(64, Math.min(window.innerWidth - 64, rect.left + rect.width / 2)),
-      sourceEntryId,
+      source: startElement?.closest<HTMLElement>("[data-entry-id]")?.dataset.entryId,
     });
   }, [quoteSelectionEnabled, quoteInputOpen]);
 
   useEffect(() => {
     if (!quoteInputOpen || !quotedSelection) return;
-    quoteChatInputRef.current?.insertIfEmpty(buildQuotedSelection(
-      quotedSelection.text,
-      t("chat.quoteIntro"),
-      t("chat.quoteQuestion"),
-    ));
-  }, [quoteInputOpen, quotedSelection, t]);
+    quoteChatInputRef.current?.addQuote({ text: quotedSelection.text, source: quotedSelection.source });
+  }, [quoteInputOpen, quotedSelection]);
 
   useLayoutEffect(() => {
     const popover = quotePopoverRef.current;
@@ -1080,27 +1065,20 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
 
   const askSelectionHere = useCallback(() => {
     if (!quotedSelection) return;
-    ownChatInputRef.current?.insertText(buildQuotedSelection(
-      quotedSelection.text,
-      t("chat.quoteIntro"),
-      t("chat.quoteQuestion"),
-    ));
+    ownChatInputRef.current?.addQuote({ text: quotedSelection.text, source: quotedSelection.source });
     window.getSelection()?.removeAllRanges();
     closeQuotedSelection();
-  }, [quotedSelection, closeQuotedSelection, t]);
+  }, [quotedSelection, closeQuotedSelection]);
 
   const askSelectionInNewChat = useCallback(async (prompt: string) => {
     const sourceSessionId = sessionIdRef.current ?? session?.id;
-    if (quoteSubmitting || !prompt.trim() || !quotedSelection?.sourceEntryId || !sourceSessionId || !onAskInNewChat) return;
+    if (quoteSubmitting || !prompt.trim() || !quotedSelection || !sourceSessionId || !onAskInNewChat) return;
     setQuoteSubmitting(true);
     setQuoteError(null);
     unlockAudio?.();
     try {
-      await onAskInNewChat(
-        prompt,
-        sourceSessionId,
-        quotedSelection.sourceEntryId,
-      );
+      // Fork through the viewed leaf, so the new chat sees the whole conversation, not just up to the quote.
+      await onAskInNewChat(prompt, sourceSessionId, activeLeafId);
       closeQuotedSelection();
     } catch (error) {
       quoteChatInputRef.current?.restoreSubmission(prompt);
@@ -1108,7 +1086,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     } finally {
       setQuoteSubmitting(false);
     }
-  }, [onAskInNewChat, quotedSelection, quoteSubmitting, session?.id, sessionIdRef, closeQuotedSelection, unlockAudio]);
+  }, [onAskInNewChat, quotedSelection, quoteSubmitting, session?.id, sessionIdRef, activeLeafId, closeQuotedSelection, unlockAudio]);
 
   const initialPromptSentRef = useRef(false);
   useEffect(() => {
@@ -1694,6 +1672,27 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       }
     }
   }, [addNotice, locateHistoryEntry, session?.id, sessionIdRef, t]);
+  const quoteHighlightTimerRef = useRef<number | null>(null);
+  const jumpToQuote = useCallback(async (entryId: string, text: string) => {
+    await jumpToOutlineEntry(entryId);
+    // A turn's collapsed steps and its answer can share one entry id: search them all.
+    const elements = messageContentRef.current?.querySelectorAll<HTMLElement>(`[data-entry-id="${CSS.escape(entryId)}"]`) ?? [];
+    const nodes: Text[] = [];
+    for (const element of elements) {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+    }
+    const found = findQuoteInSegments(nodes.map((node) => node.data), text);
+    if (!found) return;
+    const range = document.createRange();
+    range.setStart(nodes[found.start[0]], found.start[1]);
+    range.setEnd(nodes[found.end[0]], found.end[1]);
+    nodes[found.start[0]].parentElement?.scrollIntoView({ block: "center" });
+    if (typeof Highlight === "undefined") return;
+    CSS.highlights.set("quote-source", new Highlight(range));
+    if (quoteHighlightTimerRef.current !== null) window.clearTimeout(quoteHighlightTimerRef.current);
+    quoteHighlightTimerRef.current = window.setTimeout(() => CSS.highlights.delete("quote-source"), 2000);
+  }, [jumpToOutlineEntry]);
   // Runs after the switched branch has committed, so the jump sees the new leaf and entries.
   useEffect(() => {
     if (!pendingBranchJump) return;
@@ -1894,6 +1893,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onClick={(event) => {
+        // Quote chips (composer and sent messages) carry their source entry; see QuoteCard.
+        const chip = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-quote-source]") : null;
+        if (chip?.dataset.quoteSource) void jumpToQuote(chip.dataset.quoteSource, chip.dataset.quoteText ?? "");
+      }}
     >
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[color-mix(in_srgb,var(--accent)_6%,transparent)] backdrop-blur-[1px]">
@@ -2506,10 +2510,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             onPointerDown={(event) => event.preventDefault()}
             onClick={askSelectionHere}
           >
-            <span aria-hidden="true">@</span>
+            <span aria-hidden="true">+</span>
             <span>{t("chat.askInCurrent")}</span>
           </button>
-          {onAskInNewChat && quotedSelection.sourceEntryId && !sessionBusy && (
+          {onAskInNewChat && !sessionBusy && (
             <button
               type="button"
               className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-[4px] border-0 bg-transparent px-2 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"

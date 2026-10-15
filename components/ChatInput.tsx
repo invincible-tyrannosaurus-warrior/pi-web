@@ -27,6 +27,8 @@ import {
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
 import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
+import { buildQuotedPrompt, joinQuotedDraft, splitQuotedPrompt, type Quote } from "@/lib/quoted-selection";
+import { QuoteCard } from "./QuoteCard";
 import { ImageMentionChip } from "./GeneratedImageResult";
 import { ImageAttachmentStrip } from "./ImageAttachmentStrip";
 import { FolderIcon, getFileIcon } from "./FileIcons";
@@ -103,6 +105,7 @@ interface Props {
 export interface ChatInputHandle {
   insertText: (text: string) => void;
   insertIfEmpty: (text: string) => void;
+  addQuote: (quote: Quote) => void;
   replaceMessage: (message: UserMessage) => Promise<boolean>;
   prependText: (text: string) => void;
   addImages: (files: File[]) => void;
@@ -495,10 +498,11 @@ function revokeImagePreview(image: AttachedImage): void {
 const subscribeNever = () => () => {};
 
 function QueuedMessageRow({ kind, text, action }: { kind: "steer" | "follow-up"; text: string; action?: React.ReactNode }) {
+  const { quotes, message } = splitQuotedPrompt(text);
   return (
     <div className="chat-input-queue-row" title={text}>
       <span className="chat-input-queue-kind">{kind}</span>
-      <span className="chat-input-queue-text">{text}</span>
+      <span className="chat-input-queue-text">{message || quotes.map((quote) => quote.text).join(" ")}</span>
       {action}
     </div>
   );
@@ -624,7 +628,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   // Explains a no-op Enter during a queue-less busy run; cleared by typing or the run ending.
   const [sendHeld, setSendHeld] = useState(false);
   const menuId = useId();
-  const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
+  // Drafts store quotes as leading <quote> blocks of the value; the composer keeps them apart.
+  const [initialDraft] = useState(() => splitQuotedPrompt(draftKey ? getDraft(draftKey)?.value ?? "" : ""));
+  const [value, setValue] = useState(initialDraft.message);
+  const [quotes, setQuotes] = useState<Quote[]>(initialDraft.quotes);
+  const quotesRef = useRef(quotes);
+  quotesRef.current = quotes;
   const [controlsView, setControlsView] = useState<"root" | "tools" | "compact">("root");
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false);
   const [imageMenuOpen, setImageMenuOpen] = useState(false);
@@ -637,7 +646,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     draftKey ? draftImagesToAttachedImages(getDraft(draftKey)?.images) : []
   ));
   const trimmedValue = value.trimStart();
-  const bashMode = attachedImages.length === 0 && trimmedValue.startsWith("!");
+  const bashMode = attachedImages.length === 0 && quotes.length === 0 && trimmedValue.startsWith("!");
   const bashExcluded = bashMode && trimmedValue.startsWith("!!");
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [cursorPosition, setCursorPosition] = useState<number | null>(null);
@@ -713,7 +722,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const ta = textareaRef.current;
       const restoreKey = draftKeyRef.current;
       const restoreEpoch = imageProcessEpochRef.current;
-      const canRestore = () => canRestoreUserMessage(ta ? ta.value : valueRef.current, attachedImagesRef.current.length, pendingImageCountRef.current);
+      const canRestore = () => quotesRef.current.length === 0 && canRestoreUserMessage(ta ? ta.value : valueRef.current, attachedImagesRef.current.length, pendingImageCountRef.current);
       if (!canRestore()) return false;
 
       const restoredText = getUserMessageText(message);
@@ -721,9 +730,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       // Refuse late media after typing, switching drafts, or unmounting.
       if (draftKeyRef.current !== restoreKey || imageProcessEpochRef.current !== restoreEpoch || !canRestore()) return false;
       const restoredImages = draftImagesToAttachedImages(draftImages);
-      valueRef.current = restoredText;
+      const restored = splitQuotedPrompt(restoredText);
+      valueRef.current = restored.message;
+      quotesRef.current = restored.quotes;
       attachedImagesRef.current = restoredImages;
-      setValue(restoredText);
+      setValue(restored.message);
+      setQuotes(restored.quotes);
       setAtQuery(null);
       setHistoryMenuOpen(false);
       setAttachedImages((prev) => {
@@ -761,7 +773,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       }
 
       const currentDraft = {
-        value: valueRef.current,
+        value: joinQuotedDraft(quotesRef.current, valueRef.current),
         images: attachedImagesRef.current.map(imageToDraftImage),
       };
       const moved = rekeyStoredDraft(previousKey, nextKey, currentDraft) ?? { value: "", images: [] };
@@ -775,9 +787,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (unchanged) return;
 
       const movedImages = draftImagesToAttachedImages(moved.images);
-      valueRef.current = moved.value;
+      const movedText = splitQuotedPrompt(moved.value);
+      valueRef.current = movedText.message;
+      quotesRef.current = movedText.quotes;
       attachedImagesRef.current = movedImages;
-      setValue(moved.value);
+      setValue(movedText.message);
+      setQuotes(movedText.quotes);
       setAttachedImages((current) => {
         current.forEach(revokeImagePreview);
         return movedImages;
@@ -800,7 +815,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const restoredDraft = mergeRestoredSubmissionDraft(
         text,
         images,
-        targetsCurrentComposer ? valueRef.current : (storedDraft?.value ?? ""),
+        targetsCurrentComposer ? joinQuotedDraft(quotesRef.current, valueRef.current) : (storedDraft?.value ?? ""),
         targetsCurrentComposer
           ? attachedImagesRef.current.map(imageToDraftImage)
           : (storedDraft?.images ?? []),
@@ -811,13 +826,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (destinationDraftKey) setDraft(destinationDraftKey, restoredDraft);
       if (!targetsCurrentComposer) return;
       const restoredImages = draftImagesToAttachedImages(restoredDraft.images);
+      const restoredText = splitQuotedPrompt(restoredDraft.value);
+      const submitted = splitQuotedPrompt(text);
       // Session promotion can rekey this composer before React flushes the
       // functional updates below, so update the imperative snapshot first.
-      valueRef.current = restoredDraft.value;
+      valueRef.current = restoredText.message;
+      quotesRef.current = restoredText.quotes;
       attachedImagesRef.current = restoredImages;
       setValue((current) => {
-        const restored = mergeRestoredSubmissionText(text, current);
+        const restored = mergeRestoredSubmissionText(submitted.message, current);
         valueRef.current = restored;
+        return restored;
+      });
+      setQuotes((current) => {
+        const restored = [...submitted.quotes, ...current];
+        quotesRef.current = restored;
         return restored;
       });
       setAtQuery(null);
@@ -833,6 +856,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ta.focus();
         ta.setSelectionRange(ta.value.length, ta.value.length);
       });
+    },
+    addQuote({ text, source }: Quote) {
+      const quote = { text: text.trim(), ...(source ? { source } : {}) };
+      if (!quote.text) return;
+      const next = quotesRef.current.some((item) => item.text === quote.text && item.source === quote.source)
+        ? quotesRef.current
+        : [...quotesRef.current, quote];
+      quotesRef.current = next;
+      setQuotes(next);
+      requestAnimationFrame(() => textareaRef.current?.focus());
     },
     insertText(text: string) {
       const ta = textareaRef.current;
@@ -931,6 +964,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     historyStashRef.current = null;
     valueRef.current = "";
     setValue("");
+    quotesRef.current = [];
+    setQuotes([]);
     setAtQuery(null);
     setHistoryMenuOpen(false);
     if (draftKey) clearDraft(draftKey);
@@ -942,13 +977,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   useEffect(() => {
     if (!draftKey || draftKeyRef.current !== draftKey) return;
+    const draftValue = joinQuotedDraft(quotes, value);
     const persisted = setDraft(draftKey, {
-      value,
+      value: draftValue,
       images: attachedImages.map(imageToDraftImage),
     });
     setDraftPersistenceFailed(!persisted);
-    onDraftChange?.(draftKey, value, attachedImages.length);
-  }, [attachedImages, draftKey, onDraftChange, value]);
+    onDraftChange?.(draftKey, draftValue, attachedImages.length);
+  }, [attachedImages, draftKey, onDraftChange, quotes, value]);
 
   useEffect(() => {
     const previousDraftKey = draftKeyRef.current;
@@ -956,7 +992,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
     if (previousDraftKey) {
       setDraft(previousDraftKey, {
-        value: valueRef.current,
+        value: joinQuotedDraft(quotesRef.current, valueRef.current),
         images: attachedImagesRef.current.map(imageToDraftImage),
       });
     }
@@ -964,11 +1000,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const draft = draftKey ? getDraft(draftKey) : null;
     draftKeyRef.current = draftKey;
     const nextValue = draft?.value ?? "";
+    const nextText = splitQuotedPrompt(nextValue);
     const nextImages = draftImagesToAttachedImages(draft?.images);
     imageProcessEpochRef.current += 1;
-    valueRef.current = nextValue;
+    valueRef.current = nextText.message;
+    quotesRef.current = nextText.quotes;
     attachedImagesRef.current = nextImages;
-    setValue(nextValue);
+    setValue(nextText.message);
+    setQuotes(nextText.quotes);
     setAtQuery(null);
     setHistoryMenuOpen(false);
     setAttachedImages((prev) => {
@@ -1040,7 +1079,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const runBuiltinCommand = useCallback(async (msg: string): Promise<boolean> => {
-    if (isEditing || attachedImages.length || !msg.startsWith("/") || !onBuiltinCommand) return false;
+    if (isEditing || attachedImages.length || quotes.length || !msg.startsWith("/") || !onBuiltinCommand) return false;
     if (builtinCommandPendingRef.current) return true;
     builtinCommandPendingRef.current = true;
     setBuiltinCommandPending(true);
@@ -1053,13 +1092,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       builtinCommandPendingRef.current = false;
       setBuiltinCommandPending(false);
     }
-  }, [isEditing, attachedImages.length, clearInput, onBuiltinCommand]);
+  }, [isEditing, attachedImages.length, quotes.length, clearInput, onBuiltinCommand]);
 
   const handleSend = useCallback(async () => {
     if (disabled) return;
     const msg = value.trim();
     if (exceedsAttachedImageSendLimit(attachedImages.length)) return;
-    const outgoing = prependImageMentions(msg, mentionedImages);
+    const outgoing = buildQuotedPrompt(quotes, prependImageMentions(msg, mentionedImages));
     if (!outgoing && !attachedImages.length) return;
     onAudioUnlock?.();
     const builtinAllowed = !isStreaming || canRunBuiltinSlashCommandWhileStreaming(msg);
@@ -1068,7 +1107,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const images = attachedImages.length ? attachedImages : undefined;
     clearInput();
     onSend(outgoing, images);
-  }, [disabled, value, attachedImages, mentionedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [disabled, value, quotes, attachedImages, mentionedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -1118,8 +1157,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
   const hasInputText = Boolean(value.trim());
   const imageSendBlocked = exceedsAttachedImageSendLimit(attachedImages.length);
-  const canQueueStreamingMessage = !imageSendBlocked && (hasInputText || attachedImages.length > 0 || mentionedImages.length > 0);
-  const canSendMessage = !disabled && !imageSendBlocked && (hasInputText || attachedImages.length > 0 || mentionedImages.length > 0);
+  const hasAttachments = attachedImages.length > 0 || mentionedImages.length > 0 || quotes.length > 0;
+  const canQueueStreamingMessage = !imageSendBlocked && (hasInputText || hasAttachments);
+  const canSendMessage = !disabled && !imageSendBlocked && (hasInputText || hasAttachments);
   // Warn when images are attached but the selected model is known not to accept
   // image input (#584), including a resolved default. Unknown models stay silent.
   const showImageUnsupportedWarning = (
@@ -1288,10 +1328,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setHistoryMenuOpen(false);
   }, []);
 
-  const applyHistoryInput = useCallback((text: string) => {
+  const applyHistoryInput = useCallback((historyText: string) => {
+    const { quotes: recalledQuotes, message: text } = splitQuotedPrompt(historyText);
     historyStashRef.current = null;
     valueRef.current = text;
     setValue(text);
+    quotesRef.current = recalledQuotes;
+    setQuotes(recalledQuotes);
     setCursorPosition(text.length);
     setHistoryMenuOpen(false);
     setHistoryActiveIndex(0);
@@ -1313,16 +1356,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (isEditing) return;
     const msg = value.trim();
     if (exceedsAttachedImageSendLimit(attachedImages.length)) return;
-    const outgoing = prependImageMentions(msg, mentionedImages);
+    const outgoing = buildQuotedPrompt(quotes, prependImageMentions(msg, mentionedImages));
     if (!outgoing && !attachedImages.length) return;
     onAudioUnlock?.();
-    if (!attachedImages.length && onBuiltinCommand && canRunBuiltinSlashCommandWhileStreaming(msg)) {
+    if (!attachedImages.length && !quotes.length && onBuiltinCommand && canRunBuiltinSlashCommandWhileStreaming(msg)) {
       void runBuiltinCommand(msg);
       return;
     }
     const streamingBehavior = mode === "steer" ? "steer" : "followUp";
     const images = attachedImages.length ? attachedImages : undefined;
-    if (msg.startsWith("/") && onPromptWithStreamingBehavior) {
+    if (msg.startsWith("/") && !quotes.length && onPromptWithStreamingBehavior) {
       clearInput();
       onPromptWithStreamingBehavior(msg, streamingBehavior, images);
       return;
@@ -1333,7 +1376,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     } else if (mode === "followup" && onFollowUp) {
       onFollowUp(outgoing, images);
     }
-  }, [isEditing, value, attachedImages, mentionedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
+  }, [isEditing, value, quotes, attachedImages, mentionedImages, onBuiltinCommand, onPromptWithStreamingBehavior, onSteer, onFollowUp, clearInput, onAudioUnlock, runBuiltinCommand]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2378,6 +2421,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               ))}
               {queuedFollowUp.map((text, i) => (
                 <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} action={queueCount === 1 ? recallQueueButton : undefined} />
+              ))}
+            </div>
+          )}
+          {quotes.length > 0 && (
+            <div className="quote-card-strip">
+              {quotes.map((quote, index) => (
+                <QuoteCard
+                  key={`${index}:${quote.source ?? ""}:${quote.text}`}
+                  quote={quote}
+                  onRemove={() => setQuotes((prev) => {
+                    const next = prev.filter((item) => item !== quote);
+                    quotesRef.current = next;
+                    return next;
+                  })}
+                />
               ))}
             </div>
           )}

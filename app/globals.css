@@ -4660,6 +4660,101 @@ span.token.table {
   flex-shrink: 0;
 }
 
+/* Quoted excerpts: one chip in the composer and in the sent message. A tinted
+   surface instead of a fill so it reads on both the composer and the user bubble. */
+.quote-card-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.chat-input-composer > .quote-card-strip {
+  padding: 2px 0 4px;
+}
+
+.quote-chip {
+  display: inline-flex;
+  align-items: flex-start;
+  max-width: min(280px, 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-md);
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  color: var(--text-muted);
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.quote-chip:has(.quote-chip-body:enabled:hover) {
+  border-color: color-mix(in srgb, var(--text) 22%, transparent);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+}
+
+.quote-chip-body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 4px 5px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quote-chip-body:disabled {
+  cursor: default;
+}
+
+.quote-chip-body:focus-visible,
+.quote-chip-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--ui-radius-md);
+}
+
+.quote-chip-body svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.quote-chip-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.quote-chip-remove {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.quote-chip-remove:hover {
+  color: var(--text);
+}
+
+::highlight(quote-source) {
+  background-color: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
 .chat-input-image-preview[data-drop="true"] .image-thumb {
   outline: 2px solid var(--accent);
 }

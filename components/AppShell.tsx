@@ -1474,13 +1474,13 @@ export function AppShell() {
   const handleAskInNewChat = useCallback(async (
     prompt: string,
     sourceSessionId: string,
-    sourceEntryId: string,
+    leafId: string | null,
   ) => {
     const source = chatTabsRef.current.find((tab) => tab.id === sourceSessionId)?.session;
     setChatTabs((tabs) => pinSessionTab(tabs, sourceSessionId));
     const result = await sendAgentCommand<{ newSessionId?: string }>(sourceSessionId, {
       type: "fork_branch",
-      entryId: sourceEntryId,
+      ...(leafId ? { entryId: leafId } : {}),
       ...(source ? { name: getForkSessionName(source, translate("session.forkNamePrefix")) } : {}),
     });
     if (!result?.newSessionId) throw new Error(translate("chat.quoteForkFailed"));
