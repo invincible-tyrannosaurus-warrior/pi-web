@@ -6,6 +6,12 @@ import { chatTabCwd, type ChatPane, type ChatTabItem } from "@/lib/chat-tab-stat
 import { useI18n } from "@/hooks/useI18n";
 import { LivePulseBeacon } from "./LivePulseBeacon";
 import { isModalDialogOpen } from "./ModalDialog";
+import { AwaitingSessionIndicator, UnreadSessionIndicator } from "./SessionStateBadge";
+
+export interface SessionMarkers {
+  unread: ReadonlySet<string>;
+  awaitingInput: ReadonlySet<string>;
+}
 
 const TAB_DRAG_MIME = "application/x-pi-chat-tab";
 // Shared by every bar: dataTransfer data is unreadable during dragover, and a tab dragged
@@ -18,6 +24,8 @@ interface Props {
   splitTabId?: string | null;
   activePane?: "primary" | "secondary";
   runningSessionIds?: ReadonlySet<string>;
+  /** Sidebar markers mirrored onto tabs: finished unseen, or parked on a dialog. */
+  sessionMarkers?: SessionMarkers;
   onSelectTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => boolean | void;
   /** Batch close for the context menu (close others / close to the right). */
@@ -44,6 +52,7 @@ export function ChatTabBar({
   splitTabId = null,
   activePane = "primary",
   runningSessionIds,
+  sessionMarkers,
   onSelectTab,
   onCloseTab,
   onCloseTabs,
@@ -181,15 +190,27 @@ export function ChatTabBar({
     return event.clientX < rect.left + rect.width / 2 ? index : index + 1;
   };
 
-  const isTabRunning = (tab: ChatTabItem) => tab.kind === "session" && Boolean(tab.session && runningSessionIds?.has(tab.session.id));
+  // Same precedence as the sidebar row: awaiting input > running > unread.
+  const tabState = (tab: ChatTabItem): "awaiting" | "running" | "unread" | null => {
+    const id = tab.kind === "session" ? tab.session?.id : undefined;
+    if (!id) return null;
+    if (sessionMarkers?.awaitingInput.has(id)) return "awaiting";
+    if (runningSessionIds?.has(id)) return "running";
+    return sessionMarkers?.unread.has(id) ? "unread" : null;
+  };
   const hiddenTabs = tabs.filter((tab) => hiddenTabIds.has(tab.id));
-  const hiddenRunning = hiddenTabs.some(isTabRunning);
+  const hiddenStates = new Set(hiddenTabs.map(tabState));
+  const hiddenAwaiting = hiddenStates.has("awaiting");
+  const hiddenRunning = !hiddenAwaiting && hiddenStates.has("running");
+  const hiddenUnread = !hiddenAwaiting && !hiddenRunning && hiddenStates.has("unread");
   const hiddenDraft = hiddenTabs.some((tab) => tab.kind === "draft" && tab.dirty);
   const allTabsLabel = [
     t("chatTabs.allTabs"),
     hiddenTabs.length > 0 && t("chatTabs.hiddenCount", { count: hiddenTabs.length }),
+    hiddenAwaiting && t("chatTabs.hiddenAwaiting"),
     hiddenRunning && t("chatTabs.hiddenRunning"),
-    !hiddenRunning && hiddenDraft && t("chatTabs.unsentDraft"),
+    hiddenUnread && t("chatTabs.hiddenUnread"),
+    !hiddenAwaiting && !hiddenRunning && !hiddenUnread && hiddenDraft && t("chatTabs.unsentDraft"),
   ].filter(Boolean).join(", ");
 
   const effectiveCanSplit = canSplit && !isMobile;
@@ -286,7 +307,8 @@ export function ChatTabBar({
           const isSecondary = tab.id === splitTabId;
           const isVisible = isPrimary || isSecondary;
           const isCurrentPane = (isPrimary && activePane === "primary") || (isSecondary && activePane === "secondary");
-          const isRunning = isTabRunning(tab);
+          const state = tabState(tab);
+          const isRunning = state === "running";
 
           return (
             <div
@@ -394,8 +416,8 @@ export function ChatTabBar({
                   }}
                 />
               )}
-              {/* Tab Icon: running beacon or draft indicator */}
-              {(isRunning || tab.kind === "draft") && (
+              {/* Tab Icon: session state badge or draft indicator */}
+              {(state || tab.kind === "draft") && (
                 <span
                   style={{
                     flexShrink: 0,
@@ -405,8 +427,12 @@ export function ChatTabBar({
                     color: isRunning ? "var(--accent)" : isVisible ? "var(--text)" : "var(--text-dim)",
                   }}
                 >
-                  {isRunning ? (
+                  {state === "awaiting" ? (
+                    <AwaitingSessionIndicator />
+                  ) : isRunning ? (
                     <LivePulseBeacon size={12} ariaLabel="Running" />
+                  ) : state === "unread" ? (
+                    <UnreadSessionIndicator />
                   ) : (
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
@@ -522,11 +548,11 @@ export function ChatTabBar({
               cursor: "pointer",
             }}
           >
-            {(hiddenRunning || hiddenDraft) && (
+            {(hiddenAwaiting || hiddenRunning || hiddenUnread || hiddenDraft) && (
               <span aria-hidden="true" style={{ position: "absolute", top: 3, right: 2, display: "flex", color: "var(--accent)" }}>
                 {hiddenRunning
                   ? <LivePulseBeacon size={10} />
-                  : <span style={{ width: 5, height: 5, margin: 2.5, borderRadius: "50%", background: "var(--accent)" }} />}
+                  : <span style={{ width: 5, height: 5, margin: 2.5, borderRadius: "50%", background: hiddenAwaiting ? "var(--warning)" : hiddenUnread ? "var(--success)" : "var(--accent)" }} />}
               </span>
             )}
             {hiddenTabs.length > 0 ? (
@@ -700,7 +726,7 @@ export function ChatTabBar({
           <div style={{ maxHeight: "min(50vh, 360px)", overflowY: "auto", scrollbarWidth: "none" }}>
             {tabs.map((tab, index) => {
               const selected = tab.id === activeTabId || tab.id === splitTabId;
-              const running = isTabRunning(tab);
+              const state = tabState(tab);
               return (
                 <div
                   key={tab.id}
@@ -729,10 +755,14 @@ export function ChatTabBar({
                       fontSize: 12,
                     }}
                   >
-                    {running ? (
+                    {state === "awaiting" ? (
+                      <AwaitingSessionIndicator />
+                    ) : state === "running" ? (
                       <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 12, height: 12, flexShrink: 0 }}>
                         <LivePulseBeacon size={10} />
                       </span>
+                    ) : state === "unread" ? (
+                      <UnreadSessionIndicator />
                     ) : (
                       <span
                         aria-hidden="true"

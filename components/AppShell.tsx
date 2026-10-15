@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
-import { ChatTabBar } from "./ChatTabBar";
+import { ChatTabBar, type SessionMarkers } from "./ChatTabBar";
 import {
   openSessionInNewTab,
   openSessionPreview,
@@ -259,6 +259,11 @@ export function AppShell() {
       if (previous.size === ids.size && [...ids].every((id) => previous.has(id))) return previous;
       return ids;
     });
+  }, []);
+  const [sessionMarkers, setSessionMarkers] = useState<SessionMarkers>(() => ({ unread: new Set(), awaitingInput: new Set() }));
+  // The sidebar keeps each set's identity until it changes, so reference equality suffices.
+  const handleSessionMarkersChange = useCallback((markers: SessionMarkers) => {
+    setSessionMarkers((previous) => previous.unread === markers.unread && previous.awaitingInput === markers.awaitingInput ? previous : markers);
   }, []);
   // The temporary id distinguishes consecutive fresh composers in one cwd.
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
@@ -2331,6 +2336,7 @@ export function AppShell() {
         onAtMentions={handleAtMentions}
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
+        onSessionMarkersChange={handleSessionMarkersChange}
         onSessionsChange={handleSessionsChange}
         onProjectPathsChange={setProjectPaths}
         onProjectNamesChange={setProjectNameByRoot}
@@ -2846,6 +2852,7 @@ export function AppShell() {
                     splitTabId={splitChatTabId}
                     activePane={activeChatPane === "primary" ? "primary" : "secondary"}
                     runningSessionIds={runningSessionIds}
+                    sessionMarkers={sessionMarkers}
                     onSelectTab={handleSelectPrimaryTab}
                     onCloseTab={handleCloseChatTab}
                     onCloseTabs={handleCloseChatTabs}
@@ -2879,6 +2886,7 @@ export function AppShell() {
                     activeTabId={splitChatTabId ?? ""}
                     activePane={activeChatPane === "secondary" ? "primary" : "secondary"}
                     runningSessionIds={runningSessionIds}
+                    sessionMarkers={sessionMarkers}
                     onSelectTab={handleSelectSecondaryTab}
                     onCloseTab={handleCloseChatTab}
                     onCloseTabs={handleCloseChatTabs}
@@ -2911,6 +2919,7 @@ export function AppShell() {
                     activeTabId={activeChatTabId ?? ""}
                     activePane="primary"
                     runningSessionIds={runningSessionIds}
+                    sessionMarkers={sessionMarkers}
                     onSelectTab={handleSelectChatTab}
                     onCloseTab={handleCloseChatTab}
                     onCloseTabs={handleCloseChatTabs}
@@ -3288,6 +3297,7 @@ export function AppShell() {
               activeTabId={activeChatTabId ?? ""}
               activePane="primary"
               runningSessionIds={runningSessionIds}
+              sessionMarkers={sessionMarkers}
               onSelectTab={handleSelectChatTab}
               onCloseTab={handleCloseChatTab}
               onPinTab={promotePreviewSession}

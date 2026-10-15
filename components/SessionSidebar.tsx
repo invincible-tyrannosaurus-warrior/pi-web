@@ -15,6 +15,7 @@ import { shouldAdoptSessionCwd } from "@/lib/explorer-cwd";
 import { isSidebarSingleProject, SIDEBAR_SINGLE_PROJECT_EVENT } from "@/lib/sidebar-single-project-preference";
 import { formatCompactRelativeTime } from "@/lib/i18n/format";
 import { useI18n } from "@/hooks/useI18n";
+import { AwaitingSessionIndicator, UnreadSessionIndicator } from "./SessionStateBadge";
 import { getFileName } from "@/lib/file-paths";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
@@ -169,10 +170,12 @@ interface Props {
   onExplorerRefresh?: () => void;
   onAtMention?: (relativePath: string, isDir: boolean, sourceCwd?: string) => void;
   onAtMentions?: (relativePaths: string[], sourceCwd?: string) => void;
-  /** Fired when a session that is not currently selected finishes running.
+  /** Fired when a session that is not visible in any pane finishes running.
    *  Lets the app play a cross-workspace completion tone. */
   onBackgroundTaskDone?: (completedSessionIds: string[]) => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
+  /** Unread and awaiting-input markers, mirrored onto the chat tabs. */
+  onSessionMarkersChange?: (markers: { unread: Set<string>; awaitingInput: Set<string> }) => void;
   onSessionsChange?: (sessions: SessionInfo[]) => void;
   /** Display names keyed by project root, for the pickers outside the sidebar. */
   onProjectPathsChange?: (paths: string[]) => void;
@@ -333,7 +336,7 @@ function sameIdSet(current: Set<string>, ids: string[] | undefined): Set<string>
   return next.length === current.size && next.every((id) => current.has(id)) ? current : new Set(next);
 }
 
-export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSelectSession, onOpenSessionInNewTab, onForkSession, forking = false, onNewSession, initialSessionId, skipInitialProjectSelection, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, onProjectPathsChange, onProjectNamesChange, pinnedCwds, onTogglePinnedCwd, onHomeDirChange, onWorktreeInfoChange }: Props) {
+export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSelectSession, onOpenSessionInNewTab, onForkSession, forking = false, onNewSession, initialSessionId, skipInitialProjectSelection, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionMarkersChange, onSessionsChange, onProjectPathsChange, onProjectNamesChange, pinnedCwds, onTogglePinnedCwd, onHomeDirChange, onWorktreeInfoChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>([]);
@@ -797,12 +800,21 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   }, [onRunningSessionIdsChange, runningSessionIds]);
 
   useEffect(() => {
+    onSessionMarkersChange?.({ unread: unreadSessionIds, awaitingInput: awaitingInputSessionIds });
+  }, [onSessionMarkersChange, unreadSessionIds, awaitingInputSessionIds]);
+
+  // Joined so the effects below see a stable dependency across renders.
+  const visibleSessionKey = [selectedSessionId, ...visibleSessionIds].filter(Boolean).join("\n");
+
+  useEffect(() => {
     onSessionsChange?.(allSessions);
   }, [allSessions, onSessionsChange]);
 
   useEffect(() => {
     const previous = previousRunningSessionIdsRef.current;
-    const completedInBackground = [...previous].filter((id) => !runningSessionIds.has(id) && id !== selectedSessionId);
+    // A session shown in either split pane counts as read when it finishes.
+    const visibleIds = new Set(visibleSessionKey.split("\n"));
+    const completedInBackground = [...previous].filter((id) => !runningSessionIds.has(id) && !visibleIds.has(id));
     const knownSubagentIds = new Set(
       allSessions
         .filter((session) => session.relation?.kind === "subagent")
@@ -838,17 +850,18 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         (id) => currentSuppressedCompletionSessionIdsRef.current.has(id) || knownSubagentIds.has(id),
       ),
     );
-  }, [runningSessionIds, selectedSessionId, allSessions, loadSessions, onBackgroundTaskDone]);
+  }, [runningSessionIds, visibleSessionKey, allSessions, loadSessions, onBackgroundTaskDone]);
 
   useEffect(() => {
-    if (!selectedSessionId) return;
+    if (!visibleSessionKey) return;
+    const visibleIds = visibleSessionKey.split("\n");
     setUnreadSessionIds((prev) => {
-      if (!prev.has(selectedSessionId)) return prev;
+      if (!visibleIds.some((id) => prev.has(id))) return prev;
       const next = new Set(prev);
-      next.delete(selectedSessionId);
+      visibleIds.forEach((id) => next.delete(id));
       return next;
     });
-  }, [selectedSessionId]);
+  }, [visibleSessionKey]);
 
   useEffect(() => {
     if (explorerRefreshKey !== undefined) setExplorerKey((k) => k + 1);
@@ -2508,50 +2521,6 @@ function RunningSessionIndicator() {
       title={t("sidebar.agentRunning")}
       ariaLabel={t("sidebar.agentRunning")}
     />
-  );
-}
-
-/** Row-state badge in the meta slot: a 12px filled circle with a white glyph (unread, awaiting input). */
-function SessionStateBadge({ label, color, children }: { label: string; color: string; children: ReactNode }) {
-  return (
-    <span
-      role="img"
-      title={label}
-      aria-label={label}
-      style={{
-        width: 14,
-        height: 14,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-      }}
-    >
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" style={{ display: "block" }}>
-        <circle cx="6" cy="6" r="5" fill={color} />
-        {children}
-      </svg>
-    </span>
-  );
-}
-
-/** Parked on an extension dialog: the run waits for an answer, so a question mark. */
-function AwaitingSessionIndicator() {
-  const { t } = useI18n();
-  return (
-    <SessionStateBadge label={t("sidebar.awaitingInput")} color="var(--warning)">
-      <path d="M4.7 4.6a1.4 1.4 0 0 1 2.7.5c0 .9-1.4 1.1-1.4 1.9" stroke="#ffffff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="6" cy="8.7" r="0.75" fill="#ffffff" />
-    </SessionStateBadge>
-  );
-}
-
-function UnreadSessionIndicator() {
-  const { t } = useI18n();
-  return (
-    <SessionStateBadge label={t("sidebar.newSessionActivity")} color="var(--success)">
-      <path d="M3.6 6.2l1.6 1.6 3.2-3.4" stroke="#ffffff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-    </SessionStateBadge>
   );
 }
 

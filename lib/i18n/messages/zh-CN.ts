@@ -746,6 +746,8 @@ export const zhCNLocale: LocalePlugin = {
     "chatTabs.moveLeft": "移到左侧窗格",
     "chatTabs.splitTabRight": "在右侧分屏打开",
     "chatTabs.hiddenRunning": "有运行中的标签被隐藏",
+    "chatTabs.hiddenAwaiting": "有等待输入的标签被隐藏",
+    "chatTabs.hiddenUnread": "有已完成的标签被隐藏",
     "chatTabs.closeOthers": "关闭其他标签",
     "chatTabs.closeRight": "关闭右侧标签",
     "chatTabs.revealCwd": "在侧栏定位到此项目",

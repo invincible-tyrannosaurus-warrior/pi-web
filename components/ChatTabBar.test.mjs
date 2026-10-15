@@ -14,7 +14,7 @@ const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { ChatTabBar } = await jiti.import("./ChatTabBar.tsx");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 
-function render(tabs, activeTabId = tabs[0]?.id, splitTabId = null) {
+function render(tabs, activeTabId = tabs[0]?.id, splitTabId = null, sessionMarkers = undefined) {
   return renderToStaticMarkup(React.createElement(
     I18nProvider,
     null,
@@ -23,6 +23,7 @@ function render(tabs, activeTabId = tabs[0]?.id, splitTabId = null) {
       activeTabId,
       splitTabId,
       runningSessionIds: new Set(["s2"]),
+      sessionMarkers,
       onSelectTab() {},
       onCloseTab() {},
       onNewTab() {},
@@ -98,6 +99,15 @@ test("renders tab items with titles and running indicator", () => {
   assert.match(renderedTabs[1], /Task 2/);
   assert.match(renderedTabs[1], /Running/);
   assert.match(renderedTabs[2], /新会话/);
+});
+
+test("mirrors sidebar markers: awaiting input beats running, unread shows once finished", () => {
+  const tabs = ["s1", "s2", "s3"].map((id) => ({ id, kind: "session", title: id, session: { id }, newSessionCwd: null, newSessionDraftKey: null }));
+  const renderedTabs = tabNodes(render(tabs, "s1", null, { unread: new Set(["s3"]), awaitingInput: new Set(["s2"]) }));
+  assert.doesNotMatch(renderedTabs[0], /aria-label="(Running|Awaiting input|New session activity)"/);
+  assert.match(renderedTabs[1], /Awaiting input/);
+  assert.doesNotMatch(renderedTabs[1], /Running/);
+  assert.match(renderedTabs[2], /New session activity/);
 });
 
 test("marks selected tab and split tab appropriately", () => {

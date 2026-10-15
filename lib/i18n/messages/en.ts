@@ -746,6 +746,8 @@ export const enLocale: LocalePlugin = {
     "chatTabs.moveLeft": "Move to left pane",
     "chatTabs.splitTabRight": "Open in right split",
     "chatTabs.hiddenRunning": "Running tab hidden",
+    "chatTabs.hiddenAwaiting": "Hidden tab awaiting input",
+    "chatTabs.hiddenUnread": "Hidden tab finished",
     "chatTabs.closeOthers": "Close other tabs",
     "chatTabs.closeRight": "Close tabs to the right",
     "chatTabs.revealCwd": "Show project in sidebar",
