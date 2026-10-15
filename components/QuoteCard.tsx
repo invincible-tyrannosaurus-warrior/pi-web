@@ -1,9 +1,38 @@
 "use client";
 
+import katex from "katex";
 import { useI18n } from "@/hooks/useI18n";
 import { getFileName } from "@/lib/file-paths";
 import type { Quote } from "@/lib/quoted-selection";
 import { getFileIcon } from "./FileIcons";
+
+// `$$...$$` or `$...$` (no space just inside the dollars, so "$5 and $10" stays text).
+const MATH = /\$\$([\s\S]+?)\$\$|\$(?!\s)([^$\n]+?)(?<!\s)\$/g;
+
+/** Chip preview with formulas typeset inline: a one/two-line chip has no room for display math. */
+function renderQuoteMath(text: string) {
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(MATH)) {
+    const display = match[1] != null;
+    const before = text.slice(last, match.index);
+    // Display math sits on its own lines; inline in the chip it should flow with the text.
+    parts.push(display ? before.replace(/\s+$/, " ") : before);
+    parts.push(
+      <span
+        key={match.index}
+        dangerouslySetInnerHTML={{ __html: katex.renderToString((match[1] ?? match[2]).trim(), { displayMode: false, throwOnError: false, output: "html" }) }}
+      />,
+    );
+    last = match.index + match[0].length;
+    if (display) {
+      parts.push(" ");
+      last += /^\s*/.exec(text.slice(last))![0].length;
+    }
+  }
+  parts.push(text.slice(last));
+  return parts;
+}
 
 /**
  * A quoted excerpt, in the composer (removable) and in sent user messages. Clicking it jumps to
@@ -41,7 +70,7 @@ export function QuoteCard({ quote, onRemove }: { quote: Quote; onRemove?: () => 
             <span className="quote-chip-text is-code">{quote.text.trim()}</span>
           </span>
         ) : (
-          <span className="quote-chip-text">{quote.text}</span>
+          <span className="quote-chip-text">{renderQuoteMath(quote.text)}</span>
         )}
       </button>
       {onRemove ? (

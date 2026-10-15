@@ -14,7 +14,7 @@ import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, hasTrailingFinalAnswer, isAbortedAssistantError, isHiddenCustomMessage, isMessageGroupAnchor, isMessageGroupBoundary, isSubagentNotificationMessage, partitionAssistantMessage } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { summarizeTurnActivity, type TurnActivity } from "@/lib/turn-activity";
-import { findQuoteInSegments } from "@/lib/quoted-selection";
+import { findQuoteInSegments, selectedTextWithTex } from "@/lib/quoted-selection";
 import { scrollIntoScroller } from "./FileFindBar";
 import type { FileReveal } from "./FileViewer";
 import {
@@ -977,20 +977,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       setQuotedSelection(null);
       return;
     }
-    // KaTeX renders MathML + HTML twice; selection.toString() would duplicate and split formulas.
-    const fragment = range.cloneContents();
-    fragment.querySelectorAll(".katex").forEach((el) => {
-      const tex = el.querySelector("annotation[encoding=\"application/x-tex\"]")?.textContent;
-      if (!tex) return;
-      const display = el.closest(".katex-display") != null;
-      el.replaceWith(display ? `\n$$\n${tex}\n$$\n` : `$${tex}$`);
-    });
-    const holder = document.createElement("div");
-    holder.style.cssText = "position:fixed;left:-9999px;white-space:pre-wrap";
-    holder.append(fragment);
-    document.body.append(holder);
-    const text = holder.innerText.trim();
-    holder.remove();
+    const text = selectedTextWithTex(range);
     if (!text) {
       setQuotedSelection(null);
       return;

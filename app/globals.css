@@ -4757,6 +4757,11 @@ span.token.table {
   overflow-wrap: anywhere;
 }
 
+/* Typeset formulas at the chip's text size so tall ones (fractions, roots) stay within the clamp. */
+.quote-chip-text .katex {
+  font-size: 1em;
+}
+
 .quote-chip-remove {
   display: flex;
   flex-shrink: 0;

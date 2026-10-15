@@ -9,7 +9,7 @@ import vs from "react-syntax-highlighter/dist/esm/styles/prism/vs";
 import vscDarkPlus from "react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus";
 import ReactMarkdown from "react-markdown";
 import { createPortal } from "react-dom";
-import { findQuoteInSegments } from "@/lib/quoted-selection";
+import { findQuoteInSegments, selectedTextWithTex } from "@/lib/quoted-selection";
 import { useTheme } from "@/hooks/useTheme";
 import { usePrismLanguages } from "@/hooks/usePrismLanguages";
 import { claudeCodeStyle, claudeDarkCodeStyle } from "@/lib/claude-theme";
@@ -1818,7 +1818,7 @@ function TextFileViewer({
       return text.trim() ? { relativePath, sourceCwd: cwd, text, ...lineRange } : null;
     }
     if (!isMarkdown || effectiveDisplayMode !== "preview" || !root.contains(selection.getRangeAt(0).commonAncestorContainer)) return null;
-    const text = selection.toString().trim();
+    const text = selectedTextWithTex(selection.getRangeAt(0));
     return text ? { relativePath, sourceCwd: cwd, text } : null;
   }, [cwd, effectiveDisplayMode, filePath, isMarkdown, onAttachSelection, sourceLines]);
 

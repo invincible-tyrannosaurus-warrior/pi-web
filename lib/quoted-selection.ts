@@ -39,6 +39,33 @@ export function joinQuotedDraft(quotes: Quote[], value: string): string {
 }
 
 /**
+ * Browser only: the selected text with KaTeX formulas turned back into `$tex$` / `$$tex$$`.
+ * KaTeX renders MathML + HTML twice, so plain selection.toString() duplicates and splits
+ * formulas; a selection ending inside a formula is widened to the whole formula first.
+ */
+export function selectedTextWithTex(range: Range): string {
+  const formulaAt = (node: Node) => (node instanceof Element ? node : node.parentElement)?.closest(".katex-display, .katex");
+  const widened = range.cloneRange();
+  const start = formulaAt(range.startContainer);
+  const end = formulaAt(range.endContainer);
+  if (start) widened.setStartBefore(start);
+  if (end) widened.setEndAfter(end);
+  const holder = document.createElement("div");
+  holder.style.cssText = "position:fixed;left:-9999px;white-space:pre-wrap";
+  holder.append(widened.cloneContents());
+  holder.querySelectorAll(".katex").forEach((el) => {
+    const tex = el.querySelector("annotation[encoding=\"application/x-tex\"]")?.textContent;
+    if (!tex) return;
+    const display = el.closest(".katex-display") != null;
+    el.replaceWith(display ? `\n$$\n${tex}\n$$\n` : `$${tex}$`);
+  });
+  document.body.append(holder);
+  const text = holder.innerText.trim();
+  holder.remove();
+  return text;
+}
+
+/**
  * Locates a quote in a message's text nodes so the jump can highlight it. Matches the first
  * line only: the quote came from innerText, which adds newlines between blocks.
  */
