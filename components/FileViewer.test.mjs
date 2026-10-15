@@ -96,7 +96,7 @@ test("diff view preserves Git hunk and metadata rows", () => {
 });
 
 test("an explicit diff request bypasses native media viewers", () => {
-  assert.match(source, /const diffRequested = resolveFileDisplayMode\(filePath, initialState, initialDisplayMode\) === "diff";/);
+  assert.match(source, /const diffRequested = resolveFileDisplayMode\(filePath, mountState, initialDisplayMode\) === "diff";/);
   assert.match(source, /\(isFilePreviewPath\(filePath\) \|\| isDelimitedTablePath\(filePath\)\) \? "preview"/);
 
   assert.match(source, /if \(!diffRequested && isImagePath\(filePath\)\)/);
@@ -122,6 +122,17 @@ test("a failed diff refresh keeps the last diff and offers a retry", () => {
   assert.match(source, /if \(!response\.ok\) setGitDiffError\([^;]*\);\s*else setGitDiff\(/);
   assert.match(source, /gitDiffResolved && gitDiffError && !hasGitDiff\)/);
   assert.match(source, /const refreshError = \(data \? error : null\) \?\? \(hasGitDiff \? gitDiffError : null\);/);
+});
+
+test("a mounted viewer reads its echoed initialState once, so hiding it never reloads the file", () => {
+  assert.match(source, /const \[mountState\] = useState\(initialState\);/);
+  assert.match(source, /resolveFileDisplayMode\(filePath, mountState, initialDisplayMode\)/);
+  assert.match(source, /initialState=\{mountState\}/);
+});
+
+test("the markdown preview gets a stable open-file callback, so shell changes do not re-parse it", () => {
+  assert.match(source, /const openFile = useCallback\(\(path: string, page\?: number\) => onOpenFileRef\.current\?\.\(path, page\), \[\]\);/);
+  assert.match(source, /onOpenFile=\{onOpenFile \? openFile : undefined\}/);
 });
 
 test("a hidden or closed viewer reports its state and stops media playback", () => {

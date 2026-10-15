@@ -1177,7 +1177,9 @@ export function FileViewer({
   watchEnabled = true,
   pdfPage,
 }: Props) {
-  const diffRequested = resolveFileDisplayMode(filePath, initialState, initialDisplayMode) === "diff";
+  // A mounted viewer reports its state back as `initialState`; read it once so the echo never reloads or re-lays out.
+  const [mountState] = useState(initialState);
+  const diffRequested = resolveFileDisplayMode(filePath, mountState, initialDisplayMode) === "diff";
   if (!diffRequested && isImagePath(filePath)) {
     return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} />;
   }
@@ -1202,7 +1204,7 @@ export function FileViewer({
       onAtMention={onAtMention}
       gitRefreshKey={gitRefreshKey}
       initialDisplayMode={initialDisplayMode}
-      initialState={initialState}
+      initialState={mountState}
       onStateChange={onStateChange}
       watchEnabled={watchEnabled}
     />
@@ -1426,6 +1428,10 @@ function TextFileViewer({
   const [htmlFull, setHtmlFull] = useState<{ text?: string; error?: string } | null>(null);
 
   onStateChangeRef.current = onStateChange;
+  // A stable identity keeps the memoized markdown preview from re-parsing when the shell's callback changes.
+  const onOpenFileRef = useRef(onOpenFile);
+  onOpenFileRef.current = onOpenFile;
+  const openFile = useCallback((path: string, page?: number) => onOpenFileRef.current?.(path, page), []);
 
   const updateDisplayMode = useCallback((nextDisplayMode: DisplayMode) => {
     viewerStateRef.current.displayMode = nextDisplayMode;
@@ -2246,7 +2252,7 @@ function TextFileViewer({
             markdownPreview={markdownPreview}
             frontmatterData={frontmatter?.data ?? null}
             markdownDirectory={markdownDirectory}
-            onOpenFile={onOpenFile}
+            onOpenFile={onOpenFile ? openFile : undefined}
             sourceSessionId={sourceSessionId}
           />
         ) : isDelimitedTable && effectiveDisplayMode === "preview" ? (
