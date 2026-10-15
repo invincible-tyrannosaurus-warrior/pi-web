@@ -31,6 +31,7 @@ import { getModelToolEntries } from "./tool-declarations";
 import type {
   ExtensionUiRequest,
   ExtensionUiResponse,
+  SessionContext,
   SessionEntry,
   SessionInfo,
   SessionMessageEntry,
@@ -392,6 +393,32 @@ export class AgentSessionWrapper {
 
   isClosing(): boolean {
     return this._closing;
+  }
+
+  /** The model/effort the next prompt uses. Navigation keeps them, so they can differ from the viewed branch's entries. */
+  liveSelection(): Pick<SessionContext, "model" | "thinkingLevel"> | undefined {
+    const model = this.inner.model;
+    return model ? { model: { provider: model.provider, modelId: model.id }, thinkingLevel: this.inner.thinkingLevel } : undefined;
+  }
+
+  /**
+   * set_model/set_thinking_level record on the branch active at that moment. After an
+   * in-session edit or branch switch the new branch still names the old choice, which
+   * startup restore and file-based reads would bring back, so record it here.
+   */
+  private recordSelectionOnBranch(): void {
+    const model = this.inner.model;
+    if (!model) return;
+    const manager = this.inner.sessionManager;
+    const branch = manager.getBranch() as unknown as SessionEntry[];
+    const savedModel = getLatestModelChange(branch);
+    if (savedModel && (savedModel.provider !== model.provider || savedModel.modelId !== model.id)) {
+      manager.appendModelChange(model.provider, model.id);
+    }
+    const savedLevel = branch.findLast((entry) => entry.type === "thinking_level_change");
+    if (savedLevel?.type === "thinking_level_change" && savedLevel.thinkingLevel !== this.inner.thinkingLevel) {
+      manager.appendThinkingLevelChange(this.inner.thinkingLevel);
+    }
   }
 
   isRunning(): boolean {
@@ -776,6 +803,7 @@ export class AgentSessionWrapper {
           }
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
           const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
+          if (!streamingBehavior && !this.isRunning()) this.recordSelectionOnBranch();
           let preflightAccepted = false;
           let preflightSettled = false;
           let promptSettled = false;

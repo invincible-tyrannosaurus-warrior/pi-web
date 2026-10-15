@@ -35,13 +35,16 @@ export async function GET(
     const sm = liveRpc?.inner.sessionManager ?? openSessionForRead(filePath!);
     // `before` is the oldest entry already on the client; fetch its ancestors
     // only (excludeLeaf) so prepending the page does not duplicate `before`.
-    const context = buildSessionContext(sm.getEntries() as never, before ?? leafId, {
-      deferThinking,
-      deferToolResultImages,
-      tail,
-      excludeLeaf: Boolean(before),
-      sessionId: id,
-    });
+    const context = {
+      ...buildSessionContext(sm.getEntries() as never, before ?? leafId, {
+        deferThinking,
+        deferToolResultImages,
+        tail,
+        excludeLeaf: Boolean(before),
+        sessionId: id,
+      }),
+      ...liveRpc?.liveSelection?.(), // optional: wrappers from before a hot reload lack it
+    };
 
     return NextResponse.json({ context, tail, before: before ?? null });
   } catch (error) {

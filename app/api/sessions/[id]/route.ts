@@ -99,12 +99,16 @@ export async function GET(
     // See the /context route: the enclosing open parses the whole file either way,
     // so a narrow default only buys extra paging round trips.
     const tail = Number.isFinite(rawTail) && rawTail > 0 ? Math.min(rawTail, 1000) : 200;
-    const context = buildSessionContext(entries as never, leafId, {
-      deferThinking,
-      deferToolResultImages,
-      tail,
-      sessionId: id, // local: lazy URLs for historical tool-result images
-    });
+    const context = {
+      ...buildSessionContext(entries as never, leafId, {
+        deferThinking,
+        deferToolResultImages,
+        tail,
+        sessionId: id, // local: lazy URLs for historical tool-result images
+      }),
+      // Branch navigation keeps the runtime's model/effort; show what the next prompt uses.
+      ...liveRpc?.liveSelection?.(), // optional: wrappers from before a hot reload lack it
+    };
     const totalActiveMs = computeSessionTotalActiveMs(entries);
     // Cumulative usage over ALL entries, including history compacted away —
     // the same aggregation the SDK's getSessionStats() uses. Lets the client
