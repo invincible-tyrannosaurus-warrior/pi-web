@@ -1,35 +1,36 @@
 /* Claude light theme (html[data-theme="claude"], set by hooks/useTheme.ts).
    Palette only: shape, spacing, radii, and shadows stay those of the light and
-   dark themes. Content canvas #fdfdf7 from code.claude.com; chrome sits only
-   3 steps below it, as in Claude Desktop (sidebar #fbfbf9 vs main #fcfcfb),
-   separated mainly by the hairline. Selected rows, hairlines, and the user
-   bubble follow Claude Desktop's samples (#edece8, #ebebea, #f0f0ef) on this
-   canvas's hue. Ink #141413, clay #c6613f. Text tiers keep :root's targets. */
+   dark themes. Canvas #faf9f5, raised #f1efe8, hairline (ink at 11%) and clay
+   #c15f3c/#a94e2f from claude.dev's blog; chrome sits 3 steps below the
+   canvas, as in Claude Desktop, separated mainly by the hairline. Text tiers
+   keep :root's targets on that site's ink hue (its #4c4b45/#7b7a72 nudged to
+   reach ~9:1 and ~6:1). */
 html[data-theme="claude"] {
-  --bg: #fdfdf7;
-  --bg-panel: #fafaf4;
-  --bg-hover: #f2f2ec;
-  --bg-selected: #ebebe5;
-  --border: #ebebe8;
+  --bg: #faf9f5;
+  --bg-panel: #f7f6f2;
+  --bg-hover: #efeeea;
+  --bg-selected: #e8e7e3;
+  --bg-raised: #f1efe8;
+  --border: #e1e0dc;
   --text: #141413;
-  --text-muted: #464643;
-  --text-dim: #60605d;
-  --accent: #c6613f;
-  --accent-hover: #ae5435;
+  --text-muted: #45443e;
+  --text-dim: #5f5e58;
+  --accent: #c15f3c;
+  --accent-hover: #a94e2f;
   --accent-contrast: #ffffff;
   --danger: #b53333;
   --warning: #946010;
   --success: #5b7a3a;
-  --user-bg: #f0f0eb;
-  --assistant-bg: #fdfdf7;
-  --tool-bg: #fafaf4;
+  --user-bg: #edece8;
+  --assistant-bg: #faf9f5;
+  --tool-bg: #f7f6f2;
   --bg-subtle: rgba(20,20,19,0.03);
   --control-on-hover: #3d3d3a;
   --primary: var(--accent);
   --primary-hover: var(--accent-hover);
   --primary-contrast: #ffffff;
-  --switch-track-off: #d6d6d0;
-  --segmented-track: #edede7;
+  --switch-track-off: #d4d3cf;
+  --segmented-track: #ebeae6;
   --segmented-thumb: #ffffff;
 }
 
@@ -65,6 +66,7 @@ html[data-theme="claude"].dark {
   --user-bg: #2a2928;
   --assistant-bg: #1f1f1e;
   --bg-elevated: #252524;
+  --bg-raised: #252524;
   /* Dim the app behind settings so the lifted dialog reads. */
   --settings-scrim: rgba(0,0,0,0.5);
   --tool-bg: #252524;
@@ -76,4 +78,65 @@ html[data-theme="claude"].dark {
   --switch-track-off: #444442;
   --segmented-track: #2a2928;
   --segmented-thumb: #40403e;
+}
+
+/* Paper markdown, after claude.dev's blog: prose sits one tier below ink
+   (--text-muted, ~9:1) so headings, bold, and code carry the darkest ink;
+   links are prose-colored with a quiet underline; code blocks are flat
+   raised panels with hairlines; quotes are a single hairline. Clay is kept
+   for the text selection. Tables keep the base look (header fill, zebra, ink
+   cells): the site's flat version read as one undivided block here. */
+html[data-theme="claude"] ::selection {
+  background: var(--accent);
+  color: var(--bg);
+}
+html[data-theme="claude"] .markdown-body { color: var(--text-muted); }
+/* The user's own words stay in ink. */
+html[data-theme="claude"] .markdown-user-message { color: var(--text); }
+html[data-theme="claude"] .markdown-body a {
+  color: inherit;
+  text-underline-offset: 0.2em;
+  text-decoration-color: var(--text-dim);
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+html[data-theme="claude"] .markdown-body a:hover {
+  color: var(--text);
+  text-decoration-color: transparent;
+}
+html[data-theme="claude"] .markdown-body .markdown-inline-code {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  border-color: var(--border);
+}
+html[data-theme="claude"] .markdown-body blockquote {
+  border-left: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: 0;
+  padding: 0 0 0 14px;
+  background: none;
+  color: inherit;
+}
+html[data-theme="claude"] .markdown-code-block { background: var(--bg-raised); }
+html[data-theme="claude"] .markdown-body table { color: var(--text); }
+html[data-theme="claude"] .markdown-code-header {
+  background: transparent;
+  border-bottom-color: var(--border);
+}
+/* Diagrams share the code panel; lib/claude-theme.ts paints edge labels in
+   the same --bg-raised. */
+html[data-theme="claude"] .mermaid-block,
+html[data-theme="claude"] .mermaid-zoom-canvas {
+  background: var(--bg-raised);
+}
+/* Clay is for selection and focus; toggled-on and copied states read as ink. */
+html[data-theme="claude"] :is(.markdown-code-action.is-active, .message-action-button.is-active, .message-action-button[data-copied="true"]) {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+html[data-theme="claude"] .markdown-body .task-list-item > input[type="checkbox"]:checked,
+html[data-theme="claude"] .markdown-body .task-list-item > p:first-child > input[type="checkbox"]:first-child:checked {
+  border-color: var(--text-dim);
+  background: var(--bg);
+}
+html[data-theme="claude"] .markdown-body .task-list-item > input[type="checkbox"]:checked::before,
+html[data-theme="claude"] .markdown-body .task-list-item > p:first-child > input[type="checkbox"]:first-child:checked::before {
+  border-color: var(--text);
 }

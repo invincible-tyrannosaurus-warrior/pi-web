@@ -3,82 +3,75 @@
 // from hex in JS. Keep them in step with app/theme-claude.css.
 import type { CSSProperties } from "react";
 import vs from "react-syntax-highlighter/dist/esm/styles/prism/vs";
-import vscDarkPlus from "react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus";
 
 type PrismStyle = Record<string, CSSProperties>;
+type Role = "kw" | "fn" | "nm" | "ar" | "cm" | "pl" | "add" | "del";
 
-// Warm recoloring of Prism `vs`: clay keywords, olive strings, amber literals,
-// muted teal types. Every token clears 4.5:1 on --bg except comments (~4:1).
-const TOKEN_COLORS: Record<string, string> = {
-  comment: "#7d7b73", prolog: "#7d7b73", doctype: "#7d7b73", cdata: "#7d7b73",
-  punctuation: "#3d3d3a", operator: "#3d3d3a", function: "#3d3d3a",
-  string: "#5b7a3a", inserted: "#5b7a3a",
-  keyword: "#a8472a", atrule: "#a8472a", tag: "#a8472a", selector: "#a8472a",
-  ".language-autohotkey .token.keyword": "#a8472a",
-  number: "#946010", boolean: "#946010", constant: "#946010", symbol: "#946010",
-  variable: "#946010", url: "#946010", "attr-name": "#946010",
-  ".language-json .token.boolean": "#946010", ".language-json .token.number": "#946010",
-  "class-name": "#2e6e66", property: "#2e6e66", "attr-value": "#5b7a3a",
-  ".language-json .token.property": "#2e6e66", "code[class*=\"language-css\"]": "#2e6e66",
-  regex: "#b53333", entity: "#b53333", deleted: "#b53333", ".language-autohotkey .token.tag": "#b53333",
+// claude.dev's blog highlighting: few cool hues on prose-tier plain text.
+// kw purple = keywords and literals, fn blue = functions and types,
+// nm green = properties and names, ar cyan = strings and values,
+// cm = caption gray, pl = --text-muted. Every other colored token is plain.
+const ROLES: Record<string, Role> = {
+  comment: "cm", prolog: "cm", doctype: "cm", cdata: "cm",
+  keyword: "kw", atrule: "kw", boolean: "kw", number: "kw", important: "kw", tag: "kw", selector: "kw",
+  ".language-autohotkey .token.keyword": "kw", ".language-autohotkey .token.selector": "kw",
+  ".language-json .token.boolean": "kw", ".language-json .token.number": "kw",
+  function: "fn", "class-name": "fn", builtin: "fn",
+  property: "nm", "attr-name": "nm", constant: "nm", symbol: "nm", variable: "nm",
+  ".language-json .token.property": "nm",
+  string: "ar", char: "ar", "attr-value": "ar", url: "ar", regex: "ar", entity: "ar",
+  inserted: "add", deleted: "del", ".language-autohotkey .token.tag": "del",
 };
 
-export const claudeCodeStyle: PrismStyle = Object.fromEntries(
-  Object.entries(vs as PrismStyle).map(([key, value]) => {
-    if (key in TOKEN_COLORS) return [key, { ...value, color: TOKEN_COLORS[key] }];
-    if (key.includes("::selection") || key.includes("::-moz-selection")) return [key, { background: "#f0dcd3" }];
-    if (value.color === "#393A34") return [key, { ...value, color: "#3d3d3a" }];
-    return [key, value];
-  }),
-);
+// Built on Prism `vs` for both modes so dark gets the same role map; selection
+// and token backgrounds are dropped (the page's clay ::selection applies).
+function paperCodeStyle(colors: Record<Role, string>): PrismStyle {
+  return Object.fromEntries(
+    Object.entries(vs as PrismStyle)
+      .filter(([key]) => !key.includes("selection"))
+      .map(([key, value]) => [key, { ...value, background: undefined, ...(value.color && { color: colors[ROLES[key] ?? "pl"] }) }]),
+  );
+}
 
-// Warm recoloring of Prism `vscDarkPlus`, mapped color by color so every
-// language-specific rule follows: clay keywords, olive strings, amber
-// literals, sand functions, muted teal types; identifiers (VS Code's light
-// blue) fall back to the base ink to keep dense code calm.
-const DARK_COLORS: Record<string, string> = {
-  "#d4d4d4": "#d8d7d2", "#9cdcfe": "#d8d7d2",
-  "#569cd6": "#e08a6d", "#c586c0": "#e08a6d", "#db4c69": "#e08a6d",
-  "#ce9178": "#b3c78f", "#b5cea8": "#e0b36a", "#d7ba7d": "#e0b36a",
-  "#dcdcaa": "#e6d3a3", "#4ec9b0": "#7fb8ad", "#d16969": "#e86b6b",
-  "#6a9955": "#9a9994", "#808080": "#9a9994",
-  "#1e1e1e": "#252524", "#264f78": "#5a3a2e",
-};
+// Each clears ~4.5:1 on the raised code panel.
+export const claudeCodeStyle = paperCodeStyle({
+  kw: "#914dbe", fn: "#3065d7", nm: "#567527", ar: "#16749a",
+  cm: "#6b6a64", pl: "#45443e", add: "#3e7a3e", del: "#a04545",
+});
 
-export const claudeDarkCodeStyle: PrismStyle = Object.fromEntries(
-  Object.entries(vscDarkPlus as PrismStyle).map(([key, value]) => [
-    key,
-    Object.fromEntries(Object.entries(value).map(([prop, v]) => [
-      prop,
-      typeof v === "string" ? v.replace(/#[0-9a-f]{6}\b/gi, (c) => DARK_COLORS[c.toLowerCase()] ?? c) : v,
-    ])),
-  ]),
-);
+export const claudeDarkCodeStyle = paperCodeStyle({
+  kw: "#c792ea", fn: "#82aaff", nm: "#c3e88d", ar: "#89ddff",
+  cm: "#979691", pl: "#b9b7b1", add: "#9ac29a", del: "#c29a9a",
+});
 
+// Diagrams sit on the raised code panel (--bg-raised): nodes are canvas-colored
+// cards with ink-22% hairline borders, muted connectors, labels on the panel, no clay.
 export const claudeMermaidVariables = {
-  background: "#fdfdf7",
-  primaryColor: "#efefe9",
+  background: "#f1efe8",
+  primaryColor: "#faf9f5",
   primaryTextColor: "#141413",
-  primaryBorderColor: "#b9b9b3",
-  secondaryColor: "#f4e6df",
-  tertiaryColor: "#f6f6f0",
-  lineColor: "#73736d",
-  noteBkgColor: "#f7efe0",
-  noteBorderColor: "#d9c7a3",
+  primaryBorderColor: "#c7c6c3",
+  secondaryColor: "#ece9e0",
+  tertiaryColor: "#f7f6f2",
+  lineColor: "#65645e",
+  edgeLabelBackground: "#f1efe8",
+  textColor: "#141413",
+  noteBkgColor: "#ece9e0",
+  noteBorderColor: "#c7c6c3",
 };
 
 export const claudeDarkMermaidVariables = {
   darkMode: true,
-  background: "#1f1f1e",
+  background: "#252524",
   primaryColor: "#2e2e2c",
   primaryTextColor: "#e3e2de",
-  primaryBorderColor: "#4b4b48",
-  secondaryColor: "#3d2e27",
+  primaryBorderColor: "#424241",
+  secondaryColor: "#353533",
   tertiaryColor: "#252524",
   lineColor: "#979691",
-  edgeLabelBackground: "#1f1f1e",
+  edgeLabelBackground: "#252524",
   textColor: "#e3e2de",
-  noteBkgColor: "#33291c",
-  noteBorderColor: "#6b5a3a",
+  noteBkgColor: "#2a2928",
+  noteBorderColor: "#424241",
   noteTextColor: "#e3e2de",
 };
