@@ -1,15 +1,15 @@
 // Cache session-list metadata without building the SDK's unused allMessagesText.
-// New and changed files still require a full scan; unchanged files only need stat.
-// ponytail: size/mtime fingerprints miss same-size edits with restored mtime;
-// use content hashes if detecting those edits becomes necessary.
+// Growing files resume after the last complete line; unchanged files only need stat.
+// shortcut: same-inode edits outside the head/tail samples can look like appends;
+// use full content hashes if detecting arbitrary in-place edits becomes necessary.
+import { createHash } from "node:crypto";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { open, readdir, stat, type FileHandle } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { basename, join } from "node:path";
-import { createInterface } from "node:readline";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
-import { getSessionFirstMessagePreview } from "./session-display-title";
+import { getSessionFirstMessagePreview, SESSION_FIRST_MESSAGE_PREVIEW_MAX_LENGTH } from "./session-display-title";
 import { IMAGE_RESULT_TYPE } from "./image-generation";
 
 export interface ScannedSessionInfo {
@@ -27,11 +27,36 @@ export interface ScannedSessionInfo {
 interface Fingerprint {
 	size: number;
 	mtimeMs: number;
+	ino: number;
+	dev: number;
+}
+
+interface ScanState {
+	header: RawEntry | null;
+	name?: string;
+	messageCount: number;
+	firstMessage: string;
+	hasFirstMessage: boolean;
+	lastActivityTime?: number;
+}
+
+interface ResumePoint {
+	offset: number;
+	head: string;
+	tail: string;
+	state: ScanState;
 }
 
 interface IndexEntry {
 	fp: Fingerprint;
 	info: ScannedSessionInfo;
+	resume?: ResumePoint;
+}
+
+interface PendingIndexSave {
+	path: string;
+	index: Map<string, IndexEntry>;
+	timer: NodeJS.Timeout;
 }
 
 type RawEntry = Record<string, unknown>;
@@ -40,12 +65,15 @@ function isRecord(value: unknown): value is RawEntry {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-const INDEX_FORMAT_VERSION = 2;
+// Bump when counting/preview rules change: resumed totals keep the old rules.
+const INDEX_FORMAT_VERSION = 3;
+const RESUME_SAMPLE_BYTES = 1024;
+const INDEX_PERSIST_DELAY_MS = 5_000;
 
 declare global {
 	var __piWebScanIndex: Map<string, IndexEntry> | undefined;
-	var __piWebScanIndexLoaded: boolean | undefined;
-	var __piWebScanIndexSaveQueued: boolean | undefined;
+	var __piWebScanIndexPath: string | undefined;
+	var __piWebScanIndexSave: PendingIndexSave | undefined;
 }
 
 function parseLine(line: string): RawEntry | null {
@@ -89,101 +117,170 @@ function activityTimeOf(entry: RawEntry): number | undefined {
 	return Number.isNaN(t) ? undefined : t;
 }
 
-// Uses the SDK's buildSessionInfo() semantics for displayed metadata.
-export async function scanSessionFileInfo(
-	filePath: string,
-): Promise<ScannedSessionInfo | null> {
+// Keep the existing title, preview, image-result and activity rules in one fold.
+function foldLine(state: ScanState, bytes: Buffer): boolean {
+	const entry = parseLine(bytes.toString("utf8"));
+	if (!entry) return true;
+	if (!state.header) {
+		if (entry.type !== "session") return false;
+		state.header = {
+			id: entry.id,
+			cwd: typeof entry.cwd === "string" ? entry.cwd : "",
+			timestamp: entry.timestamp,
+			parentSession: typeof entry.parentSession === "string" ? entry.parentSession : undefined,
+		};
+		return true;
+	}
+	if (entry.type === "session_info") {
+		state.name = typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : undefined;
+	}
+	if (entry.type === "custom_message" && entry.customType === IMAGE_RESULT_TYPE) {
+		state.messageCount++;
+		const activityTime = new Date(entry.timestamp as string).getTime();
+		if (!Number.isNaN(activityTime)) state.lastActivityTime = Math.max(state.lastActivityTime ?? 0, activityTime);
+		const details = entry.details as RawEntry | undefined;
+		if (!state.hasFirstMessage && typeof details?.prompt === "string" && details.prompt) {
+			state.hasFirstMessage = true;
+			state.firstMessage = getSessionFirstMessagePreview(details.prompt);
+		}
+		return true;
+	}
+	if (entry.type !== "message") return true;
+	state.messageCount++;
+	const activityTime = activityTimeOf(entry);
+	if (typeof activityTime === "number") state.lastActivityTime = Math.max(state.lastActivityTime ?? 0, activityTime);
+	const message = entry.message as RawEntry | undefined;
+	if (!state.hasFirstMessage && message?.role === "user" && "content" in message) {
+		const text = extractTextContent(message);
+		if (text) {
+			state.hasFirstMessage = true;
+			state.firstMessage = getSessionFirstMessagePreview(text);
+		}
+	}
+	return true;
+}
+
+function sampleHash(bytes: Buffer): string {
+	return createHash("sha256").update(bytes).digest("hex");
+}
+
+function appendSample(previous: Buffer, bytes: Buffer): Buffer {
+	return bytes.length >= RESUME_SAMPLE_BYTES
+		? bytes.subarray(-RESUME_SAMPLE_BYTES)
+		: Buffer.concat([previous, bytes]).subarray(-RESUME_SAMPLE_BYTES);
+}
+
+async function sampleAt(handle: FileHandle, start: number, length: number): Promise<Buffer> {
+	const bytes = Buffer.alloc(length);
+	const { bytesRead } = await handle.read(bytes, 0, length, start);
+	if (bytesRead !== length) throw new Error("Session changed during scan");
+	return bytes;
+}
+
+async function resumeSamples(handle: FileHandle, offset: number): Promise<{ head: Buffer; tail: Buffer }> {
+	const length = Math.min(offset, RESUME_SAMPLE_BYTES);
+	const [head, tail] = await Promise.all([
+		sampleAt(handle, 0, length),
+		sampleAt(handle, offset - length, length),
+	]);
+	return { head, tail };
+}
+
+async function scanSessionFile(filePath: string, previous?: IndexEntry): Promise<IndexEntry | null> {
+	let handle: FileHandle | undefined;
 	try {
-		const stats = await stat(filePath);
-		let header: RawEntry | null = null;
-		let name: string | undefined;
-		let messageCount = 0;
-		let firstMessage = "";
-		let lastActivityTime: number | undefined;
-
-		const rl = createInterface({
-			input: createReadStream(filePath, { encoding: "utf8" }),
-			crlfDelay: Infinity,
-		});
-
-		for await (const line of rl) {
-			const entry = parseLine(line);
-			if (!entry) continue;
-
-			if (!header) {
-				if (entry.type !== "session") return null;
-				header = entry;
-				continue;
+		// Validate and stream the same inode, even if the path is replaced mid-scan.
+		handle = await open(filePath, "r");
+		const stats = await handle.stat();
+		const fp: Fingerprint = { size: stats.size, mtimeMs: stats.mtimeMs, ino: stats.ino, dev: stats.dev };
+		let offset = 0;
+		let headerSampled = false;
+		let head: Buffer = Buffer.alloc(0);
+		let tail: Buffer = Buffer.alloc(0);
+		let state: ScanState = { header: null, messageCount: 0, firstMessage: "", hasFirstMessage: false };
+		if (previous?.resume && fp.ino > 0 && fp.ino === previous.fp.ino && fp.dev === previous.fp.dev
+			&& fp.size > previous.fp.size && fp.size >= previous.resume.offset) {
+			const samples = await resumeSamples(handle, previous.resume.offset);
+			if (sampleHash(samples.head) === previous.resume.head && sampleHash(samples.tail) === previous.resume.tail) {
+				offset = previous.resume.offset;
+				headerSampled = true;
+				head = samples.head;
+				tail = samples.tail;
+				state = { ...previous.resume.state };
 			}
-
-			if (entry.type === "session_info") {
-				name =
-					typeof entry.name === "string" && entry.name.trim()
-						? entry.name.trim()
-						: undefined;
-			}
-			if (entry.type === "custom_message" && entry.customType === IMAGE_RESULT_TYPE) {
-				messageCount++;
-				const activityTime = new Date(entry.timestamp as string).getTime();
-				if (!Number.isNaN(activityTime)) lastActivityTime = Math.max(lastActivityTime ?? 0, activityTime);
-				const details = entry.details as RawEntry | undefined;
-				if (!firstMessage && typeof details?.prompt === "string") firstMessage = details.prompt;
-				continue;
-			}
-			if (entry.type !== "message") continue;
-			messageCount++;
-
-			const activityTime = activityTimeOf(entry);
-			if (typeof activityTime === "number") {
-				lastActivityTime = Math.max(lastActivityTime ?? 0, activityTime);
-			}
-
-			const message = entry.message as RawEntry | undefined;
-			if (
-				!message ||
-				typeof message.role !== "string" ||
-				!("content" in message)
-			)
-				continue;
-			if (message.role !== "user" && message.role !== "assistant") continue;
-
-			const textContent = extractTextContent(message);
-			if (!textContent) continue;
-			if (!firstMessage && message.role === "user") firstMessage = textContent;
 		}
 
+		let pending: Buffer[] = [];
+		let recent = tail;
+		if (fp.size > offset) {
+			const stream = createReadStream(filePath, { fd: handle.fd, autoClose: false, start: offset, end: fp.size - 1 });
+			for await (const chunk of stream as AsyncIterable<Buffer>) {
+				if (head.length < RESUME_SAMPLE_BYTES) {
+					head = Buffer.concat([head, chunk.subarray(0, RESUME_SAMPLE_BYTES - head.length)]);
+				}
+				let start = 0;
+				let lf = chunk.indexOf(0x0a);
+				let cr = chunk.indexOf(0x0d);
+				while (lf !== -1 || cr !== -1) {
+					const end = lf === -1 ? cr : cr === -1 ? lf : Math.min(lf, cr);
+					const piece = chunk.subarray(start, end);
+					const bytes = pending.length ? Buffer.concat([...pending, piece]) : piece;
+					const hadHeader = state.header !== null;
+					if (!foldLine(state, bytes)) return null;
+					offset += bytes.length + 1;
+					if (!hadHeader && state.header) headerSampled = offset <= RESUME_SAMPLE_BYTES;
+					pending = [];
+					start = end + 1;
+					if (end === lf) lf = chunk.indexOf(0x0a, start);
+					if (end === cr) cr = chunk.indexOf(0x0d, start);
+				}
+				// Bind the checkpoint to parsed bytes, never to a later disk read.
+				if (start > 0) tail = appendSample(recent, chunk.subarray(Math.max(0, start - RESUME_SAMPLE_BYTES), start));
+				recent = appendSample(recent, chunk);
+				if (start < chunk.length) pending.push(chunk.subarray(start));
+			}
+		}
+		// A valid JSON entry without a newline still displays, but never advances
+		// the checkpoint: completing/replacing that last line must not double-count.
+		const visible = { ...state };
+		if (pending.length && !foldLine(visible, Buffer.concat(pending))) return null;
+		const header = visible.header;
 		if (!header) return null;
-
-		const cwd = typeof header.cwd === "string" ? header.cwd : "";
-		const parentSessionPath =
-			typeof header.parentSession === "string"
-				? header.parentSession
-				: undefined;
-		const headerTime =
-			typeof header.timestamp === "string"
-				? new Date(header.timestamp).getTime()
-				: NaN;
-		const modified =
-			typeof lastActivityTime === "number" && lastActivityTime > 0
-				? new Date(lastActivityTime)
-				: !Number.isNaN(headerTime)
-					? new Date(headerTime)
-					: stats.mtime;
-
+		const headerTime = typeof header.timestamp === "string" ? new Date(header.timestamp).getTime() : NaN;
+		const modified = typeof visible.lastActivityTime === "number" && visible.lastActivityTime > 0
+			? new Date(visible.lastActivityTime)
+			: !Number.isNaN(headerTime) ? new Date(headerTime) : stats.mtime;
 		return {
-			path: filePath,
-			id: header.id as string,
-			cwd,
-			name,
-			parentSessionPath,
-			created: new Date(header.timestamp as string),
-			modified,
-			messageCount,
-			firstMessage: getSessionFirstMessagePreview(firstMessage || "(no messages)"),
+			fp,
+			info: {
+				path: filePath,
+				id: header.id as string,
+				cwd: header.cwd as string,
+				name: visible.name,
+				parentSessionPath: header.parentSession as string | undefined,
+				created: new Date(header.timestamp as string),
+				modified,
+				messageCount: visible.messageCount,
+				firstMessage: visible.hasFirstMessage ? visible.firstMessage : "(no messages)",
+			},
+			// shortcut: headers beyond the 1 KiB sample use full scans; enlarge the sample if needed.
+			resume: headerSampled && fp.ino > 0 ? {
+				offset,
+				head: sampleHash(head.subarray(0, Math.min(offset, RESUME_SAMPLE_BYTES))),
+				tail: sampleHash(tail),
+				state,
+			} : undefined,
 		};
 	} catch {
 		return null;
+	} finally {
+		await handle?.close().catch(() => undefined);
 	}
+}
+
+/** Full-scan entry point used by callers that need fresh metadata for one file. */
+export async function scanSessionFileInfo(filePath: string): Promise<ScannedSessionInfo | null> {
+	return (await scanSessionFile(filePath))?.info ?? null;
 }
 
 async function enumerateSessionFiles(sessionsDir: string): Promise<string[]> {
@@ -231,14 +328,34 @@ function getIndex(): Map<string, IndexEntry> {
 	return globalThis.__piWebScanIndex;
 }
 
-function indexFilePath(): string {
-	return join(getAgentDir(), "pi-web-session-index.json");
+function indexFilePath(agentDir: string): string {
+	return join(agentDir, "pi-web-session-index.json");
 }
 
-function loadPersistedIndex(): void {
-	if (globalThis.__piWebScanIndexLoaded) return;
-	globalThis.__piWebScanIndexLoaded = true;
-	const path = indexFilePath();
+function readResumePoint(value: unknown, size: number): ResumePoint | undefined {
+	if (!isRecord(value) || !isRecord(value.state)) return undefined;
+	const { offset, head, tail, state } = value;
+	const { header, name, messageCount, firstMessage, hasFirstMessage, lastActivityTime } = state;
+	if (
+		typeof offset !== "number" || !Number.isSafeInteger(offset) || offset <= 0 || offset > size ||
+		typeof head !== "string" || !/^[a-f0-9]{64}$/.test(head) ||
+		typeof tail !== "string" || !/^[a-f0-9]{64}$/.test(tail) ||
+		!isRecord(header) || typeof header.id !== "string" || typeof header.cwd !== "string" ||
+		typeof header.timestamp !== "string" || !Number.isFinite(Date.parse(header.timestamp)) ||
+		(header.parentSession !== undefined && typeof header.parentSession !== "string") ||
+		(name !== undefined && typeof name !== "string") ||
+		typeof messageCount !== "number" || !Number.isSafeInteger(messageCount) || messageCount < 0 ||
+		typeof firstMessage !== "string" || firstMessage.length > SESSION_FIRST_MESSAGE_PREVIEW_MAX_LENGTH || typeof hasFirstMessage !== "boolean" ||
+		(lastActivityTime !== undefined && (typeof lastActivityTime !== "number" || !Number.isFinite(lastActivityTime)))
+	) return undefined;
+	return { offset, head, tail, state: { header, name, messageCount, firstMessage, hasFirstMessage, lastActivityTime } };
+}
+
+function loadPersistedIndex(path: string): void {
+	if (globalThis.__piWebScanIndexPath === path) return;
+	persistIndex();
+	globalThis.__piWebScanIndex = new Map();
+	globalThis.__piWebScanIndexPath = path;
 	if (!existsSync(path)) return;
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -250,6 +367,8 @@ function loadPersistedIndex(): void {
 			if (
 				typeof fp.size !== "number" || !Number.isSafeInteger(fp.size) || fp.size < 0 ||
 				typeof fp.mtimeMs !== "number" || !Number.isFinite(fp.mtimeMs) ||
+				typeof fp.ino !== "number" || !Number.isSafeInteger(fp.ino) || fp.ino < 0 ||
+				typeof fp.dev !== "number" || !Number.isSafeInteger(fp.dev) || fp.dev < 0 ||
 				info.path !== pathKey ||
 				typeof info.id !== "string" ||
 				typeof info.cwd !== "string" ||
@@ -262,8 +381,11 @@ function loadPersistedIndex(): void {
 			const created = new Date(info.created);
 			const modified = new Date(info.modified);
 			if (!Number.isFinite(created.getTime()) || !Number.isFinite(modified.getTime())) continue;
+			const resume = readResumePoint(entry.resume, fp.size);
+			if (entry.resume !== undefined && !resume) continue;
 			index.set(pathKey, {
-				fp: { size: fp.size, mtimeMs: fp.mtimeMs },
+				fp: { size: fp.size, mtimeMs: fp.mtimeMs, ino: fp.ino, dev: fp.dev },
+				resume,
 				info: {
 					path: pathKey,
 					id: info.id,
@@ -282,37 +404,49 @@ function loadPersistedIndex(): void {
 	}
 }
 
-function queueIndexPersist(): void {
-	if (globalThis.__piWebScanIndexSaveQueued) return;
-	globalThis.__piWebScanIndexSaveQueued = true;
-	queueMicrotask(() => {
-		globalThis.__piWebScanIndexSaveQueued = undefined;
-		try {
-			const entries: Record<string, IndexEntry> = {};
-			for (const [pathKey, entry] of getIndex()) entries[pathKey] = entry;
-			writePrivateFileAtomicSync(
-				indexFilePath(),
-				JSON.stringify({ version: INDEX_FORMAT_VERSION, entries }),
-			);
-		} catch {
-			// persistence is best-effort; the in-memory index remains authoritative
-		}
-	});
+function persistIndex(): void {
+	const pending = globalThis.__piWebScanIndexSave;
+	if (!pending) return;
+	clearTimeout(pending.timer);
+	globalThis.__piWebScanIndexSave = undefined;
+	try {
+		writePrivateFileAtomicSync(
+			pending.path,
+			JSON.stringify({ version: INDEX_FORMAT_VERSION, entries: Object.fromEntries(pending.index) }),
+		);
+	} catch {
+		// persistence is best-effort; the in-memory index remains authoritative
+	}
+}
+
+function queueIndexPersist(path: string, index: Map<string, IndexEntry>): void {
+	const pending = globalThis.__piWebScanIndexSave;
+	if (pending?.path === path && pending.index === index) return;
+	persistIndex();
+	const timer = setTimeout(persistIndex, INDEX_PERSIST_DELAY_MS);
+	// Losing a pending write on exit only costs a rescan, not session data.
+	timer.unref();
+	globalThis.__piWebScanIndexSave = { path, index, timer };
 }
 
 /**
  * Incremental equivalent of SessionManager.listAll(): rescans only files whose
- * (size, mtimeMs) changed since the last pass. Output ordering matches the SDK
+ * (size, mtimeMs, ino, dev) changed since the last pass. Growing files resume
+ * when their sampled prefix is unchanged. Output ordering matches the SDK
  * catalogue (modified descending).
  */
 export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
-	loadPersistedIndex();
-
-	const sessionsDir = join(getAgentDir(), "sessions");
-	const files = await enumerateSessionFiles(sessionsDir);
-	globalThis.__piSessionMembership = { files: new Set(files) };
-
+	const agentDir = getAgentDir();
+	const persistPath = indexFilePath(agentDir);
+	loadPersistedIndex(persistPath);
 	const index = getIndex();
+
+	const sessionsDir = join(agentDir, "sessions");
+	const files = await enumerateSessionFiles(sessionsDir);
+	if (globalThis.__piWebScanIndexPath === persistPath) {
+		globalThis.__piSessionMembership = { files: new Set(files) };
+	}
+
 	const present = new Set(files);
 	const stale: string[] = [];
 	for (const known of index.keys()) {
@@ -326,7 +460,7 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 				const s = await stat(filePath);
 				return {
 					filePath,
-					fp: { size: s.size, mtimeMs: s.mtimeMs } as Fingerprint,
+					fp: { size: s.size, mtimeMs: s.mtimeMs, ino: s.ino, dev: s.dev } as Fingerprint,
 				};
 			} catch {
 				return { filePath, fp: null as Fingerprint | null };
@@ -334,7 +468,7 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 		}),
 	);
 
-	const changed: Array<{ filePath: string; fp: Fingerprint; resultIndex: number }> = [];
+	const changed: Array<{ filePath: string; resultIndex: number }> = [];
 	const results: (ScannedSessionInfo | null)[] = new Array(files.length).fill(null);
 	// Persist only when the index really changed: a file that keeps failing to scan
 	// (never indexed) must not rewrite the whole index on every pass.
@@ -348,33 +482,35 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 		if (
 			cached &&
 			cached.fp.size === fp.size &&
-			cached.fp.mtimeMs === fp.mtimeMs
+			cached.fp.mtimeMs === fp.mtimeMs &&
+			cached.fp.ino === fp.ino &&
+			cached.fp.dev === fp.dev
 		) {
 			results[resultIndex] = cached.info;
 			continue;
 		}
-		changed.push({ filePath, fp, resultIndex });
+		changed.push({ filePath, resultIndex });
 	}
 
-	await runPool(changed, async ({ filePath, fp, resultIndex }) => {
-		const info = await scanSessionFileInfo(filePath);
-		if (info) {
-			index.set(filePath, { fp, info });
-			results[resultIndex] = info;
+	await runPool(changed, async ({ filePath, resultIndex }) => {
+		const scanned = await scanSessionFile(filePath, index.get(filePath));
+		if (scanned) {
+			index.set(filePath, scanned);
+			results[resultIndex] = scanned.info;
 			mutated = true;
 		} else if (index.delete(filePath)) {
 			mutated = true;
 		}
 	});
 
-	if (mutated) queueIndexPersist();
+	if (mutated) queueIndexPersist(persistPath, index);
 
 	// Pi 0.86 discovers files by filesystem mtime before sorting session metadata.
 	// Keep that order even when the metadata timestamps are equal or cached.
 	return results.filter((info) => info !== null)
 		.sort((a, b) => {
-			const aIndex = getIndex().get(a.path);
-			const bIndex = getIndex().get(b.path);
+			const aIndex = index.get(a.path);
+			const bIndex = index.get(b.path);
 			const aMtime = aIndex?.fp.mtimeMs ?? 0;
 			const bMtime = bIndex?.fp.mtimeMs ?? 0;
 			return b.modified.getTime() - a.modified.getTime()
@@ -383,11 +519,17 @@ export async function listSessionsIncremental(): Promise<ScannedSessionInfo[]> {
 		});
 }
 
-/** Test seam: drop all in-memory index state. */
+/** Test seam: persist without waiting for the throttle. */
+export function flushSessionScanIndexForTests(): void {
+	persistIndex();
+}
+
+/** Test seam: drop all in-memory index state and cancel pending saves. */
 export function resetSessionScanIndexForTests(): void {
+	clearTimeout(globalThis.__piWebScanIndexSave?.timer);
 	globalThis.__piWebScanIndex = undefined;
-	globalThis.__piWebScanIndexLoaded = undefined;
-	globalThis.__piWebScanIndexSaveQueued = undefined;
+	globalThis.__piWebScanIndexPath = undefined;
+	globalThis.__piWebScanIndexSave = undefined;
 	globalThis.__piSessionMembership = undefined;
 	globalThis.__piSessionMembershipCheck = undefined;
 }
