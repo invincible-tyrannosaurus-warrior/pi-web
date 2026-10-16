@@ -427,7 +427,8 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, p
             flex: 1,
             minWidth: 0,
             background: "var(--user-bg)",
-            border: isEditing ? "1px solid var(--accent)" : "1px solid var(--user-border, var(--border))",
+            // Borderless: the tint separates it; editing adds a state ring (transparent at rest, so no shift).
+            border: `1px solid ${isEditing ? "var(--accent)" : "transparent"}`,
             borderRadius: 6,
             padding: "6px 11px",
             fontSize: "calc(14px + var(--chat-font-size-offset, 0px))",

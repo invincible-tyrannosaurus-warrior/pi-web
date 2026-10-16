@@ -16,7 +16,6 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-user-bg: var(--user-bg);
-  --color-user-border: var(--user-border);
   --color-assistant-bg: var(--assistant-bg);
   --color-tool-bg: var(--tool-bg);
   --color-bg-subtle: var(--bg-subtle);
@@ -168,7 +167,6 @@ html {
   --warning: #b45309;
   --success: #059669;
   --user-bg: #f3f4f6;
-  --user-border: var(--border);
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0,0,0,0.03);
@@ -246,7 +244,6 @@ html.dark {
   --warning: #facc15;
   --success: #34d399;
   --user-bg: #22252b;
-  --user-border: var(--border);
   --assistant-bg: #1a1a1a;
   --tool-bg: #1f2937;
   --bg-subtle: rgba(255,255,255,0.04);
@@ -1246,6 +1243,8 @@ pre, code {
   word-break: break-word;
 }
 .markdown-body p { margin: 0 0 6px; }
+.markdown-body :is(p, li, blockquote) { text-wrap: pretty; }
+.markdown-body :is(h1, h2, h3, h4, h5, h6) { text-wrap: balance; }
 .markdown-body p:last-child { margin-bottom: 0; }
 .markdown-body h1, .markdown-body h2, .markdown-body h3,
 .markdown-body h4, .markdown-body h5, .markdown-body h6 {
@@ -2433,11 +2432,22 @@ pre, code {
   width: 64px;
   height: 64px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--ui-radius-md);
   overflow: hidden;
   background: var(--bg-panel);
   cursor: zoom-in;
+}
+
+/* Not a frame but the image's own edge: a faint ring over the pixels, so near-white
+   screenshots keep their shape on a tinted bubble or the composer. */
+.image-thumb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent);
+  pointer-events: none;
 }
 
 .image-thumb img {
@@ -2733,12 +2743,16 @@ pre, code {
   flex: 1 1 auto;
   height: 24px;
   padding: 0 6px;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--ui-radius-sm);
-  background: var(--bg);
+  background: var(--ui-field-bg);
   color: var(--text);
   font: inherit;
   line-height: 1.3;
+}
+.agent-switcher-search-input:focus-visible,
+.file-find-bar input:focus-visible {
+  box-shadow: var(--ui-field-ring);
 }
 .file-find-status {
   padding: 0 4px;
@@ -3387,8 +3401,7 @@ button.file-outline-fold:hover {
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-muted);
-  background: var(--bg-subtle);
-  border: 1px solid var(--border);
+  background: var(--ui-field-bg);
   border-radius: 999px;
   padding: 0 10px;
 }
@@ -4280,6 +4293,18 @@ span.token.table {
   transition: border-color 0.15s, background 0.15s;
 }
 
+/* Rest → hover → focus darken the one border in neutral steps (focus matches --ui-field-ring).
+   Declared before the bash states so their tint wins. */
+@media (hover: hover) {
+  .chat-input:not(.is-compact) .chat-input-composer:hover {
+    border-color: color-mix(in srgb, var(--text) 18%, var(--border));
+  }
+}
+
+.chat-input:not(.is-compact) .chat-input-composer:focus-within {
+  border-color: color-mix(in srgb, var(--text) 30%, var(--border));
+}
+
 .chat-input:not(.is-compact) .chat-input-composer.is-bash-mode {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   background: color-mix(in srgb, var(--bg-panel) 75%, var(--bg));
@@ -4461,6 +4486,22 @@ span.token.table {
 
 .composer-btn[data-active] {
   color: var(--accent);
+}
+
+/* Touch screens wider than a phone (tablets) keep the dense 24px drawing; an invisible
+   ring grows the hit box to 32px tall, 1px sideways so neighbours in the 2px gap never overlap. */
+@media (pointer: coarse) {
+  .composer-btn,
+  .composer-send {
+    position: relative;
+  }
+
+  .composer-btn::before,
+  .composer-send::before {
+    content: "";
+    position: absolute;
+    inset: -4px -1px;
+  }
 }
 
 .model-selector-trigger {
@@ -4871,15 +4912,13 @@ span.token.table {
   display: inline-flex;
   align-items: flex-start;
   max-width: min(280px, 100%);
-  border: 1px solid var(--border);
   border-radius: var(--ui-radius-md);
-  background: color-mix(in srgb, var(--text) 3%, transparent);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
   color: var(--text-muted);
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  transition: background 0.12s, color 0.12s;
 }
 
 .quote-chip:has(.quote-chip-body:enabled:hover) {
-  border-color: color-mix(in srgb, var(--text) 22%, transparent);
   background: color-mix(in srgb, var(--text) 6%, transparent);
   color: var(--text);
 }
@@ -5086,6 +5125,11 @@ span.token.table {
   .composer-btn,
   .composer-send {
     height: 32px;
+  }
+
+  /* The wide-screen touch ring below is replaced by the 32px phone rows. */
+  .composer-btn::before {
+    content: none;
   }
 
   .composer-btn,

@@ -229,8 +229,8 @@ export function AgentSessionPanel({
               aria-label={t("agentSwitcher.search")}
               style={{
                 width: "100%", height: 32, padding: "0 10px",
-                border: "1px solid var(--border)", borderRadius: 6,
-                background: "var(--bg)", color: "var(--text)", fontSize: 12, outline: "none",
+                border: "none", borderRadius: 6,
+                background: "var(--ui-field-bg)", color: "var(--text)", fontSize: 12, outline: "none",
               }}
             />
           </div>
