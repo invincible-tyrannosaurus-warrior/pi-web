@@ -135,6 +135,58 @@ test("the markdown preview gets a stable open-file callback, so shell changes do
   assert.match(source, /onOpenFile=\{onOpenFile \? openFile : undefined\}/);
 });
 
+test("highlighted and bounded diff gutters stay pinned with matching line boxes", () => {
+  const file = ts.createSourceFile("FileViewer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const names = ["FILE_CODE_STYLE", "FILE_LINE_NUMBER_STYLE", "FILE_PINNED_LINE_NUMBER_STYLE", "FILE_DIFF_LINE_NUMBER_STYLE", "SOURCE_HIGHLIGHT_MAX_LINES"];
+  const declarations = names.map((name) => file.statements.find((node) =>
+    ts.isVariableStatement(node) && node.declarationList.declarations.some((d) => d.name.getText(file) === name),
+  ).getText(file)).join("\n");
+  const evaluate = (code, bindings = {}) => new Function(...Object.keys(bindings), ts.transpileModule(code, {
+    compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 },
+  }).outputText)(...Object.values(bindings));
+  const [code, gutter, pinned, diffGutter, maxRows] = evaluate(`${declarations}\nreturn [${names.join(",")}];`);
+  assert.equal(pinned.position, "sticky");
+  assert.equal(pinned.left, 0);
+  assert.equal(pinned.zIndex, 1);
+  assert.equal(pinned.background, "var(--bg-panel)", "opaque surface follows both themes");
+  assert.equal(pinned.borderRight, "1px solid var(--border)");
+  assert.equal(gutter.position, undefined, "large plain fallback remains unpinned");
+  assert.equal(diffGutter.boxSizing, "border-box", "40px offsets include padding and borders");
+  // Font sizes differ intentionally, but their line boxes must not drift at any chat zoom.
+  const pixels = (value, offset) => evaluate(`return ${value.replace(/var\(--chat-font-size-offset, 0px\)/g, `${offset}px`).replaceAll("calc", "").replaceAll("px", "")};`);
+  for (const offset of [-2, 0, 4]) assert.equal(pixels(gutter.lineHeight, offset), pixels(code.fontSize, offset) * code.lineHeight);
+
+  let highlightedGutter;
+  file.forEachChild(function visit(node) {
+    if (ts.isJsxAttribute(node) && node.name.getText(file) === "lineNumberStyle") highlightedGutter = node.initializer.expression.getText(file);
+    node.forEachChild(visit);
+  });
+  assert.equal(evaluate(`return ${highlightedGutter};`, { FILE_PINNED_LINE_NUMBER_STYLE: pinned }), pinned);
+  assert.match(source, /overflow: "visible"/, "the viewer, not the pre, must own scrolling");
+
+  const diffView = file.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "DiffView").getText(file);
+  const render = (rowCount) => evaluate(`${declarations}\nreturn (${diffView})({ patch: "" });`, {
+    React,
+    useMemo: (fn) => fn(),
+    useI18n: () => ({ t: (key) => key }),
+    diffMetadataLines: () => [],
+    diffLines: () => Array.from({ length: rowCount }, () => ({ type: "added", text: "wide line", oldLineNo: null, newLineNo: 1 })),
+  });
+  for (const rowCount of [maxRows, maxRows + 1]) {
+    const tree = render(rowCount);
+    assert.equal(tree.props.style.width, "max-content");
+    const row = tree.props.children[1][0];
+    assert.equal(row.props.style.minWidth, "100%");
+    const [oldNumber, newNumber] = row.props.children;
+    assert.equal(oldNumber.props.style.position, rowCount === maxRows ? "sticky" : undefined);
+    assert.equal(newNumber.props.style.position, rowCount === maxRows ? "sticky" : undefined);
+    if (rowCount === maxRows) {
+      assert.equal(oldNumber.props.style.left, 0);
+      assert.equal(newNumber.props.style.left, oldNumber.props.style.width);
+    }
+  }
+});
+
 test("a hidden or closed viewer reports its state and stops media playback", () => {
   assert.match(source, /if \(!watchEnabled\) onStateChangeRef\.current\?\.\(\{ \.\.\.viewerStateRef\.current \}\);/);
   assert.equal(source.match(/if \(!watchEnabled\) mediaRef\.current\?\.pause\(\);/g)?.length, 2);

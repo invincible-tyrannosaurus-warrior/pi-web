@@ -114,6 +114,7 @@ const FILE_CODE_STYLE: CSSProperties = {
 };
 
 const FILE_LINE_NUMBER_STYLE: CSSProperties = {
+  boxSizing: "border-box",
   width: 48,
   minWidth: 48,
   padding: "0 10px",
@@ -125,10 +126,26 @@ const FILE_LINE_NUMBER_STYLE: CSSProperties = {
   fontSize: "calc(11px + var(--chat-font-size-offset, 0px))",
   fontStyle: "normal",
   fontVariantNumeric: "tabular-nums",
-  lineHeight: 1.6,
+  // Match the code line box despite the smaller metadata font (including zoom).
+  lineHeight: "calc((13px + var(--chat-font-size-offset, 0px)) * 1.6)",
   userSelect: "none",
   flexShrink: 0,
   verticalAlign: "top",
+};
+
+// shortcut: cap sticky cells at 1,000 rows; virtualize before pinning larger views.
+const FILE_PINNED_LINE_NUMBER_STYLE: CSSProperties = {
+  ...FILE_LINE_NUMBER_STYLE,
+  position: "sticky",
+  left: 0,
+  zIndex: 1,
+};
+
+const FILE_DIFF_LINE_NUMBER_STYLE: CSSProperties = {
+  ...FILE_LINE_NUMBER_STYLE,
+  width: 40,
+  minWidth: 40,
+  paddingInline: 6,
 };
 
 type SourceCodeRendererProps = Parameters<NonNullable<SyntaxHighlighterProps["renderer"]>>[0] & {
@@ -359,6 +376,13 @@ function DiffView({ patch }: { patch: string }) {
   const { t } = useI18n();
   const diff = useMemo(() => diffLines(patch), [patch]);
   const metadata = diffMetadataLines(patch);
+  const pinLineNumbers = diff.length <= SOURCE_HIGHLIGHT_MAX_LINES;
+  const oldLineNumberStyle: CSSProperties = pinLineNumbers
+    ? { ...FILE_DIFF_LINE_NUMBER_STYLE, position: "sticky", left: 0, zIndex: 1 }
+    : FILE_DIFF_LINE_NUMBER_STYLE;
+  const newLineNumberStyle: CSSProperties = pinLineNumbers
+    ? { ...oldLineNumberStyle, left: 40 }
+    : FILE_DIFF_LINE_NUMBER_STYLE;
 
   const hasChanges = metadata.length > 0 || diff.some((line) => line.type === "added" || line.type === "removed");
   if (!hasChanges) {
@@ -410,15 +434,17 @@ function DiffView({ patch }: { patch: string }) {
                 display: "flex",
                 minWidth: "100%",
                 background: bg,
-                borderLeft: line.type === "added"
-                  ? "3px solid var(--success)"
-                  : line.type === "removed"
-                  ? "3px solid var(--danger)"
-                  : "3px solid transparent",
               }}
             >
-              <span style={{ ...FILE_LINE_NUMBER_STYLE, width: 40, minWidth: 40, paddingInline: 6 }}>{line.oldLineNo}</span>
-              <span style={{ ...FILE_LINE_NUMBER_STYLE, width: 40, minWidth: 40, paddingInline: 6 }}>{line.newLineNo}</span>
+              {/* The change bar sits on the pinned gutter so it stays visible when scrolled sideways. */}
+              <span
+                style={line.type === "added" || line.type === "removed"
+                  ? { ...oldLineNumberStyle, boxShadow: `inset 3px 0 0 ${prefixColor}` }
+                  : oldLineNumberStyle}
+              >
+                {line.oldLineNo}
+              </span>
+              <span style={newLineNumberStyle}>{line.newLineNo}</span>
               <span
                 style={{
                   minWidth: 16,
@@ -1754,9 +1780,7 @@ function TextFileViewer({
         language={language === "text" || !prismReady ? "plaintext" : language}
         style={palette === "claude" ? (isDark ? claudeDarkCodeStyle : claudeCodeStyle) : isDark ? vscDarkPlus : vs}
         showLineNumbers
-        lineNumberStyle={{
-          ...FILE_LINE_NUMBER_STYLE,
-        }}
+        lineNumberStyle={FILE_PINNED_LINE_NUMBER_STYLE}
         customStyle={{
           margin: 0,
           padding: 0,
