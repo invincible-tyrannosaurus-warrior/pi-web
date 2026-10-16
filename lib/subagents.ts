@@ -94,6 +94,8 @@ export interface SubagentResultMetadata {
   wrappedAtTurnLimit?: boolean;
   result?: string;
   error?: string;
+  /** Cleanup outcome recorded at run completion, not inferred from today's filesystem. */
+  worktreeCleanup?: "removed" | "kept" | "missing";
   worktreeCleanupError?: string;
   worktreeBranch?: string;
 }
@@ -119,6 +121,7 @@ export interface SubagentRunInfo {
   error?: string;
   worktreePath?: string;
   worktreeBranch?: string;
+  worktreeCleanup?: "removed" | "kept" | "missing";
   worktreeCleanupError?: string;
 }
 
@@ -1008,6 +1011,7 @@ export function readSubagentRun(entries: readonly SessionEntry[], sessionId: str
     ...(result && typeof result.error === "string" ? { error: result.error } : {}),
     ...(typeof data.worktreePath === "string" ? { worktreePath: data.worktreePath } : {}),
     ...(typeof data.worktreeBranch === "string" ? { worktreeBranch: data.worktreeBranch } : {}),
+    ...(result?.worktreeCleanup === "removed" || result?.worktreeCleanup === "kept" || result?.worktreeCleanup === "missing" ? { worktreeCleanup: result.worktreeCleanup } : {}),
     ...(result && typeof result.worktreeCleanupError === "string" ? { worktreeCleanupError: result.worktreeCleanupError } : {}),
     ...(result && typeof result.worktreeBranch === "string" ? { worktreeBranch: result.worktreeBranch } : {}),
   };

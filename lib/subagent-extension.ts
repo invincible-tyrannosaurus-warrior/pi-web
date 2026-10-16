@@ -127,7 +127,36 @@ export function subagentToolDetails(run: SubagentRunInfo): SubagentToolDetails {
   };
 }
 
+export function subagentWorktreeText(run: SubagentRunInfo): string {
+  if (run.worktreeCleanup === "missing") {
+    return "[Isolated worktree: checkout already missing; change state unknown. Check repository branches for commits.]";
+  }
+  if (run.worktreeCleanup === "removed") {
+    return run.worktreeBranch
+      ? `[Isolated worktree: changes committed to branch ${run.worktreeBranch}; checkout removed.]`
+      : "[Isolated worktree: no changes; checkout removed.]";
+  }
+  if (run.worktreeCleanup === "kept" && run.worktreePath) {
+    // Only host-authored summaries are safe; raw git errors can recommend destructive commands.
+    const reason = [
+      "Could not inspect checkout changes.",
+      "Could not commit checkout changes.",
+      "Could not preserve commits on a branch.",
+      "Could not remove temporary checkout.",
+    ].includes(run.worktreeCleanupError ?? "") ? run.worktreeCleanupError : "Automatic cleanup did not complete.";
+    return `[Isolated worktree: cleanup failed; checkout kept at ${run.worktreePath}. ${reason}${run.worktreeBranch ? ` Commits preserved on branch ${run.worktreeBranch}.` : ""}]`;
+  }
+  return "";
+}
+
 export function subagentFinalText(run: SubagentRunInfo): string {
+  const text = subagentStatusText(run);
+  if (run.status === "starting" || run.status === "running" || run.status === "queued") return text;
+  const cleanup = subagentWorktreeText(run);
+  return cleanup ? `${cleanup}\n\n${text}` : text;
+}
+
+function subagentStatusText(run: SubagentRunInfo): string {
   if (run.status === "starting" || run.status === "running" || run.status === "queued") {
     return `Subagent ${run.sessionId} is ${run.status}.`;
   }
@@ -198,7 +227,7 @@ export function createSubagentExtension(
           prompt: Type.String({ description: "The complete task for the subagent." }),
           resume: Type.Optional(Type.String({ description: "Existing subagent session ID to continue. Keeps its model, thinking, tools, context, isolation and turn limit; omit create-only options." })),
           input_files: Type.Optional(Type.Array(Type.String(), {
-            description: "UTF-8 text files under the session cwd to include with a new task. With resume, omit or pass [].",
+            description: "UTF-8 text files under the session cwd to include with a new task; their total size is limited to about a quarter of the subagent model's context window. With resume, omit or pass [].",
             maxItems: MAX_SUBAGENT_INPUT_FILES,
           })),
           description: Type.String({ description: "Short activity label shown in the UI." }),

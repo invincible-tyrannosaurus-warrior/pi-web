@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentSessionLike } from "./pi-types";
 import {
   subagentFinalText,
+  subagentWorktreeText,
   subagentModelChoices,
   type ResumeSubagentRequest,
   type StartSubagentRequest,
@@ -42,7 +43,7 @@ import {
 } from "./subagents";
 import type { SessionEntry } from "./types";
 import { buildSubagentPromptPlan } from "./subagent-prompt";
-import { appendSubagentInputFiles, loadSubagentInputFiles } from "./subagent-input";
+import { appendSubagentInputFiles, loadSubagentInputFiles, subagentInputByteLimit } from "./subagent-input";
 import { projectTrustReloadOptions } from "./project-trust";
 import { resolveShellTools } from "./powershell-settings";
 import { createProjectCommandBashOperations } from "./project-command-env";
@@ -409,6 +410,7 @@ function persistTerminal(
     ...(result.wrappedAtTurnLimit ? { wrappedAtTurnLimit: true } : {}),
     ...(result.result ? { result: result.result } : {}),
     ...(result.error ? { error: result.error } : {}),
+    ...(result.worktreeCleanup ? { worktreeCleanup: result.worktreeCleanup } : {}),
     ...(result.worktreeCleanupError ? { worktreeCleanupError: result.worktreeCleanupError } : {}),
     ...(result.worktreeBranch ? { worktreeBranch: result.worktreeBranch } : {}),
   };
@@ -467,7 +469,7 @@ function subagentNotificationResult(run: SubagentRunInfo): string {
   if (run.status !== "failed") return subagentFinalText(run);
   const failure = `Failure: ${run.error ?? "Unknown error"}`;
   const partial = run.result?.trim();
-  return partial ? `${failure}\n\nPartial output:\n${partial}` : failure;
+  return [subagentWorktreeText(run), partial ? `${failure}\n\nPartial output:\n${partial}` : failure].filter(Boolean).join("\n\n");
 }
 
 function discardPendingParentNotifications(parentSessionId: string): void {
@@ -680,7 +682,11 @@ function applyWorktreeCleanup(
   if (cleanup.branch) nextMetadata.worktreeBranch = cleanup.branch;
   manager.appendCustomEntry(SUBAGENT_META_TYPE, nextMetadata);
 
-  const nextRun = { ...run };
+  const nextRun: SubagentRunInfo = {
+    ...run,
+    worktreeCleanup: cleanup.cleanupError ? "kept" : cleanup.hasChanges === "unknown" ? "missing" : "removed",
+  };
+  delete nextRun.worktreeCleanupError;
   delete nextRun.worktreeBranch;
   if (cleanup.cleanupError) {
     return {
@@ -938,6 +944,9 @@ export function createSubagentController(
       ? parseSubagentModel(choices, request.model)
       : parseSubagentModel(parentModelRuntime.getModels(), profile.model, choices);
     const thinking = request.thinking ?? requestedModel.thinking ?? profile.thinking ?? parent.inner.agent.state?.thinkingLevel;
+    // Fixed at dispatch like thinking: the parent may switch models while this run is queued,
+    // and input_files were sized for this model.
+    const childModel = (requestedModel.model ?? parent.inner.model) as ReturnType<ModelRuntime["getModel"]>;
     if (thinking && !THINKING_LEVELS.has(thinking as ThinkingLevel)) {
       throw new Error(`Invalid subagent thinking level: ${thinking}. Use one of: ${VALID_THINKING_LEVELS.join(", ")}`);
     }
@@ -946,7 +955,11 @@ export function createSubagentController(
     const inheritedParentContext = inheritContext
       ? `The following is the active conversation context from the parent session. Use it only as background for the delegated task:\n${parentContextText(parent)}`
       : undefined;
-    const inputFiles = loadSubagentInputFiles(parent.cwd, request.inputFiles ?? []);
+    const inputFiles = loadSubagentInputFiles(
+      parent.cwd,
+      request.inputFiles ?? [],
+      subagentInputByteLimit(childModel),
+    );
     const projectInstructions = projectInstructionsForSubagent(
       profile,
       parent.inner.resourceLoader.getAgentsFiles().agentsFiles,
@@ -1083,11 +1096,10 @@ export function createSubagentController(
           };
           context.manager.appendCustomEntry(SUBAGENT_META_TYPE, runtimeMetadata);
           currentMetadata = runtimeMetadata;
-          const parentModel = parent.inner.model as ReturnType<ModelRuntime["getModel"]>;
           const { session: inner } = await createAgentSessionFromServices({
             services: { ...services, cwd: childCwd },
             sessionManager: context.manager,
-            model: requestedModel.model ?? parentModel,
+            model: childModel,
             ...(thinking ? { thinkingLevel: thinking as ThinkingLevel } : {}),
             ...subagentToolOptions({ tools: activeTools, allExtensionTools }),
             customTools: createSubagentShellTools(childCwd, settingsManager, services.resourceLoader.getExtensions().extensions),
@@ -1180,6 +1192,7 @@ export function createSubagentController(
       error: undefined,
       worktreePath: undefined,
       worktreeBranch: undefined,
+      worktreeCleanup: undefined,
       worktreeCleanupError: undefined,
     };
     const claims = getSubagentResumeClaims();
@@ -1242,6 +1255,11 @@ export function createSubagentController(
             if (!wrapper.isAlive()) throw new Error("Subagent session is no longer available");
             await wrapper.waitUntilReady();
             context.manager = wrapper.inner.sessionManager;
+            // As AgentSessionWrapper's prompt check: tools would fail there and write would recreate the folder.
+            // Isolated runs just got a fresh worktree.
+            if (!isolated && !existsSync(wrapper.cwd)) {
+              throw new Error(`Subagent directory does not exist: ${wrapper.cwd}. Restore it or start a new subagent.`);
+            }
             if (isolated) {
               context.manager.appendCustomEntry(SUBAGENT_META_TYPE, currentMetadata);
             }

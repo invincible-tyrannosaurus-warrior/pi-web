@@ -17,7 +17,7 @@ export interface IsolatedWorktree {
 }
 
 export interface IsolatedWorktreeCleanup {
-  hasChanges: boolean;
+  hasChanges: boolean | "unknown";
   branch?: string;
   cleanupError?: string;
 }
@@ -78,23 +78,28 @@ export async function cleanupIsolatedWorktree(
   worktree: IsolatedWorktree,
   description: string,
 ): Promise<IsolatedWorktreeCleanup> {
-  if (!existsSync(worktree.path)) return { hasChanges: false };
+  if (!existsSync(worktree.path)) return { hasChanges: "unknown" };
   let hasChanges = false;
   let branch: string | undefined;
+  let cleanupError = "Could not inspect checkout changes.";
   try {
     const status = await git(worktree.path, ["status", "--porcelain"]);
     hasChanges = Boolean(status);
     if (status) {
+      cleanupError = "Could not commit checkout changes.";
       await git(worktree.path, ["add", "-A"]);
       await git(worktree.path, ["commit", "--no-verify", "-m", `pi-web-agent: ${description.slice(0, 200)}`]);
     } else {
       const currentSha = await git(worktree.path, ["rev-parse", "HEAD"]);
       if (currentSha === worktree.baseSha) {
+        cleanupError = "Could not remove temporary checkout.";
         await removeWorktree(cwd, worktree.path);
         return { hasChanges: false };
       }
+      hasChanges = true;
     }
 
+    cleanupError = "Could not preserve commits on a branch.";
     let branchName = worktree.branch;
     try {
       await git(worktree.path, ["branch", branchName]);
@@ -103,16 +108,16 @@ export async function cleanupIsolatedWorktree(
       await git(worktree.path, ["branch", branchName]);
     }
     branch = branchName;
+    cleanupError = "Could not remove temporary checkout.";
     await removeWorktree(cwd, worktree.path);
     return { hasChanges: true, branch };
-  } catch (error) {
-    if (!hasChanges) {
-      try { await removeWorktree(cwd, worktree.path); } catch { /* preserve the original error */ }
-    }
+  } catch {
+    // A failed inspection must not force-remove work whose state is unknown.
+    if (!existsSync(worktree.path)) return branch ? { hasChanges, branch } : { hasChanges: "unknown" };
     return {
       hasChanges,
       ...(branch ? { branch } : {}),
-      cleanupError: error instanceof Error ? error.message : String(error),
+      cleanupError,
     };
   }
 }
