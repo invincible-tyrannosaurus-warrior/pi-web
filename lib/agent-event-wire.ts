@@ -1,4 +1,5 @@
 import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { projectContentBlockForBrowser, projectMessageForBrowser } from "./normalize";
 
 export interface AgentEventLike {
   type: string;
@@ -79,13 +80,25 @@ export function toClientAgentEvent(
     return { type: "message_start", message: { role: event.message.role } };
   }
 
+  if (event.type === "message_start" || event.type === "message_end") {
+    const message = projectMessageForBrowser(event.message);
+    if (message !== event.message) return { ...event, message };
+  }
+
   if (event.type === "message_update") {
-    const assistantMessageEvent = event.assistantMessageEvent;
-    if (
-      typeof assistantMessageEvent !== "object"
-      || assistantMessageEvent === null
-      || Array.isArray(assistantMessageEvent)
-    ) return null;
+    const rawUpdate = event.assistantMessageEvent;
+    if (!isObject(rawUpdate)) return null;
+    // toolcall_end carries a content block even though cumulative partials are omitted.
+    let assistantMessageEvent = rawUpdate;
+    if ("toolCall" in rawUpdate) {
+      assistantMessageEvent = { ...assistantMessageEvent, toolCall: projectContentBlockForBrowser(rawUpdate.toolCall) };
+    }
+    if ("message" in rawUpdate) {
+      assistantMessageEvent = { ...assistantMessageEvent, message: projectMessageForBrowser(rawUpdate.message) };
+    }
+    if ("error" in rawUpdate) {
+      assistantMessageEvent = { ...assistantMessageEvent, error: projectMessageForBrowser(rawUpdate.error) };
+    }
 
     if (!("partial" in assistantMessageEvent)) {
       return {

@@ -6,7 +6,7 @@ import { closeSync, type Dirent, fstatSync, openSync, readSync, statSync } from 
 import { readdir } from "fs/promises";
 import { isAbsolute, join, normalize as normalizePath, relative, resolve as resolvePath, sep } from "path";
 import type { AgentMessage, ImageContent, SessionEntry, SessionHeader, SessionInfo, SessionContext, SessionOutlineItem } from "./types";
-import { normalizeToolCalls } from "./normalize";
+import { normalizeToolCalls, projectMessageForBrowser } from "./normalize";
 import { getThinkingPreview } from "./message-display";
 import { projectIdentityKey } from "./project-identity";
 import { sessionPathKey } from "./session-path";
@@ -867,9 +867,10 @@ function entryToUiMessage(
       // Transcript system messages carry the prompt and tool loadout (Pi >= 0.86).
       // They are provider input, not conversation, so they never render.
       if (entry.message.role === "system") return null;
+      const displayMessage = projectMessageForBrowser(entry.message);
       let message = options.deferToolResultImages
-        ? deferHistoryBase64Images(normalizeToolCalls(entry.message), options.sessionId, entry.id)
-        : normalizeToolCalls(entry.message);
+        ? deferHistoryBase64Images(normalizeToolCalls(displayMessage), options.sessionId, entry.id)
+        : normalizeToolCalls(displayMessage);
       const legacyContent = message.role === "assistant" ? (message as { content: unknown }).content : undefined;
       if (typeof legacyContent === "string") {
         message = { ...message, content: [{ type: "text", text: legacyContent }] } as AgentMessage;

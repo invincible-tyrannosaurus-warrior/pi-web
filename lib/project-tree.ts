@@ -1,4 +1,5 @@
 import type { BranchPreview } from "@/lib/types";
+import { projectMessageForBrowser } from "./normalize";
 
 // BranchNavigator still traverses recursively, so keep the response tree shallow.
 export const MAX_PROJECTED_TREE_DEPTH = 200;
@@ -107,13 +108,19 @@ export function projectTreeForResponse<T extends ProjectableTreeNode<T>>(
     }
   }
 
-  const cloneNode = (node: T, compressedEntryIds?: string[], branchPreview?: BranchPreview, compressedUserTurns = 0): T => ({
-    ...node,
-    children: [],
-    userTurns: compressedUserTurns + (isUserEntry(node.entry) ? 1 : 0),
-    ...(compressedEntryIds?.length ? { compressedEntryIds } : {}),
-    ...(branchPreview ? { branchPreview } : {}),
-  });
+  const cloneNode = (node: T, compressedEntryIds?: string[], branchPreview?: BranchPreview, compressedUserTurns = 0): T => {
+    const message = node.entry.type === "message"
+      ? projectMessageForBrowser(node.entry.message)
+      : node.entry.message;
+    return {
+      ...node,
+      entry: message === node.entry.message ? node.entry : { ...node.entry, message },
+      children: [],
+      userTurns: compressedUserTurns + (isUserEntry(node.entry) ? 1 : 0),
+      ...(compressedEntryIds?.length ? { compressedEntryIds } : {}),
+      ...(branchPreview ? { branchPreview } : {}),
+    };
+  };
   const projectedRoots = nodes.map((node) => cloneNode(node, undefined, previewForEntry(node.entry)));
   const tasks = nodes.map((source, index) => ({
     source,

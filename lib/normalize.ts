@@ -4,6 +4,26 @@ function isObject(val: unknown): val is Record<string, unknown> {
   return typeof val === "object" && val !== null && !Array.isArray(val);
 }
 
+const PROVIDER_SIGNATURE_FIELDS = ["thinkingSignature", "textSignature", "thoughtSignature"] as const;
+
+/** Shallow browser-only copy: tool arguments are application data, not provider metadata. */
+export function projectContentBlockForBrowser<T>(block: T): T {
+  if (!isObject(block) || !PROVIDER_SIGNATURE_FIELDS.some((field) => Object.hasOwn(block, field))) return block;
+  const projected = { ...block };
+  for (const field of PROVIDER_SIGNATURE_FIELDS) delete projected[field];
+  return projected as T;
+}
+
+/** Never strip continuation data from SDK state or persisted session records. */
+export function projectMessageForBrowser<T>(message: T): T {
+  if (!isObject(message) || message.role !== "assistant" || !Array.isArray(message.content)) return message;
+  const originalContent = message.content;
+  const content = originalContent.map(projectContentBlockForBrowser);
+  return content.some((block, index) => block !== originalContent[index])
+    ? { ...message, content } as T
+    : message;
+}
+
 function streamingRawInput(block: Record<string, unknown>): string | undefined {
   if (typeof block.rawInput === "string") return block.rawInput;
   if (typeof block.partialJson === "string") return block.partialJson;
