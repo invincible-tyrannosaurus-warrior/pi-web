@@ -4,7 +4,7 @@ import React, { useRef, useState, useCallback, useEffect, useId, useLayoutEffect
 import type { BuiltinSlashCommandResult, CompactResultInfo, QueuedMessages, SlashCommandInfo } from "@/hooks/useAgentSession";
 import type { SkillsResponse } from "@/lib/api-types";
 import type { TextContent, UserMessage } from "@/lib/types";
-import { THINKING_LEVELS as THINKING_LEVEL_VALUES } from "@/lib/thinking-levels";
+import { THINKING_LEVELS as THINKING_LEVEL_VALUES, THINKING_LEVEL_LABELS } from "@/lib/thinking-levels";
 import {
   clearDraft,
   exceedsAttachedImageSendLimit,
@@ -1670,7 +1670,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const thinkingDisplayLabel = (() => {
     // Unknown until models/session state load; never guess a level.
     if (!thinkingLevel) return "…";
-    return thinkingLevelMap?.[thinkingLevel] ?? thinkingLevel;
+    return THINKING_LEVEL_LABELS[thinkingLevel];
   })();
   const rawToolPresetLabel = Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? CONFIGURED_TOOL_PRESET))?.[0] ?? "configured";
   const toolPresetLabel = rawToolPresetLabel === "chat-only" ? t("chat.chatOnly") : rawToolPresetLabel;
@@ -2605,12 +2605,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       {THINKING_LEVEL_VALUES.filter((lvl) => !availableThinkingLevels || availableThinkingLevels.includes(lvl)).map((lvl) => {
                         const isActive = thinkingLevel === lvl;
                         const mappedVal = thinkingLevelMap?.[lvl];
-                        const displayLabel = (mappedVal != null && mappedVal !== lvl) ? mappedVal : lvl;
                         return (
                           <button
                             key={lvl}
                             type="button"
                             role="menuitemradio"
+                            // Custom provider value, shown on hover only.
+                            title={mappedVal != null && mappedVal !== lvl ? mappedVal : undefined}
                             aria-checked={isActive}
                             onClick={() => {
                               setThinkingDropdownOpen(false);
@@ -2618,7 +2619,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                             }}
                           >
                             {menuCheck(isActive)}
-                            <span>{displayLabel}</span>
+                            <span>{THINKING_LEVEL_LABELS[lvl]}</span>
                           </button>
                         );
                       })}

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEventHandler, type ReactNode } from "react";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { useI18n } from "@/hooks/useI18n";
-import { THINKING_LEVELS } from "@/lib/thinking-levels";
+import { THINKING_LEVELS, THINKING_LEVEL_LABELS } from "@/lib/thinking-levels";
 import { serializeHeaderRows, updateHeaderRow, type HeaderRow } from "../models-config-helpers";
 import { ModalDialog } from "../ModalDialog";
 import { Select as SelectField } from "../Select";
@@ -205,7 +205,7 @@ export function ThinkingLevelMapEditor({
 
         return (
           <div key={level} className={`models-thinking-row is-${state}`}>
-            <span className="models-thinking-level">{level}</span>
+            <span className="models-thinking-level">{THINKING_LEVEL_LABELS[level]}</span>
             <div className="models-segmented" role="radiogroup" aria-label={level}>
               <button type="button" role="radio" aria-checked={state === "omit"} onClick={() => setLevel(level, "omit")}>
                 {t("models.levelDefault")}

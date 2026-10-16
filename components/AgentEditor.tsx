@@ -6,7 +6,7 @@ import { useConfirm } from "@/hooks/useConfirm";
 import { getJson, peekJson, settingsUrls } from "@/lib/settings-cache";
 import type { ModelsData } from "@/lib/models-cache";
 import { subagentProfileSources } from "@/lib/subagent-profile-precedence";
-import { THINKING_LEVELS as THINKING_LEVEL_VALUES } from "@/lib/thinking-levels";
+import { THINKING_LEVELS as THINKING_LEVEL_VALUES, THINKING_LEVEL_LABELS } from "@/lib/thinking-levels";
 import type { SubagentProfile, SubagentScope, SubagentWritableScope } from "@/lib/subagents";
 import {
   ConfigButton,
@@ -579,7 +579,7 @@ export function AgentDetail({ editor }: { editor: AgentEditor }) {
                 value={draft.thinking ?? ""}
                 disabled={disabled}
                 onChange={(value) => update("thinking", (value || undefined) as EditableProfile["thinking"])}
-                options={THINKING_OPTIONS.map((value) => ({ value, label: value || t("agents.inherit") }))}
+                options={THINKING_OPTIONS.map((value) => ({ value, label: value ? THINKING_LEVEL_LABELS[value] : t("agents.inherit") }))}
               />
             </Field>
             <Field label={t("agents.maxTurns")}>

@@ -279,7 +279,7 @@ test("keeps effort visible but locked while streaming", () => {
     }),
   ));
   assert.match(html, /aria-label="Change reasoning level"/);
-  assert.match(html, />high<\/span>/);
+  assert.match(html, />High<\/span>/);
   assert.doesNotMatch(html, /Change tool preset/);
   assert.doesNotMatch(html, /Compact context/);
 });
