@@ -703,6 +703,8 @@ button.session-stats-breakdown-row:focus-visible {
   display: block;
   flex-shrink: 0;
   background: center / contain no-repeat var(--catppuccin-icon);
+  /* Longhand: --catppuccin-scale (FileIcons.tsx) evens out the ink size of the icons. */
+  background-size: calc(100% * var(--catppuccin-scale, 1));
 }
 
 /* Use the SVG alpha channel as a mask so file icons follow the app's
@@ -713,6 +715,8 @@ button.session-stats-breakdown-row:focus-visible {
     background: currentColor;
     mask: center / contain no-repeat var(--catppuccin-icon);
     -webkit-mask: center / contain no-repeat var(--catppuccin-icon);
+    mask-size: calc(100% * var(--catppuccin-scale, 1));
+    -webkit-mask-size: calc(100% * var(--catppuccin-scale, 1));
   }
 }
 

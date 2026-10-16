@@ -41,11 +41,28 @@ type CatppuccinIconName =
 
 const CATPPUCCIN_ICONS_ROOT = "/icons/catppuccin/latte";
 
+// Optical sizing: most icons draw within 14 of their 16-unit box, a few bleed to the edge
+// and read larger beside them. Shrink those to an ink of about 14×14 (14 / √(ink w × h),
+// measured from the SVGs; wide-but-short ones such as markdown already match).
+const OPTICAL_SCALE: Partial<Record<CatppuccinIconName, number>> = {
+  bash: 0.88,
+  "bun-lock": 0.88,
+  git: 0.89,
+  "typescript-react": 0.92,
+  "javascript-react": 0.93,
+  "npm-lock": 0.93,
+  graphql: 0.94,
+  rust: 0.94,
+  "ms-word": 0.94,
+  eslint: 0.94,
+};
+
 function CatppuccinIcon({ name, size = 14 }: IconProps & { name: CatppuccinIconName }) {
   const style = {
     width: size,
     height: size,
     "--catppuccin-icon": `url(${CATPPUCCIN_ICONS_ROOT}/${name}.svg)`,
+    ...(OPTICAL_SCALE[name] ? { "--catppuccin-scale": OPTICAL_SCALE[name] } : {}),
   } as CSSProperties;
 
   return (
