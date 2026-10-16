@@ -2,12 +2,10 @@ import type { CSSProperties } from "react";
 import { iconStroke } from "./iconStroke";
 
 export function ThinkingIcon({
-  active,
   size = 13,
   className,
   style,
 }: {
-  active?: boolean;
   size?: number;
   className?: string;
   style?: CSSProperties;
@@ -28,7 +26,6 @@ export function ThinkingIcon({
       className={className}
       style={{
         flexShrink: 0,
-        color: active ? "var(--accent)" : "currentColor",
         display: "block",
         ...style,
       }}

@@ -1093,7 +1093,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ block, duration, star
           onClick={() => setExpanded((v) => !v)}
         >
           <div className="step-icon">
-            <ThinkingIcon active={expanded} size={12} />
+            <ThinkingIcon size={12} />
           </div>
           <span className="step-label">{t("i18n.thinking")}</span>
           {!expanded && (

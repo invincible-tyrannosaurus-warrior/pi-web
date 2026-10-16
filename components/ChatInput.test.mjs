@@ -264,7 +264,7 @@ test("keeps effort visible but locked while streaming", () => {
   const source = readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8");
   assert.match(source, /\{onThinkingLevelChange && \(/);
   assert.doesNotMatch(source, /THINKING_LEVEL_DESC_KEYS/);
-  assert.doesNotMatch(source, /ThinkingIcon active=\{thinkingLevel/);
+  assert.doesNotMatch(source, /ThinkingIcon/);
   const html = renderToStaticMarkup(React.createElement(
     I18nProvider,
     null,
