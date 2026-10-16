@@ -8,6 +8,35 @@ const chatInputSource = await readFile(new URL("../components/ChatInput.tsx", im
 const appShellSource = await readFile(new URL("../components/AppShell.tsx", import.meta.url), "utf8");
 const newAgentRouteSource = await readFile(new URL("../app/api/agent/new/route.ts", import.meta.url), "utf8");
 
+test("render keys are adopted after merged reloads and retained, but not adopted, on context navigation", () => {
+  const reload = source.slice(source.indexOf("  const loadSession ="), source.indexOf("  const fetchContextPage ="));
+  assert.match(reload, /mergeLoadedHistory\(previous, incoming\)/);
+  assert.match(reload, /carryMessageKeys\(\{ \.\.\.previous, aliases \}, merged\)/);
+  assert.ok(reload.indexOf("mergeLoadedHistory(") < reload.indexOf("carryMessageKeys("));
+  const context = source.slice(source.indexOf("  const fetchContextPage ="), source.indexOf("  // One request per older cursor"));
+  assert.match(context, /if \(before\) \{\s*\/\/ Prepending preserves all aliases/);
+  assert.match(context, /carryMessageKeys\(\{ \.\.\.previous, aliases \}, d.context, false\)/);
+  assert.match(source, /messageRenderKeys\(entryIds, messages.length, messageKeyAliases\)/);
+  assert.match(chatWindowSource, /const messageKey = messageKeys\[idx\]/);
+  assert.equal((chatWindowSource.match(/key=\{`process-group-\$\{messageKeys\[firstIdx\]\}`\}/g) ?? []).length, 2);
+  assert.doesNotMatch(chatWindowSource, /key=\{`process-group-\$\{entryIds/);
+});
+
+test("branch changes invalidate in-flight reloads and older pages before they can mix histories", () => {
+  const load = source.slice(source.indexOf("  const loadSession ="), source.indexOf("  const fetchContextPage ="));
+  const page = source.slice(source.indexOf("  const fetchContextPage ="), source.indexOf("  // One request per older cursor"));
+  const navigate = source.slice(source.indexOf("  const handleLeafChange ="), source.indexOf("  const handleModelChange ="));
+  assert.match(load, /if \(navigationPendingRef.current\) return null/);
+  assert.match(page, /if \(before && navigationPendingRef.current\) return/);
+  for (const request of [load, page]) {
+    assert.match(request, /const branch = historyBranchRef.current/);
+    assert.match(request, /historyBranchRef.current !== branch/);
+    assert.ok(request.indexOf("historyBranchRef.current !== branch") < request.indexOf("setMessageKeyAliases("));
+  }
+  assert.match(navigate, /historyBranchRef.current \+= 1/);
+  assert.ok(navigate.indexOf("historyBranchRef.current += 1") < navigate.indexOf("await sendAgentCommand"));
+});
+
 test("keeps the session event stream open through the idle grace window", () => {
   const finishSource = source.slice(
     source.indexOf("const finishPromptWithoutStream"),

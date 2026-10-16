@@ -72,7 +72,7 @@ test("both navigation callers block busy sessions and only switch after successf
   let result = {};
   const bindings = {
     useCallback, bashRunningRef: ref(false), agentRunningRef: ref(false), sessionRunningRef: ref(false),
-    isCompacting: false, navigationPendingRef: ref(false), handleNavigateRef: ref(null), sessionIdRef: ref("session"), sessionHookMountedRef: ref(true),
+    isCompacting: false, navigationPendingRef: ref(false), historyBranchRef: ref(0), handleNavigateRef: ref(null), sessionIdRef: ref("session"), sessionHookMountedRef: ref(true),
     sendAgentCommand: async () => { calls.push("navigate"); if (result instanceof Error) throw result; return result; },
     setActiveLeafId: (id) => calls.push(["leaf", id]), loadContext: async () => { calls.push("context"); return {}; },
     addNotice: () => calls.push("error"),
@@ -84,6 +84,7 @@ test("both navigation callers block busy sessions and only switch after successf
     else bindings[flag].current = true;
     for (const navigate of make()) assert.equal(await navigate("leaf"), false);
     assert.deepEqual(calls, []);
+    assert.equal(bindings.historyBranchRef.current, 0);
     if (flag === "isCompacting") bindings[flag] = false;
     else bindings[flag].current = false;
   }
@@ -97,7 +98,9 @@ test("both navigation callers block busy sessions and only switch after successf
     calls.length = 0;
   }
   result = {};
+  const branch = bindings.historyBranchRef.current;
   assert.equal(await navigate("leaf"), true);
+  assert.equal(bindings.historyBranchRef.current, branch + 1);
   assert.deepEqual(calls, ["navigate", ["leaf", "leaf"], "context"]);
   for (const stale of ["session", "unmount", "no-context", "no-session", "concurrent"]) {
     calls.length = 0;

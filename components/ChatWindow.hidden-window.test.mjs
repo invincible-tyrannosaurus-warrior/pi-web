@@ -30,7 +30,7 @@ function render(messages, locate = null, overrides = {}) {
   const entryIds = messages.map((_, index) => `entry-${index}`);
   const mountedRangeRef = { current: null };
   const scope = {
-    React, ...display, ...lazy, ...outline, messages, entryIds, mountedRangeRef,
+    React, ...display, ...lazy, ...outline, messages, entryIds, messageKeys: entryIds, mountedRangeRef,
     // Leaf presentation is intentionally simple; grouping and slicing are real.
     MessageView: ({ message }) => React.createElement("p", null, typeof message.content === "string" ? message.content : message.content.map((block) => block.text ?? "").join("")),
     ProcessDetailsGroup: ({ children }) => React.createElement("section", null, children),

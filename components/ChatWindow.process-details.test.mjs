@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { createJiti } from "jiti";
 
 const source = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8");
 
@@ -163,12 +164,27 @@ test("matches process detail text paragraph font size to 11px to align with step
   );
 });
 
-test("keeps one process group identity from streaming into the persisted assistant", () => {
+test("keeps one process group identity from streaming into the persisted assistant", async () => {
   assert.doesNotMatch(source, /key="streaming-process-group"/);
-  assert.equal(
-    (source.match(/key=\{`process-group-\$\{entryIds\[firstIdx\] \?\? firstIdx\}`\}/g) ?? []).length,
-    2,
-  );
+  const expressions = [...source.matchAll(/key=\{(`process-group-[^`]+`)\}/g)].map((match) => match[1]);
+  assert.equal(expressions.length, 2);
+  const [streamingKey, persistedKey] = expressions.map((expression) => (
+    new Function("messageKeys", "firstIdx", `return ${expression};`)
+  ));
+  const { carryMessageKeys, messageRenderKeys } = await createJiti(import.meta.url).import("../lib/message-keys.ts");
+  for (const entryIds of [[], ["anchor"]]) {
+    const firstIdx = entryIds.length;
+    const prompt = { role: "user", content: "question", timestamp: 1 };
+    const previous = { messages: [...entryIds.map(() => prompt), prompt], entryIds, aliases: new Map() };
+    const next = {
+      messages: [...previous.messages, { role: "assistant", content: [{ type: "thinking", thinking: "plan" }], timestamp: 2 }],
+      entryIds: [...entryIds, "prompt", "assistant"],
+    };
+    const liveKeys = messageRenderKeys(entryIds, previous.messages.length, previous.aliases);
+    const savedKeys = messageRenderKeys(next.entryIds, next.messages.length, carryMessageKeys(previous, next));
+    assert.notEqual(liveKeys[firstIdx], next.entryIds[firstIdx], "the prompt acquires a different entry id");
+    assert.equal(streamingKey(liveKeys, firstIdx), persistedKey(savedKeys, firstIdx));
+  }
 });
 
 test("only auto-scrolls process details when the list overflows", () => {

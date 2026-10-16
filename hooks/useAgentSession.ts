@@ -33,6 +33,7 @@ import {
   getLiveFollowAttached,
 } from "@/lib/chat-lazy-load";
 import { mergeLoadedHistory } from "@/lib/chat-history-merge";
+import { carryMessageKeys, messageRenderKeys } from "@/lib/message-keys";
 import {
   INITIAL_STREAMING_STATE,
   applyThinkingTimings,
@@ -373,8 +374,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [activeToolResults, setActiveToolResults] = useState<Map<string, ToolResultMessage>>(new Map());
   const [entryIds, setEntryIds] = useState<string[]>([]);
+  const [messageKeyAliases, setMessageKeyAliases] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
+  const historyBranchRef = useRef(0);
   const loadedHistoryRef = useRef({
     messages,
     entryIds,
@@ -615,6 +618,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
+    if (navigationPendingRef.current) return null;
+    const branch = historyBranchRef.current;
     const runId = promptRunIdRef.current;
     const usageRequestId = ++contextUsageRequestIdRef.current;
     let messagesLoaded = false;
@@ -627,12 +632,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // reads keep serving the live snapshot instead of stat-ing on every poll.
       if (includeState) params.set("force", "1");
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
+      if (sessionIdRef.current !== sid || historyBranchRef.current !== branch) return null;
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
           setActiveLeafId(null);
           setMessages([]);
           setEntryIds([]);
+          setMessageKeyAliases(new Map());
           setHistoryCursor(null);
           setHasEarlierMessages(false);
           applyContextUsage(null, sid, runId, usageRequestId);
@@ -642,7 +649,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
-      if (sessionIdRef.current !== sid) return null;
+      if (sessionIdRef.current !== sid || historyBranchRef.current !== branch) return null;
       if (localAppendSeqRef.current !== appendSeq) {
         messagesLoaded = true;
         if (showLoading) setLoading(false);
@@ -654,7 +661,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         oldestEntryId: d.context.oldestEntryId,
         hasMore: d.context.hasMore,
       };
-      const merged = showLoading ? incoming : mergeLoadedHistory(loadedHistoryRef.current, incoming);
+      const previous = loadedHistoryRef.current;
+      const merged = showLoading ? incoming : mergeLoadedHistory(previous, incoming);
+      setMessageKeyAliases((aliases) => carryMessageKeys({ ...previous, aliases }, merged));
       setData({ ...d, context: { ...d.context, ...merged } });
       setActiveLeafId(d.leafId);
       setMessages(merged.messages);
@@ -705,6 +714,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [applyContextUsage, setToolPresetState]);
 
   const fetchContextPage = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
+    if (before && navigationPendingRef.current) return;
+    const branch = historyBranchRef.current;
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
       if (leafId) params.set("leafId", leafId);
@@ -716,7 +727,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(url, { signal: options?.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: SessionData["context"] };
-      if (sessionIdRef.current !== sid || options?.signal?.aborted || !sessionHookMountedRef.current) return;
+      if (sessionIdRef.current !== sid || historyBranchRef.current !== branch || options?.signal?.aborted || !sessionHookMountedRef.current) return;
       setHistoryCursor(d.context.oldestEntryId);
       setHasEarlierMessages(d.context.hasMore);
       setData((prev) => {
@@ -731,10 +742,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return { ...prev, context };
       });
       if (before) {
-        // Older page: prepend so scroll position stays anchored.
+        // Prepending preserves all aliases and the live tail's anchor-relative keys.
         setMessages((prev) => [...d.context.messages, ...prev]);
         setEntryIds((prev) => [...d.context.entryIds, ...prev]);
       } else {
+        const previous = loadedHistoryRef.current;
+        // A branch replacement must not adopt live keys, even for identical prompts.
+        setMessageKeyAliases((aliases) => carryMessageKeys({ ...previous, aliases }, d.context, false));
         setMessages(d.context.messages);
         setEntryIds(d.context.entryIds ?? []);
       }
@@ -2048,6 +2062,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current;
     if (!sid) return false;
     navigationPendingRef.current = true;
+    historyBranchRef.current += 1;
     try {
       if (leafId) {
         const result = await sendAgentCommand<{ cancelled?: boolean; aborted?: boolean }>(sid, {
@@ -2703,9 +2718,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setSessionStatsOverride(null);
   }, [messages.length, contextUsage?.tokens, contextUsage?.percent, contextUsage?.contextWindow]);
 
+  const messageKeys = useMemo(
+    () => messageRenderKeys(entryIds, messages.length, messageKeyAliases),
+    [entryIds, messages.length, messageKeyAliases],
+  );
+
   return {
     // State
-    data, loading, error, activeLeafId, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState,
+    data, loading, error, activeLeafId, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, streamState,
     agentRunning, directImageRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting,

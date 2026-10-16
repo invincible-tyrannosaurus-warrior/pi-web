@@ -16,6 +16,36 @@ export function thinkingDurationSeconds(
   return secs > 0 ? secs : undefined;
 }
 
+export const THINKING_PIECE_CHARS = 8_000;
+
+/** Stable prefix cuts: keep every character, prefer newlines, cap unbroken lines at 16K. */
+export function splitThinkingPieces(thinking: string): string[] {
+  const pieces: string[] = [];
+  let start = 0;
+  while (thinking.length - start > THINKING_PIECE_CHARS) {
+    const hardEnd = start + 2 * THINKING_PIECE_CHARS;
+    const window = thinking.slice(start + THINKING_PIECE_CHARS, hardEnd);
+    const newline = window.indexOf("\n");
+    let end: number;
+    if (newline !== -1) {
+      end = start + THINKING_PIECE_CHARS + newline + 1;
+    } else if (thinking.length > hardEnd) {
+      end = hardEnd;
+      const last = thinking.charCodeAt(end - 1);
+      // Decide from the prefix alone, even when the low surrogate / LF arrives later.
+      if ((last >= 0xd800 && last <= 0xdbff) || last === 13) end--;
+    } else {
+      break;
+    }
+    // Leave the trailing piece in place until more text arrives (also preserves trailing blank lines).
+    if (end === thinking.length) break;
+    pieces.push(thinking.slice(start, end));
+    start = end;
+  }
+  pieces.push(thinking.slice(start));
+  return pieces;
+}
+
 export function getThinkingPreview(thinking: string): string {
   return thinking.trimStart().match(/^[^\r\n]{0,240}/u)?.[0].trimEnd() ?? "";
 }

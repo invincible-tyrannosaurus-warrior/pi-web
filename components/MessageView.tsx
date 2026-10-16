@@ -18,7 +18,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { ExportImageIcon, useExportImage } from "./ExportImage";
 import { formatDuration } from "@/lib/i18n/format";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
-import { getAssistantErrorMessage, getThinkingPreview, thinkingDurationSeconds, isEmptyThinkingBlock, isAssistantTruncated, isSubagentNotificationMessage } from "@/lib/message-display";
+import { getAssistantErrorMessage, getThinkingPreview, thinkingDurationSeconds, isEmptyThinkingBlock, isAssistantTruncated, isSubagentNotificationMessage, splitThinkingPieces } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell, type SplitDiffFile } from "@/lib/patch";
 import { parseApplyPatch } from "@/lib/apply-patch";
 import { displayToolName, isApplyPatchToolName, isEditToolName, isWriteToolName } from "@/lib/tool-names";
@@ -705,7 +705,7 @@ function AssistantMessageView({
           );
           return (
             <BlockView
-              key={`${entryId ?? "stream"}-${originalIndex}`}
+              key={originalIndex}
               block={block}
               searchTarget={block === searchBlock}
               toolResults={toolResults}
@@ -996,6 +996,16 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent
   return <SafeMarkdownBody className="markdown-assistant-message" isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody>;
 }
 
+// Separate layout boxes let streaming update only the last piece. Inline boxes keep
+// selection / copy exact, including at hard cuts that did not contain a newline.
+function ThinkingText({ text }: { text: string }) {
+  const pieces = useMemo(() => splitThinkingPieces(text), [text]);
+  // Do not memoize pieces: old slice props would pin entire previous streaming strings.
+  return pieces.map((piece, index) => (
+    <span key={index} style={{ display: "inline-block", width: "100%", verticalAlign: "top" }}>{piece}</span>
+  ));
+}
+
 // Memoized: once a reply moves on to its answer, a finished thinking block keeps
 // the same block object and primitive props, so streaming chunks skip it (it
 // re-rendered and re-parsed its preview on every chunk before).
@@ -1013,6 +1023,21 @@ export const ThinkingBlock = memo(function ThinkingBlock({ block, duration, star
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const receivedThinking = useRef<string | null>(null);
+  const [loadedSource, setLoadedSource] = useState({ sessionId, entryId, blockIndex });
+  if (loadedSource.sessionId !== sessionId || loadedSource.entryId !== entryId || loadedSource.blockIndex !== blockIndex) {
+    const isPersisting = loadedSource.sessionId === sessionId && loadedSource.blockIndex === blockIndex
+      && loadedSource.entryId === undefined && entryId !== undefined;
+    setLoadedSource({ sessionId, entryId, blockIndex });
+    // An inherited key acquiring its first id is still the same message, not a new entry.
+    if (!isPersisting) {
+      receivedThinking.current = null;
+      setContent(null);
+      setLoading(false);
+      setError(null);
+    }
+  }
+  if (!block.deferred) receivedThinking.current = block.thinking;
   const tRef = useRef(t);
   tRef.current = t;
   const preview = getThinkingPreview(block.thinking);
@@ -1029,7 +1054,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ block, duration, star
   // from its cache, so re-running this effect is cheap and a failed load can
   // be retried by collapsing and expanding the block again.
   useEffect(() => {
-    if (!expanded || !block.deferred || content !== null) return;
+    if (!expanded || !block.deferred || content !== null || receivedThinking.current !== null) return;
     if (!sessionId || !entryId) {
       setError(tRef.current("i18n.thinkingUnavailable"));
       return;
@@ -1104,7 +1129,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ block, duration, star
             overflowWrap: "anywhere",
           }}
         >
-           {loading ? t("i18n.loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
+           {loading ? t("i18n.loadingThinking") : error ?? <ThinkingText text={(block.deferred ? content ?? receivedThinking.current : block.thinking) ?? ""} />}
         </div>
       )}
       {expanded && <StepCollapseRail onCollapse={() => setExpanded(false)} />}

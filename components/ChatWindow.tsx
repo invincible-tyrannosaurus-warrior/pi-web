@@ -833,7 +833,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, [onBranchDataChange, branchSessionId]);
 
   const {
-    data, loading, error, messages, activeToolResults, entryIds, historyCursor, hasEarlierMessages, streamState,
+    data, loading, error, messages, activeToolResults, entryIds, messageKeys, historyCursor, hasEarlierMessages, streamState,
     agentRunning, directImageRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
@@ -2013,7 +2013,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 const isVisible = isMessageGroupBoundary(msg) || msg.role === "assistant" || Boolean(imageResult);
                 const currentRefIdx = visibleRefIndexByMessage.get(idx);
                 const keyPrefix = options.keyPrefix ?? "message";
-                const messageKey = entryIds[idx] ?? idx;
+                const messageKey = messageKeys[idx];
                 const view = imageResult ? (
                   <GeneratedImageResult
                     key={`${keyPrefix}-image-${messageKey}`}
@@ -2123,7 +2123,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                       streamingParts.processMessage.completedAt,
                     );
                     rendered.push(
-                      <div key={`process-group-${entryIds[firstIdx] ?? firstIdx}`}>
+                      <div key={`process-group-${messageKeys[firstIdx]}`}>
                         <ProcessDetailsGroup
                           messageCount={1}
                           toolCallCount={countToolCallBlocks(streamingParts.processMessage.content ?? [])}
@@ -2286,7 +2286,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   markOutlineTarget(processEntryIds);
                   rendered.push(
                     <div
-                      key={`process-group-${entryIds[firstIdx] ?? firstIdx}`}
+                      key={`process-group-${messageKeys[firstIdx]}`}
                       data-entry-id={entryIds[processStartIdx]}
                       ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
                     >

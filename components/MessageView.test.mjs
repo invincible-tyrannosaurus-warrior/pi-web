@@ -20,6 +20,46 @@ const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { splitFinalAssistantBlocks } = await jiti.import("@/lib/message-display");
 const source = await readFile(new URL("./MessageView.tsx", import.meta.url), "utf8");
 
+test("assistant block keys do not change when persistence supplies an entry id", () => {
+  assert.match(source, /<BlockView\s+key=\{originalIndex\}/);
+  assert.doesNotMatch(source, /key=\{`\$\{entryId/);
+});
+
+test("a reused thinking block clears entry-specific content without resetting expansion", () => {
+  const reset = source.slice(source.indexOf("  const receivedThinking ="), source.indexOf("  const tRef ="));
+  assert.match(reset, /useState\(\{ sessionId, entryId, blockIndex \}\)/);
+  assert.match(reset, /loadedSource\.entryId === undefined && entryId !== undefined/);
+  assert.match(reset, /if \(!isPersisting\)/);
+  assert.match(reset, /receivedThinking\.current = null/);
+  assert.match(reset, /if \(!block\.deferred\) receivedThinking\.current = block\.thinking/);
+  assert.match(reset, /setContent\(null\)/);
+  assert.match(reset, /setLoading\(false\)/);
+  assert.match(reset, /setError\(null\)/);
+  assert.doesNotMatch(reset, /setExpanded/);
+  assert.match(source, /if \(!cancelled\) \{\s*setContent\(value\)/);
+  assert.match(source, /return \(\) => \{\s*cancelled = true/);
+});
+
+test("expanded thinking renders exact text in stable, independently laid out pieces", () => {
+  const previousWindow = globalThis.window;
+  try {
+    globalThis.window = { localStorage: { getItem: () => "true" } };
+    for (const text of ["short thought", "x".repeat(40_000), `${"x".repeat(8_000)}\n\n\r\n${"中💡".repeat(8_000)}`]) {
+      const html = renderToStaticMarkup(React.createElement(I18nProvider, null,
+        React.createElement(ThinkingBlock, { block: { type: "thinking", thinking: text }, blockIndex: 0 })));
+      const body = html.match(/class="step-body"[^>]*>([\s\S]*?)<\/div>/)?.[1];
+      assert.ok(body);
+      const pieces = [...body.matchAll(/<span style="display:inline-block;width:100%;vertical-align:top">([\s\S]*?)<\/span>/g)];
+      assert.equal(pieces.map((match) => match[1]).join(""), text);
+      if (text.length > 16_000) assert.ok(pieces.length > 1);
+    }
+    assert.match(source, /<span key=\{index\} style=\{\{ display: "inline-block"/);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
 test("looks up tool durations only for calls in the current assistant message", () => {
   assert.match(source, /for \(const block of message\.content\)/);
   assert.match(source, /const result = toolResults\.get\(block\.toolCallId\)/);
