@@ -11,6 +11,7 @@ import { resolveScopedResources, setGlobalResourceEnabled, type ResourceType, ty
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
+import { invalidateModelsCache } from "@/lib/models-cache";
 import { isPluginSourceCheckable } from "@/lib/plugin-updates";
 import type {
   PluginDiagnostic,
@@ -389,8 +390,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Unsupported action: ${body.action}` }, { status: 400 });
     }
 
+    invalidateModelsCache();
     return NextResponse.json(await readPlugins(body.cwd));
   } catch (error) {
+    // Package operations can partially succeed before reporting an error.
+    invalidateModelsCache();
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }

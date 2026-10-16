@@ -9,12 +9,13 @@ import { realPathOrSelf as canonical } from "@/lib/worktree";
 /**
  * Every skill configured for this cwd, loaded or not: the Skills page must still list a
  * skill that is switched off (globally or in this project) so it can be switched on again.
- * Loaded skills come from the runtime's loader (so extension-provided skills are included);
- * switched-off ones are parsed from their paths with the owner's source info.
+ * The loader discovers file/package skills without binding a session; extension
+ * resources_discover handlers only run after session_start, not during this listing.
+ * Switched-off skills are parsed from their paths with the owner's source info.
  */
 export async function loadSkillsWithInstallInfo(cwd: string): Promise<SkillsResponse> {
   const agentDir = getAgentDir();
-  const loader = new DefaultResourceLoader({ cwd, agentDir });
+  const loader = new DefaultResourceLoader({ cwd, agentDir, noExtensions: true });
   await loader.reload(projectTrustReloadOptions(cwd, agentDir));
   const { skills: loaded, diagnostics } = loader.getSkills();
   const scoped = (await resolveScopedResources(cwd, agentDir)).resources.filter((r) => r.type === "skills");

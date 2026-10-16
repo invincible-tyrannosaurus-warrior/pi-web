@@ -39,6 +39,10 @@ function getModelsCacheState(): ModelsCacheState {
   return globalThis.__piModelsCacheState;
 }
 
+export function getModelsCacheGeneration(): number {
+  return getModelsCacheState().generation;
+}
+
 export function invalidateModelsCache(): void {
   const state = getModelsCacheState();
   state.generation += 1;

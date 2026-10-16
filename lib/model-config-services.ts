@@ -3,7 +3,8 @@ import { join, resolve } from "path";
 import { createAgentSessionServices, getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
-import { projectTrustReloadOptions } from "@/lib/project-trust";
+import { getProjectTrustStatus, projectTrustReloadOptions } from "@/lib/project-trust";
+import { getModelsCacheGeneration } from "@/lib/models-cache";
 
 export async function resolveAllowedCwd(requestedCwd: string): Promise<
   { cwd: string } | { error: string; status: number }
@@ -38,6 +39,81 @@ export async function createModelsConfigServices(cwd: string) {
     agentDir,
     ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
   });
+}
+
+type ConfigServices = Awaited<ReturnType<typeof createModelsConfigServices>>;
+interface ReadServicesEntry {
+  promise: Promise<ConfigServices>;
+  expiresAt: number;
+}
+
+declare global {
+  var __piModelsConfigReadServices: Map<string, ReadServicesEntry> | undefined;
+}
+
+// shortcut: external extension source edits appear within 10 minutes; add file watching if immediate reload is needed.
+const READ_SERVICES_TTL_MS = 10 * 60_000;
+const READ_SERVICES_TIMEOUT_MS = 30_000;
+const MAX_READ_SERVICES = 8;
+
+/** Read paths only: login/logout and settings writes must keep their own services. */
+export async function getModelsConfigReadServices(cwd: string): Promise<ConfigServices> {
+  cwd = resolve(cwd);
+  const agentDir = getAgentDir();
+  const generation = getModelsCacheGeneration();
+  const trust = getProjectTrustStatus(cwd, agentDir);
+  // Rebuild on file changes instead of refreshing a shared mutable runtime under readers.
+  const files = ["auth.json", "models.json", "models-store.json", "settings.json"]
+    .map((file) => join(agentDir, file));
+  files.push(join(cwd, ".pi", "settings.json"));
+  const versions = await Promise.all(files.map(async (file) => {
+    try {
+      const info = await stat(file, { bigint: true });
+      return `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }));
+  const key = JSON.stringify([agentDir, cwd, trust, generation, versions]);
+  const cache = globalThis.__piModelsConfigReadServices ??= new Map();
+  const cached = cache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    cache.delete(key);
+    cache.set(key, cached);
+    return cached.promise;
+  }
+  for (const [oldKey, entry] of cache) {
+    if (entry.expiresAt <= Date.now()) cache.delete(oldKey);
+  }
+  while (cache.size >= MAX_READ_SERVICES) cache.delete(cache.keys().next().value!);
+
+  let timer: ReturnType<typeof setTimeout>;
+  const entry: ReadServicesEntry = {
+    expiresAt: Date.now() + READ_SERVICES_TTL_MS,
+    promise: Promise.race([
+      createModelsConfigServices(cwd).then((services) => {
+        const runtime = services.modelRuntime;
+        const getAvailable = runtime.getAvailable.bind(runtime);
+        let queue = Promise.resolve();
+        // SDK availability reads mutate a shared snapshot and supersede overlapping refreshes.
+        runtime.getAvailable = (...args) => {
+          const read = queue.then(() => getAvailable(...args));
+          queue = read.then(() => {}, () => {});
+          return read;
+        };
+        return services;
+      }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Model configuration services timed out")), READ_SERVICES_TIMEOUT_MS);
+      }),
+    ]).catch((error) => {
+      if (cache.get(key) === entry) cache.delete(key);
+      throw error;
+    }).finally(() => clearTimeout(timer)),
+  };
+  cache.set(key, entry);
+  return entry.promise;
 }
 
 /**

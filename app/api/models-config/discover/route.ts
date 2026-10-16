@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createModelsConfigServices, resolveOptionalCwd } from "@/lib/model-config-services";
+import { getModelsConfigReadServices, resolveOptionalCwd } from "@/lib/model-config-services";
 import { resolveModelDiscoveryAuth } from "@/lib/model-discovery-auth";
 import { buildModelsListUrl, parseDiscoveredModels } from "@/lib/model-discovery";
 
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     }
 
     // Composed runtime: an extension-provided endpoint is only visible there.
-    const registered = (await createModelsConfigServices(resolvedCwd.cwd))
+    const registered = (await getModelsConfigReadServices(resolvedCwd.cwd))
       .modelRuntime.getRegisteredProviderConfig(providerName);
     const auth = await resolveModelDiscoveryAuth(providerName, body.provider, registered);
     if (typeof body.provider.apiKey === "string" && body.provider.apiKey.trim() && !auth.apiKey) {

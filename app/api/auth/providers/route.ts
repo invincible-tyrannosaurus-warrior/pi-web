@@ -1,4 +1,4 @@
-import { createModelsConfigServices, resolveOptionalCwd } from "@/lib/model-config-services";
+import { getModelsConfigReadServices, resolveOptionalCwd } from "@/lib/model-config-services";
 import { buildApiKeyProviderList, buildOAuthProviderList } from "@/lib/provider-listing";
 import { collectProviderListingInputs } from "@/lib/provider-listing-runtime";
 
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
     return Response.json({ error: resolved.error }, { status: resolved.status });
   }
 
-  const services = await createModelsConfigServices(resolved.cwd);
+  const services = await getModelsConfigReadServices(resolved.cwd);
   const inputs = await collectProviderListingInputs(services.modelRuntime);
   const oauthProviders = buildOAuthProviderList(inputs);
   const apiKeyProviders = buildApiKeyProviderList(inputs);

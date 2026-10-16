@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
-import { createModelsConfigServices, resolveAllowedCwd } from "@/lib/model-config-services";
+import { createModelsConfigServices, getModelsConfigReadServices, resolveAllowedCwd } from "@/lib/model-config-services";
 import {
   describeEnabledModels,
   enabledModelsWriteScope,
@@ -94,7 +94,7 @@ export async function GET(req: Request) {
   if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: resolved.status });
 
   try {
-    const services = await createModelsConfigServices(resolved.cwd);
+    const services = await getModelsConfigReadServices(resolved.cwd);
     return NextResponse.json(await readPanelState(resolved.cwd, services.settingsManager, services.modelRuntime));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });

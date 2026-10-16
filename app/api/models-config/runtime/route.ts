@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { builtInModelRefs, createModelsConfigServices, resolveAllowedCwd } from "@/lib/model-config-services";
+import { builtInModelRefs, getModelsConfigReadServices, resolveAllowedCwd } from "@/lib/model-config-services";
 import type { RuntimeCatalogModel } from "@/lib/model-picker";
 import { readModelsConfigResult } from "@/lib/models-config-store";
 
@@ -41,7 +41,7 @@ export async function GET(req: Request) {
 
   try {
     const configRead = readModelsConfigResult();
-    const services = await createModelsConfigServices(resolved.cwd);
+    const services = await getModelsConfigReadServices(resolved.cwd);
     const [available, shipped] = await Promise.all([services.modelRuntime.getAvailable(), builtInModelRefs()]);
     // Only providers models.json touches can have a definition replace a shipped model.
     const configured = Object.keys((configRead.config.providers ?? {}) as Record<string, unknown>);
