@@ -2862,8 +2862,7 @@ export function SessionItem({
                 position: "absolute", left: indent + depth * 14 - 10, top: (SESSION_LIST_ITEM_HEIGHT - 20) / 2,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 width: 20, height: 20, padding: 0,
-                background: "transparent", border: "none", borderRadius: 4,
-                color: isSelected || hovered ? "var(--text)" : "var(--text-muted)", cursor: "pointer",
+                border: "none", borderRadius: 4, cursor: "pointer",
               }}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -2960,21 +2959,12 @@ export function SessionItem({
                   }}
                   title={t("chatTabs.openInNewTab", { defaultValue: "在新标签页打开" })}
                   aria-label={t("chatTabs.openInNewTab", { defaultValue: "在新标签页打开" })}
+                  className="session-row-open"
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center",
                     width: 20, height: 20, padding: 0,
-                    background: "transparent", border: "none",
-                    borderRadius: 4, color: "var(--text-muted)",
+                    border: "none", borderRadius: 4,
                     cursor: "pointer", flexShrink: 0,
-                    transition: "background var(--motion-fast), color var(--motion-fast)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = isSelected ? "var(--bg-hover)" : "var(--bg-selected)";
-                    e.currentTarget.style.color = "var(--accent)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.color = "var(--text-muted)";
                   }}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

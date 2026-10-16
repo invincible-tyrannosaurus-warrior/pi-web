@@ -3685,6 +3685,7 @@ span.token.table {
 .session-row-actions {
   opacity: 0;
   pointer-events: none;
+  transition: opacity var(--motion-fast), background var(--motion-fast);
 }
 
 .session-list-row:hover .session-row-actions,
@@ -3693,14 +3694,38 @@ span.token.table {
   pointer-events: auto !important;
 }
 
+/* Pin and open-in-new-tab behave alike: fade in with the row's hover, rest at the row's
+   text tier, and answer their own hover with a neutral fill (no accent: it marks state). */
+.session-row-pin,
+.session-row-open {
+  background: transparent;
+  color: var(--text-muted);
+  transition: opacity var(--motion-fast), background var(--motion-fast), color var(--motion-fast);
+}
+
 .session-row-pin {
   opacity: 0;
+}
+
+.session-list-row:is(:hover, :has([aria-current="page"])) :is(.session-row-pin, .session-row-open) {
+  color: var(--text);
+}
+
+@media (hover: hover) {
+  :is(.session-row-pin, .session-row-open):hover {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
 }
 
 .session-row-pin.is-pinned,
 .session-list-row:hover .session-row-pin,
 .session-list-row:has(:focus-visible) .session-row-pin {
   opacity: 1;
+}
+
+/* The time cross-fades with the actions that cover it. */
+.session-row-meta {
+  transition: opacity var(--motion-fast);
 }
 
 .session-list-row:has(.session-row-actions):hover .session-row-meta,
@@ -4524,13 +4549,13 @@ span.token.table {
   font-variant-numeric: tabular-nums;
 }
 
-/* Later readings, set off by a rule. Cache hit uses a cylinder mark, not the word. */
+/* Later readings, set off by space alone: 4px gap + 6px = the ~10px between status-line
+   labels; icon and value stay 4px apart. Cache hit uses a cylinder mark, not the word. */
 .chat-input-context-cache {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding-left: 6px;
-  border-left: 1px solid var(--border);
+  margin-left: 6px;
   /* The warning color belongs to context pressure, not to the cache reading. */
   color: var(--text-muted);
 }
