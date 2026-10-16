@@ -120,7 +120,11 @@ export function configureHttpDispatcher(
   const dispatcher = withUndiciErrorListener(
     new undici.EnvHttpProxyAgent({
       allowH2: false,
+      // As the pi CLI: tunnel http:// origins too, so bodyTimeout (httpIdleTimeoutMs) applies through a proxy.
+      proxyTunnel: true,
       bodyTimeout: normalizedTimeoutMs,
+      // As the pi CLI: Node's 250 ms per-address attempt gives up on high-latency routes.
+      connect: { autoSelectFamilyAttemptTimeout: 2_000 },
       headersTimeout: normalizedTimeoutMs,
       clientFactory: createUndiciClient,
       factory: createUndiciOriginDispatcher,
