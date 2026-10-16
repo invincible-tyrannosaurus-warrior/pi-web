@@ -48,6 +48,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import { AppUpdateNotice } from "./AppUpdateNotice";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
+import { placeSelectionToolbar, prefersToolbarBelow, selectionAnchor, visibleBounds, type SelectionAnchor, type ToolbarSide } from "@/lib/selection-toolbar";
 import {
   captureScrollDistance,
   getMountedRange,
@@ -884,10 +885,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const [imageConfigRefreshKey, setImageConfigRefreshKey] = useState(0);
   const [quotedSelection, setQuotedSelection] = useState<{
     text: string;
-    top: number;
-    left: number;
+    anchor: SelectionAnchor;
     source?: string;
   } | null>(null);
+  // The side chosen for the toolbar; the inline composer keeps it and grows away from the text.
+  const quoteSideRef = useRef<ToolbarSide | undefined>(undefined);
+  // A copy of the selected range: it keeps measuring the text after the selection is cleared
+  // (the inline composer) and as the chat scrolls, so the toolbar follows its text.
+  const quoteRangeRef = useRef<Range | null>(null);
   const [quoteInputOpen, setQuoteInputOpen] = useState(false);
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -982,12 +987,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       setQuotedSelection(null);
       return;
     }
-    const rect = range.getBoundingClientRect();
+    const anchor = selectionAnchor(range);
+    if (!anchor) {
+      setQuotedSelection(null);
+      return;
+    }
     const startElement = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
+    quoteSideRef.current = undefined;
+    quoteRangeRef.current = range.cloneRange();
     setQuotedSelection({
       text,
-      top: Math.min(window.innerHeight - 44, rect.bottom + 8),
-      left: Math.max(64, Math.min(window.innerWidth - 64, rect.left + rect.width / 2)),
+      anchor,
       source: startElement?.closest<HTMLElement>("[data-entry-id]")?.dataset.entryId,
     });
   }, [quoteSelectionEnabled, quoteInputOpen]);
@@ -1003,24 +1013,41 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     const viewport = window.visualViewport;
     const position = () => {
       const rect = popover.getBoundingClientRect();
-      const top = viewport?.offsetTop ?? 0;
-      const left = viewport?.offsetLeft ?? 0;
-      popover.style.top = `${Math.max(top + 8, Math.min(quotedSelection.top, top + (viewport?.height ?? window.innerHeight) - rect.height - 8))}px`;
-      popover.style.left = `${Math.max(left + 8, Math.min(quotedSelection.left - rect.width / 2, left + (viewport?.width ?? window.innerWidth) - rect.width - 8))}px`;
+      const scroller = scrollContainerRef.current?.getBoundingClientRect();
+      const column = messageContentRef.current?.getBoundingClientRect();
+      // Stay over the message column; a toolbar wider than it (the composer on a phone) uses the pane.
+      const horizontal = column && rect.width <= column.width - 16 ? column : scroller;
+      const bounds = visibleBounds(scroller && horizontal
+        ? { top: scroller.top, bottom: scroller.bottom, left: horizontal.left, right: horizontal.right }
+        : null);
+      const anchor = (quoteRangeRef.current && selectionAnchor(quoteRangeRef.current)) ?? quotedSelection.anchor;
+      const placed = placeSelectionToolbar(anchor, rect, bounds, {
+        preferBelow: prefersToolbarBelow(),
+        side: quoteInputOpen ? quoteSideRef.current : undefined,
+      });
+      if (!quoteInputOpen) quoteSideRef.current = placed.side;
+      popover.style.top = `${placed.top}px`;
+      popover.style.left = `${placed.left}px`;
+      // Its text scrolled out of view: hide the toolbar rather than pin it to an edge.
+      const offscreen = !quoteInputOpen && (anchor.bottom < bounds.top || anchor.top > bounds.bottom);
+      popover.style.visibility = offscreen ? "hidden" : "";
     };
     position();
     const observer = new ResizeObserver(position);
     observer.observe(popover);
+    const scroller = scrollContainerRef.current;
+    scroller?.addEventListener("scroll", position, { passive: true });
     window.addEventListener("resize", position);
     viewport?.addEventListener("resize", position);
     viewport?.addEventListener("scroll", position);
     return () => {
       observer.disconnect();
+      scroller?.removeEventListener("scroll", position);
       window.removeEventListener("resize", position);
       viewport?.removeEventListener("resize", position);
       viewport?.removeEventListener("scroll", position);
     };
-  }, [quotedSelection, quoteInputOpen, quoteError]);
+  }, [quotedSelection, quoteInputOpen, quoteError, scrollContainerRef]);
 
   useEffect(() => {
     if (!quotedSelection) return;
@@ -2461,8 +2488,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           className="popover-surface"
           style={{
             position: "fixed",
-            top: quotedSelection.top,
-            left: quotedSelection.left,
+            top: 0,
+            left: 0,
             zIndex: 130,
             display: "flex",
             flexWrap: "wrap",
@@ -2507,10 +2534,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             <span aria-hidden="true">+</span>
             <span>{t("chat.askInCurrent")}</span>
           </button>
-          {onAskInNewChat && !sessionBusy && (
+          {onAskInNewChat && (
             <button
               type="button"
-              className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-[4px] border-0 bg-transparent px-2 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
+              // Disabled, not hidden, while this chat runs: the toolbar keeps its width and place.
+              disabled={sessionBusy}
+              className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-[4px] border-0 bg-transparent px-2 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--text-muted)]"
               title={t("chat.askInNewChat")}
               aria-label={t("chat.askInNewChat")}
               onPointerDown={(event) => event.preventDefault()}

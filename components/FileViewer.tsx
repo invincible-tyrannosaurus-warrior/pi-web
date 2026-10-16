@@ -42,6 +42,7 @@ import type { GitFileDiffResponse } from "@/lib/git-types";
 import { readTextChunks, type TextChunk } from "@/lib/text-chunk-reader";
 import { useI18n } from "@/hooks/useI18n";
 import { useConfirm } from "@/hooks/useConfirm";
+import { placeSelectionToolbar, prefersToolbarBelow, selectionAnchor, visibleBounds, type SelectionAnchor } from "@/lib/selection-toolbar";
 import {
   resolveInitialFileDisplayMode,
   type FileViewerDisplayMode as DisplayMode,
@@ -1449,7 +1450,8 @@ function TextFileViewer({
   });
   const onStateChangeRef = useRef(onStateChange);
   const [selectionAttachment, setSelectionAttachment] = useState<FileSelectionAttachment | null>(null);
-  const [attachAnchor, setAttachAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [attachAnchor, setAttachAnchor] = useState<SelectionAnchor | null>(null);
+  const attachToolbarRef = useRef<HTMLDivElement | null>(null);
   // Whole file for an HTML preview whose source view is still chunked.
   const [htmlFull, setHtmlFull] = useState<{ text?: string; error?: string } | null>(null);
 
@@ -1872,16 +1874,22 @@ function TextFileViewer({
     window.getSelection()?.removeAllRanges();
   }, [onAttachSelection]);
 
-  // The floating "Add to chat" button appears once a selection gesture ends, under the selection.
+  // The floating "Add to chat" button appears once a selection gesture ends, placed like the
+  // chat's selection toolbar (lib/selection-toolbar.ts).
   const showAttachButton = useCallback(() => {
     const selection = window.getSelection();
     if (!readSelectionAttachment() || !selection?.rangeCount) return;
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
-    setAttachAnchor({
-      top: Math.min(window.innerHeight - 40, rect.bottom + 6),
-      left: Math.max(8, Math.min(window.innerWidth - 120, rect.left)),
-    });
+    setAttachAnchor(selectionAnchor(selection.getRangeAt(0)));
   }, [readSelectionAttachment]);
+
+  useLayoutEffect(() => {
+    const toolbar = attachToolbarRef.current;
+    if (!toolbar || !attachAnchor) return;
+    const content = contentRef.current?.getBoundingClientRect() ?? null;
+    const placed = placeSelectionToolbar(attachAnchor, toolbar.getBoundingClientRect(), visibleBounds(content), { preferBelow: prefersToolbarBelow() });
+    toolbar.style.top = `${placed.top}px`;
+    toolbar.style.left = `${placed.left}px`;
+  }, [attachAnchor, selectionAttachment]);
 
   useEffect(() => {
     if (!onAttachSelection) return;
@@ -2304,7 +2312,7 @@ function TextFileViewer({
         )}
       </div>
       {attachAnchor && selectionAttachment && createPortal(
-        <div role="toolbar" aria-label={t("i18n.mentionSelectedLines")} className="popover-surface" style={{ position: "fixed", top: attachAnchor.top, left: attachAnchor.left, zIndex: 130, padding: 2 }}>
+        <div ref={attachToolbarRef} role="toolbar" aria-label={t("i18n.mentionSelectedLines")} className="popover-surface" style={{ position: "fixed", top: 0, left: 0, zIndex: 130, padding: 2 }}>
           <button
             type="button"
             className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-[4px] border-0 bg-transparent px-2 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)] focus-visible:outline-2 focus-visible:outline-[var(--accent)]"

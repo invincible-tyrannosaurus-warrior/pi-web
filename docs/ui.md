@@ -27,6 +27,9 @@ Design notes moved out of AGENTS.md. Typography rules are enforced by `component
 ## Motion
 - Durations are tokens: `--motion-fast` (120ms: hover, color, press, menus), `--motion-base` (200ms: panels, reveals), `--motion-slow` (300ms: wide color fades). Moving things use `--ease-out`; color fades keep the default `ease`. Loops, delays and reduced-motion zeros stay literal; a deliberate one-off carries a `motion-exempt` comment. Enforced by `components/Motion.test.mjs`.
 
+## Selection toolbar
+- The chat's "Add to chat / Ask in new chat" and the file viewer's "Add to chat" share `lib/selection-toolbar.ts`: anchored to where the selection starts (centered on its first line), above that line, flipping below the last line only when there is no room. Touch prefers below (the system copy menu sits above). The chat toolbar follows its text on scroll, hides when the text leaves view, and its inline composer grows away from the text. Buttons that cannot act are disabled, not removed, so the toolbar never changes width.
+
 ## Modal dialogs and confirms
 - Modal shells (Settings, its nested dialogs, info, trust, directory picker, agent import, image generation) render through `components/ModalDialog.tsx`: the `<dialog>` element is the full-viewport scrim (the caller's backdrop class), its children are the surface. Layering is the browser's top layer, so no z-index; the latest `showModal()` is on top and everything else is inert.
 - Escape belongs to the topmost dialog: `ModalDialog` handles it on keydown (preventDefault + stopPropagation, so an outer dialog stays open) unless a nested control already prevented it (a select menu, a rename field). Pass no `onClose` while the dialog must stay open (busy); if the browser still closes it, it is reopened.
