@@ -363,7 +363,8 @@ test("hints composer syntax only in the main input, independent of run state", (
       ));
       const textarea = html.match(/<textarea\b[^>]*>/)?.[0];
       assert.ok(textarea);
-      if (compact) assert.doesNotMatch(textarea, /placeholder=/);
+      // The side chat asks a question; the @ / ! syntax hint belongs to the main input.
+      if (compact) assert.match(textarea, /placeholder="Ask about the selection…"/);
       else assert.match(textarea, /placeholder="@ for files\u2009·\u2009\/ for commands and skills\u2009·\u2009! for shell"/);
       assert.match(textarea, /aria-label="[^"]+"/);
     }

@@ -2490,7 +2490,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             aria-label={compact ? t("chat.quoteQuestion") : t("chat.message")}
             disabled={disabled}
             placeholder={disabled ? t("agentSwitcher.status.queued")
-              : compact ? undefined
+              : compact ? t("chat.sideChatPlaceholder")
               : t(isMobile ? "chat.composerHintCompact" : "chat.composerHint")}
             value={value}
             onChange={(e) => {
@@ -2534,7 +2534,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               // Center a 21px line on the 24px action row.
               padding: compact ? 0 : "2px 0 1px",
               fontFamily: bashMode ? "var(--font-mono)" : "var(--font-chat)",
-              minHeight: compact ? 96 : 24,
+              minHeight: compact ? 42 : 24,
               maxHeight: 200,
             }}
           />

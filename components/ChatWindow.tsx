@@ -2540,7 +2540,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               // Disabled, not hidden, while this chat runs: the toolbar keeps its width and place.
               disabled={sessionBusy}
               className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-[4px] border-0 bg-transparent px-2 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)] focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--text-muted)]"
-              title={t("chat.askInNewChat")}
+              // The tooltip says what the panel no longer spells out: the question goes to a copy in a new tab.
+              title={t("chat.sideChatHint")}
               aria-label={t("chat.askInNewChat")}
               onPointerDown={(event) => event.preventDefault()}
               onClick={() => { setQuoteInputOpen(true); window.getSelection()?.removeAllRanges(); }}

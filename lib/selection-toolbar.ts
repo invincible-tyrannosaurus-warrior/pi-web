@@ -1,4 +1,4 @@
-// Where the floating selection toolbar ("Quote" / "Ask in fork") goes, shared by
+// Where the floating selection toolbar ("Quote" / "Side chat") goes, shared by
 // the chat and the file viewer: anchored to where the selection starts, above it, so its
 // place does not depend on how many lines were selected.
 
