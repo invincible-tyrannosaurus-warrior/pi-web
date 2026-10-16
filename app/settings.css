@@ -329,13 +329,13 @@
   color: var(--primary-contrast);
 }
 
-/* Secondary and danger share one raised surface; danger differs only in its text. */
+/* Secondary and danger share one tint, the field's (no frame inside a framed dialog);
+   danger differs only in its text. The transparent border keeps every variant the same size. */
 .config-button-secondary,
 .config-button-danger {
-  border-color: var(--border);
-  background: var(--bg);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
   color: var(--text);
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
 }
 
 .config-button-danger {
@@ -353,16 +353,17 @@
   background: var(--primary-hover);
 }
 
-.config-button-secondary:not(:disabled):hover,
+.config-button-secondary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
 .config-button-ghost:not(:disabled):hover {
-  border-color: var(--border);
   background: var(--bg-hover);
   color: var(--text);
 }
 
 .config-button-danger:not(:disabled):hover {
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
-  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 .config-button:focus-visible {
@@ -1488,9 +1489,9 @@
   width: 100%;
   min-height: var(--ui-control-height-sm);
   padding: 4px 10px;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--ui-radius-md);
-  background: transparent;
+  background: var(--ui-field-bg);
   color: var(--text-muted);
   cursor: pointer;
   font-family: var(--font-ui);
@@ -1500,7 +1501,7 @@
 }
 
 .settings-example:hover {
-  background: var(--bg-hover);
+  background: var(--ui-field-bg-hover);
   color: var(--text);
 }
 
@@ -2775,9 +2776,13 @@ a.models-hint:hover {
 
 .models-card:hover,
 .models-card:focus-visible {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   background: var(--bg-hover);
   outline: none;
+}
+
+/* Keyboard focus keeps a ring; hover is the fill alone. */
+.models-card:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .models-card-copy {
@@ -3120,8 +3125,8 @@ button.usage-bar:hover::after,
 .usage-badge {
   margin-left: 6px;
   padding: 1px 5px;
-  border: 1px solid var(--border);
   border-radius: var(--ui-radius-sm);
+  background: var(--ui-field-bg);
   color: var(--text-dim);
   font-size: 10px;
 }
@@ -3489,8 +3494,8 @@ button.usage-cell:not(:disabled) {
   min-height: 0;
   max-height: 300px;
   overflow-y: auto;
-  border: 1px solid var(--border);
   border-radius: var(--ui-radius-lg);
+  background: var(--ui-field-bg);
   padding: 4px;
 }
 

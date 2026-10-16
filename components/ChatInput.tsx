@@ -2262,7 +2262,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                                   <span style={{
                                     marginLeft: 6,
                                     padding: "0 4px",
-                                    border: "1px solid var(--border)",
+                                    background: "var(--ui-field-bg)",
                                     borderRadius: "var(--ui-radius-sm)",
                                     fontSize: 11,
                                     color: "var(--text-dim)",

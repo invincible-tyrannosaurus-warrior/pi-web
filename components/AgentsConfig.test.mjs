@@ -66,7 +66,7 @@ test("shows disabled controls with a gray background", () => {
   assert.match(cssSource, /\.settings-form \.config-field textarea:disabled \{\n  resize: none;/);
   assert.doesNotMatch(editorSource, /agents-system-prompt[^\n]*fontFamily/);
   assert.match(cssSource, /\.settings-form \.config-field :is\(input, select, textarea\):disabled \{[\s\S]*?background: var\(--bg-panel\);/);
-  assert.match(modelSelectorSource, /background: locked \? "var\(--bg-panel\)" : "var\(--bg\)"/);
+  assert.match(modelSelectorSource, /background: locked \? "var\(--bg-panel\)" : "var\(--ui-field-bg\)"/);
 });
 
 test("keeps a larger resize corner when system instructions need a scrollbar", () => {
