@@ -31,7 +31,7 @@ import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import type { ContextBreakdown } from "@/lib/context-breakdown";
 import { FileViewer, type FileReveal, type FileSelectionAttachment } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
-import { FILE_TABS_KEY, getAdjacentTabId, mergeFileViewerStates, openFileTab, pinFileTab, restoreFileTabs, serializeFileTabs, saveFileViewerState } from "./file-tab-state";
+import { FILE_TABS_KEY, getAdjacentTabId, mergeFileViewerStates, movePanelTab, openFileTab, orderPanelTabs, PANEL_TAB_ORDER_KEY, pinFileTab, replacePanelTabId, restoreFileTabs, restorePanelTabOrder, serializeFileTabs, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel } from "./SettingsPanel";
 import { SubagentIcon } from "./SubagentIcon";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
@@ -928,7 +928,8 @@ export function AppShell() {
   filePersistenceRef.current = { tabs: fileTabs, activeTabId: activeFileTabId, open: rightPanelOpen };
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
   const [panelTabsRestored, setPanelTabsRestored] = useState(false);
-  const panelTabs = useMemo<Tab[]>(() => [
+  const [panelTabOrder, setPanelTabOrder] = useState<string[]>([]);
+  const panelTabs = useMemo<Tab[]>(() => orderPanelTabs([
     ...fileTabs,
     ...terminalTabs.map((tab) => ({
       id: tab.id,
@@ -937,7 +938,7 @@ export function AppShell() {
       kind: "terminal" as const,
       closing: Boolean(tab.closing),
     })),
-  ], [fileTabs, terminalTabs]);
+  ], panelTabOrder), [fileTabs, terminalTabs, panelTabOrder]);
 
   useEffect(() => {
     try {
@@ -945,6 +946,7 @@ export function AppShell() {
       const files = restoreFileTabs(window.sessionStorage.getItem(FILE_TABS_KEY));
       setTerminalTabs(saved.tabs);
       setFileTabs(files.tabs);
+      setPanelTabOrder(restorePanelTabOrder(window.sessionStorage.getItem(PANEL_TAB_ORDER_KEY)));
       // An active terminal keeps the panel; otherwise the active file tab does.
       const active = saved.activeId ? saved : { activeId: files.activeTabId, open: files.open };
       if (active.activeId) {
@@ -965,6 +967,16 @@ export function AppShell() {
       }));
     } catch { /* storage is optional */ }
   }, [terminalTabs, activeFileTabId, rightPanelOpen, panelTabsRestored]);
+
+  // Keep the order complete: new tabs land at the end, closed ones drop out (a reopened file appends again).
+  useEffect(() => {
+    if (!panelTabsRestored) return;
+    const ids = panelTabs.map((tab) => tab.id);
+    setPanelTabOrder((order) => order.length === ids.length && order.every((id, index) => id === ids[index]) ? order : ids);
+    try {
+      window.sessionStorage.setItem(PANEL_TAB_ORDER_KEY, JSON.stringify(ids));
+    } catch { /* storage is optional */ }
+  }, [panelTabs, panelTabsRestored]);
 
   const persistFileTabs = useCallback(() => {
     if (!panelTabsRestored) return;
@@ -1942,6 +1954,10 @@ export function AppShell() {
     const sourceSessionId = options?.sourceSessionId;
     const modeHint = options?.modeHint;
     const tabId = `file:${filePath}`;
+    const currentTabs = filePersistenceRef.current.tabs;
+    const replacedPreviewId = options?.preview && !currentTabs.some((tab) => tab.id === tabId)
+      ? currentTabs.find((tab) => tab.preview)?.id : undefined;
+    if (replacedPreviewId) setPanelTabOrder((order) => replacePanelTabId(order, replacedPreviewId, tabId));
     setFileTabs((prev) => openFileTab(prev, {
       fileName,
       filePath,
@@ -1985,6 +2001,7 @@ export function AppShell() {
     const replacement = tab.closing === "restart" ? newTerminalTab(tab.cwd) : null;
     const remaining = terminalTabs.filter((item) => item.id !== tab.id);
     const adjacentTabId = getAdjacentTabId(panelTabs, tab.id);
+    if (replacement) setPanelTabOrder((order) => replacePanelTabId(order, tab.id, replacement.id));
     setTerminalTabs((tabs) => tabs.flatMap((item) => item.id !== tab.id ? [item] : replacement ? [replacement] : []));
     setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? adjacentTabId);
     if (!replacement && !remaining.length && !fileTabs.length) setRightPanelOpen(false);
@@ -2006,6 +2023,28 @@ export function AppShell() {
       return adjacentTabId;
     });
   }, [panelTabs, terminalTabs]);
+
+  // `keepId` stays open, so the panel never empties here. Terminals close through their own flow.
+  const handleCloseFileTabs = useCallback((tabIds: string[], keepId: string) => {
+    const closing = new Set(tabIds);
+    setTerminalTabs((tabs) => tabs.map((tab) => closing.has(tab.id) && !tab.closing ? { ...tab, closing: "close" } : tab));
+    setFileTabs((tabs) => tabs.filter((tab) => !closing.has(tab.id)));
+    setActiveFileTabId((current) => current && closing.has(current) ? keepId : current);
+  }, []);
+
+  const handleMoveFileTab = useCallback((tabId: string, beforeId: string | null) => {
+    setPanelTabOrder(movePanelTab(panelTabs.map((tab) => tab.id), tabId, beforeId));
+  }, [panelTabs]);
+
+  // One-shot request for the sidebar explorer to show `path` under `cwd`.
+  const [explorerReveal, setExplorerReveal] = useState<{ cwd: string; path: string; nonce: number } | null>(null);
+  const handleRevealInExplorer = useCallback((tab: Tab) => {
+    if (!tab.cwd) return;
+    const cwd = tab.cwd;
+    setExplorerReveal((previous) => ({ cwd, path: tab.filePath, nonce: (previous?.nonce ?? 0) + 1 }));
+    desktopSidebarOpenRef.current = true;
+    setSidebarOpen(true);
+  }, []);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -2344,6 +2383,7 @@ export function AppShell() {
         onTogglePinnedCwd={handleTogglePinnedCwd}
         onHomeDirChange={setHomeDir}
         onWorktreeInfoChange={setWorktreeInfo}
+        explorerReveal={explorerReveal}
       />
       <div className="sidebar-footer">
         <button
@@ -3456,6 +3496,10 @@ export function AppShell() {
               onSelectTab={setActiveFileTabId}
               onPinTab={(tabId) => setFileTabs((tabs) => pinFileTab(tabs, tabId))}
               onCloseTab={handleCloseFileTab}
+              onCloseTabs={handleCloseFileTabs}
+              onMoveTab={handleMoveFileTab}
+              onRevealInExplorer={handleRevealInExplorer}
+              isMobile={isMobile}
             />
           </div>
           <button

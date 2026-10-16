@@ -192,6 +192,8 @@ interface Props {
     currentWorktreePath: string | null;
     worktrees: { path: string; branch: string | null; isMain: boolean }[];
   } | null) => void;
+  /** File tab "Reveal in explorer": switch to `cwd` and show `path` in the tree. */
+  explorerReveal?: { cwd: string; path: string; nonce: number } | null;
 }
 
 interface WorktreeEntry {
@@ -337,7 +339,7 @@ function sameIdSet(current: Set<string>, ids: string[] | undefined): Set<string>
   return next.length === current.size && next.every((id) => current.has(id)) ? current : new Set(next);
 }
 
-export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSelectSession, onOpenSessionInNewTab, onForkSession, forking = false, onNewSession, initialSessionId, skipInitialProjectSelection, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionMarkersChange, onSessionsChange, onProjectPathsChange, onProjectNamesChange, pinnedCwds, onTogglePinnedCwd, onHomeDirChange, onWorktreeInfoChange }: Props) {
+export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSelectSession, onOpenSessionInNewTab, onForkSession, forking = false, onNewSession, initialSessionId, skipInitialProjectSelection, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionMarkersChange, onSessionsChange, onProjectPathsChange, onProjectNamesChange, pinnedCwds, onTogglePinnedCwd, onHomeDirChange, onWorktreeInfoChange, explorerReveal = null }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>([]);
@@ -413,6 +415,15 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     };
   }, []);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
+  // The tree is hidden behind the changes list and search results, so a reveal leaves both.
+  useEffect(() => {
+    if (!explorerReveal) return;
+    setSelectedCwd(explorerReveal.cwd);
+    setExplorerOpen(true);
+    saveExplorerOpen(true);
+    setChangesCollapsed(true);
+    setFileSearchOpen(false);
+  }, [explorerReveal]);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   // Relative times ("5m") are minute-grained. They used to advance only because
   // every running-state poll re-rendered the list; polls that change nothing now
@@ -2497,6 +2508,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                 onChangesCountChange={setChangesCount}
                 fileSearchOpen={fileSearchOpen}
                 onFileSearchOpenChange={setFileSearchOpen}
+                reveal={explorerReveal}
               />
             </div>
           )}

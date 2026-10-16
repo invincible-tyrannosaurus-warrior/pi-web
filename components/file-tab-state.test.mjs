@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getAdjacentTabId, mergeFileViewerStates, openFileTab, pinFileTab, restoreFileTabs, serializeFileTabs, saveFileViewerState } from "./file-tab-state.ts";
+import { getAdjacentTabId, mergeFileViewerStates, movePanelTab, openFileTab, orderPanelTabs, replacePanelTabId, restorePanelTabOrder, pinFileTab, restoreFileTabs, serializeFileTabs, saveFileViewerState } from "./file-tab-state.ts";
 
 test("preview opens replace the previous preview in place without touching pinned tabs", () => {
   const tabs = [{ ...tabB, preview: true }, tabA];
@@ -221,4 +221,18 @@ test("opening a PDF again without a page fragment returns it to the first page",
   // Re-opening on the same page is a no-op rather than a needless remount.
   const again = openFileTab(opened, { ...base, page: 12 });
   assert.equal(again, opened);
+});
+
+test("panel tab order spans files and terminals; unlisted tabs follow in natural order", () => {
+  const tabs = ["f1", "f2", "t1", "f3"].map((id) => ({ id, label: id, filePath: id }));
+  assert.deepEqual(orderPanelTabs(tabs, []).map((tab) => tab.id), ["f1", "f2", "t1", "f3"]);
+  assert.deepEqual(orderPanelTabs(tabs, ["t1", "gone", "f1"]).map((tab) => tab.id), ["t1", "f1", "f2", "f3"]);
+  const ids = ["a", "b", "c"];
+  assert.deepEqual(movePanelTab(ids, "c", "a"), ["c", "a", "b"]);
+  assert.deepEqual(movePanelTab(ids, "a", null), ["b", "c", "a"]);
+  assert.deepEqual(movePanelTab(ids, "a", "a"), ids, "dropping on itself is a no-op");
+  assert.deepEqual(movePanelTab(ids, "x", "a"), ids, "unknown tab is ignored");
+  assert.deepEqual(replacePanelTabId(["a", "p", "b"], "p", "q"), ["a", "q", "b"]);
+  assert.deepEqual(restorePanelTabOrder('["a", 1, "b"]'), ["a", "b"]);
+  assert.deepEqual(restorePanelTabOrder("{"), []);
 });

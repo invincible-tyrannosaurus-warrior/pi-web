@@ -47,6 +47,8 @@ interface Props {
   onChangesCountChange?: (count: number) => void;
   fileSearchOpen?: boolean;
   onFileSearchOpenChange?: (open: boolean) => void;
+  /** Expand to, select and scroll to `path` once the explorer shows `cwd`. */
+  reveal?: { cwd: string; path: string; nonce: number } | null;
 }
 
 export interface FileExplorerHandle {
@@ -182,6 +184,7 @@ function TreeNode({
   changedDirectoryPaths,
   onFileMenu,
   deleteMark,
+  revealed,
   t,
 }: {
   node: FileNode;
@@ -199,9 +202,16 @@ function TreeNode({
   onFileMenu: (node: FileNode, x: number, y: number) => void;
   /** Same row feedback as sidebar session deletes: tint while confirming, dimmed while deleting. */
   deleteMark: { path: string; phase: "pending" | "deleting" } | null;
+  /** Last "Reveal in explorer" target; the nonce re-scrolls a repeated request. */
+  revealed: { path: string; nonce: number } | null;
   t: Translate;
 }) {
   const open = expandedPaths.has(node.fullPath);
+  const isRevealed = revealed?.path === node.fullPath;
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (revealed?.path === node.fullPath) rowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [revealed, node.fullPath]);
   // Long press opens the file menu on touch (iOS fires no contextmenu); same 400ms/10px as project rows.
   const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
   const longPressedRef = useRef(false);
@@ -267,6 +277,8 @@ function TreeNode({
   return (
     <div>
       <div
+        ref={rowRef}
+        aria-current={isRevealed ? "true" : undefined}
         data-upload-directory={node.isDir ? node.fullPath : undefined}
         onClick={handleClick}
         onDoubleClick={(event) => {
@@ -319,7 +331,7 @@ function TreeNode({
             ? "color-mix(in srgb, var(--accent) 8%, transparent)"
             : markPhase === "pending"
             ? "color-mix(in srgb, var(--danger) 6%, transparent)"
-            : hovered ? "var(--bg-hover)" : "transparent",
+            : hovered ? "var(--bg-hover)" : isRevealed ? "var(--bg-selected)" : "transparent",
           transition: "background 0.1s",
           opacity: markPhase === "deleting" ? 0.5 : 1,
           outline: node.isDir && dropTargetPath === node.fullPath
@@ -340,14 +352,14 @@ function TreeNode({
             <SidebarChevronGlyph open={open} />
           </span>
         ) : (
-          <span className="sidebar-section-gutter" style={{ color: hovered ? "var(--text)" : "var(--text-muted)" }}>
+          <span className="sidebar-section-gutter" style={{ color: hovered || isRevealed ? "var(--text)" : "var(--text-muted)" }}>
             {getFileIcon(node.name, 13)}
           </span>
         )}
         <span
           style={{
             fontSize: 12,
-            color: hovered ? "var(--text)" : "var(--text-muted)",
+            color: hovered || isRevealed ? "var(--text)" : "var(--text-muted)",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -445,6 +457,7 @@ function TreeNode({
               changedDirectoryPaths={changedDirectoryPaths}
               onFileMenu={onFileMenu}
               deleteMark={deleteMark}
+              revealed={revealed}
               t={t}
             />
           ))}
@@ -538,6 +551,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   onChangesCountChange,
   fileSearchOpen = false,
   onFileSearchOpenChange,
+  reveal = null,
 }, ref) {
   const { t } = useI18n();
   const [roots, setRoots] = useState<FileNode[]>([]);
@@ -546,6 +560,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
   const [highlightedPaths, setHighlightedPaths] = useState<Set<string>>(new Set());
+  const [revealed, setRevealed] = useState<{ path: string; nonce: number } | null>(null);
   const [gitFiles, setGitFiles] = useState<GitFileStatus[]>([]);
   const [gitLineStats, setGitLineStats] = useState({ additions: 0, deletions: 0 });
   const [gitStatusCwd, setGitStatusCwd] = useState<string | null>(null);
@@ -853,6 +868,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       setExpandedPaths(new Set(restored));
       rememberExpandedPaths(cwd, restored);
       setHighlightedPaths(new Set());
+      setRevealed(null);
       setUploadSummary(null);
       setPendingConflict(null);
       setUploadError(null);
@@ -869,6 +885,24 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [cwd, refreshKey, treeRefreshKey]);
+
+  // Waits for the sidebar to switch to the reveal's cwd; expanding a folder loads its children.
+  // Declared after the cwd-change reset so a reveal arriving with a new cwd survives it.
+  useEffect(() => {
+    const root = normalizeFilePathSlashes(cwd).replace(/\/$/, "");
+    if (!reveal || normalizeFilePathSlashes(reveal.cwd).replace(/\/$/, "") !== root) return;
+    const path = normalizeFilePathSlashes(reveal.path);
+    if (!path.startsWith(`${root}/`)) return;
+    setExpandedPaths((previous) => {
+      const next = new Set(previous);
+      for (let parent = getFileDirectory(path); parent.startsWith(`${root}/`) && parent.length > root.length + 1; parent = getFileDirectory(parent)) {
+        next.add(parent);
+      }
+      rememberExpandedPaths(cwd, [...next]);
+      return next;
+    });
+    setRevealed({ path, nonce: reveal.nonce });
+  }, [cwd, reveal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1147,6 +1181,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                     changedDirectoryPaths={changedDirectoryPaths}
                     onFileMenu={openFileMenu}
                     deleteMark={deleteMark}
+                    revealed={null}
                     t={t}
                   />
                 ))}
@@ -1278,6 +1313,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                 changedDirectoryPaths={changedDirectoryPaths}
                 onFileMenu={openFileMenu}
                 deleteMark={deleteMark}
+                revealed={revealed}
                 t={t}
               />
             ))

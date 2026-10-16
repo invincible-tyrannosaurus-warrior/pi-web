@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { getFileIcon } from "./FileIcons";
+import { isModalDialogOpen } from "./ModalDialog";
 import { useI18n } from "@/hooks/useI18n";
+import { copyText } from "@/lib/clipboard";
+import { getRelativeFilePath } from "@/lib/file-paths";
 import type { FileViewerDisplayMode, FileViewerState } from "@/lib/file-viewer-state";
 import { disambiguatePathLabels } from "@/lib/tab-labels";
 
@@ -28,13 +32,26 @@ interface Props {
   onSelectTab: (id: string) => void;
   onPinTab?: (id: string) => void;
   onCloseTab: (id: string) => void;
+  /** Context menu batch close; `keepId` (the menu's tab) becomes active if the active tab closes. */
+  onCloseTabs?: (ids: string[], keepId: string) => void;
+  /** Drag reorder; `beforeId` null = end. */
+  onMoveTab?: (id: string, beforeId: string | null) => void;
+  onRevealInExplorer?: (tab: Tab) => void;
+  /** Like chat tabs: no context menu or drag on touch layouts. */
+  isMobile?: boolean;
 }
 
-export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab }: Props) {
+const TAB_DRAG_MIME = "application/x-pi-panel-tab";
+
+export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab, onCloseTabs, onMoveTab, onRevealInExplorer, isMobile = false }: Props) {
   const { t } = useI18n();
   const [hoveredClose, setHoveredClose] = useState<string | null>(null);
   const activeTabRef = useRef<HTMLDivElement>(null);
   const focusAfterCloseRef = useRef(false);
+  const [contextMenu, setContextMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const draggedTabIdRef = useRef<string | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
   const displayLabels = useMemo(
     () => disambiguatePathLabels(tabs.map((tab) => ({ id: tab.id, path: tab.filePath, label: tab.label }))),
     [tabs],
@@ -47,9 +64,64 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab }:
     activeTabRef.current?.focus();
   }, [activeTabId, tabs]);
 
+  // Same dismissal as the chat tab menu: outside press, Escape, resize.
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const handlePointerDown = (event: PointerEvent) => {
+      if (contextMenuRef.current && event.composedPath().includes(contextMenuRef.current)) return;
+      close();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || isModalDialogOpen()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    };
+    contextMenuRef.current?.querySelector<HTMLElement>("button")?.focus();
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [contextMenu]);
+
+  const dragEnabled = Boolean(onMoveTab) && !isMobile;
+  const acceptsDrag = (event: React.DragEvent) =>
+    dragEnabled && draggedTabIdRef.current !== null && event.dataTransfer.types.includes(TAB_DRAG_MIME);
+  // Insertion slot 0..tabs.length: the half of the hovered tab the pointer is in; the empty strip appends.
+  const dropIndexAt = (event: React.DragEvent) => {
+    const element = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-panel-tab-id]") : null;
+    const index = element ? tabs.findIndex((tab) => tab.id === element.dataset.panelTabId) : -1;
+    if (!element || index < 0) return tabs.length;
+    const rect = element.getBoundingClientRect();
+    return event.clientX < rect.left + rect.width / 2 ? index : index + 1;
+  };
+
   return (
     <div
       role="tablist"
+      onDragOver={(event) => {
+        if (!acceptsDrag(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        setDropIndex(dropIndexAt(event));
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropIndex(null);
+      }}
+      onDrop={(event) => {
+        const tabId = draggedTabIdRef.current;
+        if (!acceptsDrag(event) || !tabId) return;
+        event.preventDefault();
+        const before = tabs[dropIndexAt(event)]?.id ?? null;
+        draggedTabIdRef.current = null;
+        setDropIndex(null);
+        onMoveTab?.(tabId, before);
+      }}
       style={{
         display: "flex",
         alignItems: "stretch",
@@ -60,12 +132,13 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab }:
         height: "100%",
       }}
     >
-      {tabs.map((tab) => {
+      {tabs.map((tab, index) => {
         const isActive = tab.id === activeTabId;
         const displayLabel = displayLabels.get(tab.id) ?? tab.label;
         return (
           <div
             key={tab.id}
+            data-panel-tab-id={tab.id}
             ref={isActive ? activeTabRef : null}
             role="tab"
             aria-label={tab.kind === "terminal" ? t("terminal.tabLabel", { name: displayLabel }) : displayLabel}
@@ -83,7 +156,26 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab }:
                   : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
                 onSelectTab(tabs[next].id);
                 (event.currentTarget.parentElement?.children[next] as HTMLElement)?.focus();
+              } else if (event.key === "Delete" && !tab.closing) {
+                event.preventDefault();
+                focusAfterCloseRef.current = true;
+                onCloseTab(tab.id);
               }
+            }}
+            draggable={dragEnabled}
+            onDragStart={(event) => {
+              draggedTabIdRef.current = tab.id;
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData(TAB_DRAG_MIME, tab.id);
+            }}
+            onDragEnd={() => {
+              draggedTabIdRef.current = null;
+              setDropIndex(null);
+            }}
+            onContextMenu={(event) => {
+              if (isMobile) return;
+              event.preventDefault();
+              setContextMenu({ tabId: tab.id, x: event.clientX, y: event.clientY });
             }}
             onClick={() => onSelectTab(tab.id)}
             onDoubleClick={() => { if (tab.preview) onPinTab?.(tab.id); }}
@@ -116,9 +208,24 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab }:
               minWidth: 80,
               flexShrink: 0,
               userSelect: "none",
+              position: "relative",
               transition: "background 0.1s, color 0.1s",
             }}
           >
+            {dropIndex !== null && (dropIndex === index || (dropIndex === tabs.length && index === tabs.length - 1)) && (
+              <span
+                aria-hidden="true"
+                className="drop-indicator"
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  width: 2,
+                  [dropIndex === index ? "left" : "right"]: 0,
+                  zIndex: 1,
+                }}
+              />
+            )}
             <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center" }}>
               {tab.kind === "terminal" ? (
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }} aria-hidden="true">
@@ -176,6 +283,68 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab }:
           </div>
         );
       })}
+      {contextMenu && (() => {
+        const menuTab = tabs.find((tab) => tab.id === contextMenu.tabId);
+        if (!menuTab) return null;
+        const run = (action: () => void) => () => {
+          setContextMenu(null);
+          action();
+        };
+        const isFile = menuTab.kind !== "terminal";
+        const relativePath = getRelativeFilePath(menuTab.filePath, menuTab.cwd);
+        const insideCwd = relativePath !== menuTab.filePath;
+        const otherIds = tabs.filter((tab) => tab.id !== menuTab.id).map((tab) => tab.id);
+        const rightIds = tabs.slice(tabs.indexOf(menuTab) + 1).map((tab) => tab.id);
+        return createPortal(
+          <div
+            ref={contextMenuRef}
+            role="menu"
+            className="menu-surface"
+            style={{
+              position: "fixed",
+              left: Math.min(contextMenu.x + 2, window.innerWidth - 188),
+              top: Math.min(contextMenu.y + 2, window.innerHeight - 220),
+              minWidth: 180,
+              zIndex: 700,
+            }}
+          >
+            {menuTab.preview && onPinTab && (
+              <button type="button" role="menuitem" onClick={run(() => onPinTab(menuTab.id))}>
+                {t("chatTabs.pinTab")}
+              </button>
+            )}
+            {isFile && (
+              <button type="button" role="menuitem" onClick={run(() => { void copyText(menuTab.filePath).catch(() => {}); })}>
+                {t("files.copyPath")}
+              </button>
+            )}
+            {isFile && insideCwd && (
+              <button type="button" role="menuitem" onClick={run(() => { void copyText(relativePath).catch(() => {}); })}>
+                {t("files.copyRelativePath")}
+              </button>
+            )}
+            {isFile && insideCwd && onRevealInExplorer && (
+              <button type="button" role="menuitem" onClick={run(() => onRevealInExplorer(menuTab))}>
+                {t("files.revealInExplorer")}
+              </button>
+            )}
+            <button type="button" role="menuitem" disabled={menuTab.closing} onClick={run(() => onCloseTab(menuTab.id))}>
+              {t("chatTabs.closeTab")}
+            </button>
+            {onCloseTabs && otherIds.length > 0 && (
+              <button type="button" role="menuitem" onClick={run(() => onCloseTabs(otherIds, menuTab.id))}>
+                {t("chatTabs.closeOthers")}
+              </button>
+            )}
+            {onCloseTabs && rightIds.length > 0 && (
+              <button type="button" role="menuitem" onClick={run(() => onCloseTabs(rightIds, menuTab.id))}>
+                {t("chatTabs.closeRight")}
+              </button>
+            )}
+          </div>,
+          document.body,
+        );
+      })()}
     </div>
   );
 }

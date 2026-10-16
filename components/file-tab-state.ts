@@ -207,6 +207,37 @@ export function mergeFileViewerStates(
   });
 }
 
+export const PANEL_TAB_ORDER_KEY = "pi-web:panel-tab-order";
+
+/** Files and terminals live in separate lists; `order` is the user's drag order across both. Unlisted tabs follow in natural order. */
+export function orderPanelTabs(tabs: Tab[], order: readonly string[]): Tab[] {
+  const rank = new Map(order.map((id, index) => [id, index]));
+  const ranked = tabs.filter((tab) => rank.has(tab.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+  return [...ranked, ...tabs.filter((tab) => !rank.has(tab.id))];
+}
+
+/** Moves `tabId` before `beforeId` (null = end). Dropping a tab onto itself changes nothing. */
+export function movePanelTab(ids: readonly string[], tabId: string, beforeId: string | null): string[] {
+  const rest = ids.filter((id) => id !== tabId);
+  const index = beforeId === null ? rest.length : rest.indexOf(beforeId);
+  if (index < 0 || rest.length === ids.length) return [...ids];
+  return [...rest.slice(0, index), tabId, ...rest.slice(index)];
+}
+
+/** A tab replaced in place (preview swap, terminal restart) keeps its dragged position. */
+export function replacePanelTabId(order: readonly string[], oldId: string, newId: string): string[] {
+  return order.map((id) => id === oldId ? newId : id);
+}
+
+export function restorePanelTabOrder(raw: string | null): string[] {
+  try {
+    const saved: unknown = JSON.parse(raw ?? "null");
+    return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export function getAdjacentTabId(tabs: Tab[], closingId: string): string | null {
   const closingIndex = tabs.findIndex((tab) => tab.id === closingId);
   if (closingIndex === -1) return null;
