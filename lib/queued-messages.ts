@@ -53,6 +53,35 @@ export function snapshotAgentQueuedMessages(agent: unknown): { steering: unknown
   return { steering, followUp };
 }
 
+/**
+ * Re-stamp queued steering/follow-up messages when they are actually delivered.
+ *
+ * pi's Agent stamps `timestamp` when a message is queued, so a follow-up that
+ * waited behind a long run would be persisted (and timed) as if sent before the
+ * reply it followed. Patches the private queues' `drain()` in place.
+ */
+export function stampQueuedMessagesOnDelivery(agent: unknown): void {
+  const runtime = agent as { steeringQueue?: unknown; followUpQueue?: unknown } | null;
+  for (const [label, queue] of [["steering", runtime?.steeringQueue], ["follow-up", runtime?.followUpQueue]] as const) {
+    const target = queue as { drain?: unknown } | undefined;
+    if (!target || typeof target.drain !== "function") {
+      throw new QueuedDeliveryError(`Agent ${label} delivery queue has no drain()`);
+    }
+    const drain = target.drain as () => unknown;
+    target.drain = () => {
+      const drained = drain.call(target);
+      if (!Array.isArray(drained)) return drained;
+      const now = Date.now();
+      // Distinct timestamps: the client dedupes transcript messages by role + timestamp.
+      return drained.map((message, index) => (
+        message && typeof message === "object" && typeof (message as { timestamp?: unknown }).timestamp === "number"
+          ? { ...message, timestamp: now + index }
+          : message
+      ));
+    };
+  }
+}
+
 function imageAttachmentFromUnknown(block: Record<string, unknown>): Base64ImageAttachment {
   // pi-ai ImageContent stored by AgentSession._queueSteer / Agent.steer.
   if (

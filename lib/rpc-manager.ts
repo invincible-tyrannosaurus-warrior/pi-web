@@ -7,7 +7,7 @@ import { existsSync, realpathSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 import { pathToFileURL } from "url";
 import { isBase64ImageWithinLimits, validateAgentImages } from "./image-attachments";
-import { parseQueuedDeliverySnapshot, snapshotAgentQueuedMessages } from "./queued-messages";
+import { parseQueuedDeliverySnapshot, snapshotAgentQueuedMessages, stampQueuedMessagesOnDelivery } from "./queued-messages";
 import { invalidateModelsCache } from "./models-cache";
 import { isBlockingExtensionUiRequest } from "./browser-notifications";
 import { THINKING_LEVELS as VALID_THINKING_LEVELS } from "./thinking-levels";
@@ -1831,6 +1831,7 @@ const SUBAGENT_CONTROLLER = createSubagentController({
   getSession: (sessionId) => getRegistry().get(sessionId),
   registerSession: (inner, options) => {
     const resources = readSubagentSessionResources(inner.sessionManager.getEntries() as unknown as SessionEntry[]);
+    stampQueuedMessagesOnDelivery(inner.agent);
     const wrapper = new AgentSessionWrapper(inner, {
       chatOnly: options?.chatOnly,
       suppressCompletionNotifications: true,
@@ -2557,6 +2558,7 @@ export async function startRpcSession(
         : withConfiguredBuiltInTools(inner.getActiveToolNames(), services.settingsManager.getDefaultTools()));
     }
 
+    stampQueuedMessagesOnDelivery(inner.agent);
     const wrapper = new AgentSessionWrapper(inner, {
       chatOnly,
       finishStartup: async () => {
