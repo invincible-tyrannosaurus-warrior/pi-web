@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,8 +9,9 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const { POST } = await jiti.import("./route.ts");
-const { AgentSessionWrapper } = await jiti.import("@/lib/rpc-manager.ts");
+const { AgentSessionWrapper, isRpcSessionFileMutationReserved } = await jiti.import("@/lib/rpc-manager.ts");
 const { cacheSessionPath, invalidateSessionListCache, invalidateSessionPathCache, listAllSessions } = await jiti.import("@/lib/session-reader.ts");
+const { deleteSessionById } = await jiti.import("@/lib/session-delete-operation.ts");
 const { forkSessionBranch, getForkLeafId } = await jiti.import("@/lib/session-fork.ts");
 
 async function fixture(t) {
@@ -212,6 +213,63 @@ test("shell-only persisted prefix is copied and written even when SDK defers its
   const fork = forkSessionBranch(manager.getSessionFile());
   assertCopiedThrough(SessionManager.open(fork.path), manager.getLeafId());
   assert.equal(readFileSync(manager.getSessionFile(), "utf8"), before);
+});
+
+test("fork route and all RPC child-copy commands refuse during a delete shutdown wait", async (t) => {
+  const { create, request, live } = await fixture(t);
+  const manager = create();
+  const entryId = user(manager);
+  manager.appendMessage({ role: "assistant", content: [{ type: "text", text: "done" }], timestamp: Date.now() });
+  const id = manager.getSessionId();
+  const path = manager.getSessionFile();
+  const { wrapper } = live(manager);
+  let enterShutdown;
+  let finishShutdown;
+  const entered = new Promise((resolve) => { enterShutdown = resolve; });
+  const stopped = new Promise((resolve) => { finishShutdown = resolve; });
+  t.mock.method(wrapper, "shutdown", async () => { enterShutdown(); await stopped; });
+  const deleting = deleteSessionById(id, true);
+  await entered;
+  assert.equal(isRpcSessionFileMutationReserved(id), true);
+  try {
+    const { response, data } = await request(id);
+    assert.equal(response.status, 409);
+    assert.equal(data.code, "busy");
+    for (const type of ["fork", "fork_branch", "clone"]) {
+      await assert.rejects(wrapper.send({ type, entryId, leafId: manager.getLeafId() }), /reserved for deletion/);
+    }
+    assert.equal(readFileSync(path, "utf8").includes(id), true, "delete still awaits shutdown");
+    assert.equal(readdirSync(manager.getSessionDir()).filter((file) => file.endsWith(".jsonl")).length, 1, "no stale-link children were created");
+  } finally { finishShutdown(); }
+  assert.equal((await deleting).status, 200);
+  assert.equal(isRpcSessionFileMutationReserved(id), false);
+});
+
+test("a fork already resolving its source rechecks reservations before copying", async (t) => {
+  const { create, request, live } = await fixture(t);
+  const manager = create();
+  user(manager);
+  const { wrapper } = live(manager);
+  const id = manager.getSessionId();
+  let finishShutdown;
+  const stopped = new Promise((resolve) => { finishShutdown = resolve; });
+  t.mock.method(wrapper, "shutdown", () => stopped);
+  let deleting;
+  // Start deletion only after the route's first reservation check, when it snapshots its source.
+  t.mock.method(wrapper, "isAlive", () => {
+    deleting ??= deleteSessionById(id, true);
+    return true;
+  });
+  try {
+    const { response, data } = await request(id);
+    assert.equal(response.status, 409);
+    assert.equal(data.code, "busy");
+    assert.equal(isRpcSessionFileMutationReserved(id), true);
+    assert.equal(readdirSync(manager.getSessionDir()).filter((file) => file.endsWith(".jsonl")).length, 1);
+  } finally {
+    finishShutdown();
+    if (deleting) assert.equal((await deleting).status, 200);
+  }
 });
 
 test("leaf selection and disk copying stay in one synchronous turn", () => {

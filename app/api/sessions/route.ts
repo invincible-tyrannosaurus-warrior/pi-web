@@ -1,3 +1,5 @@
+import { createSessionDeleteIndex, deleteSessionById } from "@/lib/session-delete-operation";
+import { parseJsonWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { existsSync } from "node:fs";
 import { NextResponse } from "next/server";
 import {
@@ -75,6 +77,30 @@ export async function PATCH(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
+}
+
+// DELETE /api/sessions: exactly the requested ids; independent results allow partial success.
+export async function DELETE(req: Request) {
+  let body: unknown;
+  try { body = await parseJsonWithinLimit(req, 64 * 1024); }
+  catch (error) {
+    return NextResponse.json({ error: error instanceof RequestBodyTooLargeError ? error.message : "Expected a JSON object" },
+      { status: error instanceof RequestBodyTooLargeError ? 413 : 400 });
+  }
+  const ids = body && typeof body === "object" && !Array.isArray(body)
+    ? (body as Record<string, unknown>).ids : undefined;
+  if (!Array.isArray(ids) || !ids.length || ids.length > 500
+    || ids.some((id) => typeof id !== "string" || id.length > 256 || !SESSION_ID_PATTERN.test(id))) {
+    return NextResponse.json({ error: "Send 1–500 valid session ids" }, { status: 400 });
+  }
+  const index = createSessionDeleteIndex();
+  const results = [];
+  for (const id of new Set<string>(ids)) {
+    const response = await deleteSessionById(id, true, index);
+    const data = await response.json() as { error?: string; warning?: string };
+    results.push({ id, ok: response.ok, status: response.status, ...data });
+  }
+  return NextResponse.json({ results });
 }
 
 export async function GET(req: Request) {

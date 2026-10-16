@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { createRequire } from "node:module";
 import { Script } from "node:vm";
 import ts from "typescript";
 import { createJiti } from "jiti";
@@ -16,7 +17,9 @@ const { applyProjectOrderUpdate } = await jiti.import("../lib/project-groups.ts"
 const source = await readFile(new URL("./SessionSidebar.tsx", import.meta.url), "utf8");
 const searchSource = await readFile(new URL("./SessionSearch.tsx", import.meta.url), "utf8");
 const shellSource = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+const { selectionFamilies } = await jiti.import("../lib/session-selection.ts");
 const noop = () => {};
+const reactDom = createRequire(import.meta.url)("react-dom");
 
 function row(props) {
   return renderToStaticMarkup(React.createElement(I18nProvider, null, React.createElement(SessionItem, {
@@ -28,9 +31,19 @@ function row(props) {
 
 test("session menu orders normal archive and manual-read actions, toggles labels, and disables running archives", (t) => {
   const previous = globalThis.window;
+  const previousDocument = globalThis.document;
   globalThis.window = { innerWidth: 1000, innerHeight: 800 };
-  t.after(() => { if (previous === undefined) delete globalThis.window; else globalThis.window = previous; });
+  globalThis.document = { body: {} };
+  const portal = t.mock.method(reactDom, "createPortal", (children, container) => {
+    assert.equal(container, globalThis.document.body);
+    return children;
+  });
+  t.after(() => {
+    if (previous === undefined) delete globalThis.window; else globalThis.window = previous;
+    if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument;
+  });
   const html = row({});
+  assert.equal(portal.mock.callCount(), 1);
   const items = [...html.matchAll(/<button[^>]*role="menuitem"[^>]*>([\s\S]*?)<\/button>/g)]
     .map((match) => match[1].replace(/<[^>]+>/g, "").trim());
   assert.deepEqual(items, ["Open in new tab", "Pin session", "Rename", "Mark as unread", "Archive", "Delete"]);
@@ -48,7 +61,7 @@ function find(node, predicate) {
   return ts.forEachChild(node, (child) => find(child, predicate));
 }
 function execute(node, scope) {
-  return new Script(ts.transpileModule(`(${node.getText(ast)})`, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText)
+  return new Script(ts.transpileModule(`(${node.getText(ast)})`, { fileName: "inline.tsx", compilerOptions: { target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React } }).outputText)
     .runInNewContext(scope);
 }
 function callback(name, scope) {
@@ -57,7 +70,7 @@ function callback(name, scope) {
   return execute(declaration.initializer.arguments[0], scope);
 }
 function workspaceRows(scope) {
-  return callback("workspaceRows", { ...familyHelpers, workspaceKeyOf, WORKSPACE_SESSION_PREVIEW_LIMIT: 6, WORKSPACE_SESSION_PAGE_SIZE: 20, draggedProjectKey: null, ...scope })();
+  return callback("workspaceRows", { ...familyHelpers, workspaceKeyOf, WORKSPACE_SESSION_PREVIEW_LIMIT: 6, WORKSPACE_SESSION_PAGE_SIZE: 20, draggedProjectKey: null, selectionProjectKey: null, selectionFamilies, ...scope })();
 }
 
 test("the actual virtual row model hides archived families, keeps cross-project subagents, and shows the scoped archive", () => {
@@ -202,8 +215,160 @@ test("the archive view exits when its relevant count becomes zero, and the proje
   assert.doesNotMatch(dropdown, /archiveProject|<ArchiveIcon \/>/);
 });
 
-test("the archive view's project menu restores instead of archiving or deleting", () => {
+test("selection expands the entire scoped project including pins without changing other previews", () => {
+  const sessions = Array.from({ length: 25 }, (_, i) => ({ id: String(i), cwd: "/p", modified: `2026-01-${String(26 - i).padStart(2, "0")}T00:00:00.000Z` }));
+  const scope = {
+    allFamilies: familyHelpers.listSessionFamilies(sessions), workspaceProjects: [{ key: "/p", root: "/p" }],
+    selectedProject: { key: "/p", root: "/p" }, selectedSessionId: null, singleProject: false,
+    expandedWorkspaceKeys: new Set(), defaultExpandedWorkspaceKeys: new Set(), workspaceSessionLimits: {},
+    archiveView: false, collapsedArchiveProjectKeys: new Set(), archivedSessionIds: {},
+    runningSessionIds: new Set(), unreadSessionIds: new Set(), pinnedSessionIds: ["24"], selectionProjectKey: "/p",
+  };
+  const rows = workspaceRows(scope);
+  assert.equal(rows.filter((row) => row.kind === "session").length, 25);
+  assert.ok(!rows.some((row) => row.kind === "showMore" || row.kind === "showLess"));
+  assert.equal(workspaceRows({ ...scope, selectionProjectKey: null }).filter((row) => row.kind === "session").length, 0);
+});
+
+test("selection rows have native labelled checkboxes instead of menus and hover actions, with running tooltips", () => {
+  const html = row({ selection: { checked: true, disabled: false, onToggle: noop } });
+  assert.match(html, /type="checkbox"[^>]*aria-label="Select Title"[^>]*checked=""/);
+  assert.doesNotMatch(html, /session-row-actions|session-row-pin|role="menu"/);
+  const running = row({ isRunning: true, selection: { checked: false, disabled: true, onToggle: noop } });
+  assert.match(running, /Stop running sessions in this family before selecting/);
+  assert.match(running, /type="checkbox"[^>]*disabled=""/);
+});
+
+test("selection row clicks toggle with Shift and never navigate or open a second tab", () => {
+  const click = find(ast, (node) => ts.isJsxAttribute(node) && node.name.getText(ast) === "onClick"
+    && node.initializer?.expression?.getText(ast).includes("selection.onToggle(e.shiftKey)"));
+  assert.ok(click);
+  const toggles = [];
+  const handler = (disabled) => execute(click.initializer.expression, {
+    selection: { disabled, onToggle: (shift) => toggles.push(shift) }, isLongPressRef: { current: false },
+    onClick: () => assert.fail("selection must not navigate"), renaming: false,
+  });
+  handler(false)({ shiftKey: false });
+  handler(false)({ shiftKey: true });
+  handler(true)({ shiftKey: false });
+  assert.deepEqual(toggles, [false, true]);
+});
+
+test("entering a project starts an empty view-scoped selection, and Escape cancels unless busy", () => {
+  const declaration = find(ast, (node) => ts.isVariableDeclaration(node) && node.name.getText(ast) === "beginSelection");
+  let selection;
+  let projectsOpen = false;
+  execute(declaration.initializer, {
+    archiveView: true, setSelection: (value) => { selection = value; },
+    setProjectsOpen: (value) => { projectsOpen = value; }, setSessionSearchOpen: noop,
+    setSessionMenu: noop, setProjectMenu: noop, setDeleteConfirm: noop,
+  })("/project");
+  assert.equal(selection.projectKey, "/project");
+  assert.equal(selection.archiveView, true);
+  assert.equal(selection.ids.size, 0);
+  assert.equal(selection.anchor, null);
+  assert.equal(projectsOpen, true);
+  const escape = find(ast, (node) => ts.isVariableDeclaration(node) && node.name.getText(ast) === "escape");
+  for (const selectionBusy of [false, true]) {
+    let cancelled = false;
+    const handle = execute(escape.initializer, { selectionBusy, setSelection: () => { cancelled = true; }, setDeleteConfirm: noop });
+    handle({ key: "Enter" });
+    assert.equal(cancelled, false);
+    handle({ key: "Escape" });
+    assert.equal(cancelled, !selectionBusy);
+  }
+});
+
+test("selection bar exposes tri-state select-all, disables empty actions, and switches Archive to Restore", () => {
+  const bar = find(ast, (node) => ts.isJsxElement(node)
+    && node.openingElement.attributes.properties.some((attr) => ts.isJsxAttribute(attr)
+      && attr.name.getText(ast) === "className" && attr.initializer?.text === "sidebar-selection-bar"));
+  assert.ok(bar);
+  for (const archiveView of [false, true]) {
+    let selection = { ids: new Set(["a"]) };
+    const element = execute(bar, {
+      React, selectionBusy: false, archiveView, selectionProjectKey: "/p", projectNames: new Map(), getFileName: () => "p",
+      selectionSummary: { ids: [], all: false, indeterminate: true }, eligibleSelectionIds: ["a", "b"],
+      t: (key) => key, setSelection: (edit) => { selection = edit(selection); },
+      archiveSelection: noop, setDeleteConfirm: noop,
+    });
+    const input = element.props.children[0].props.children[0];
+    const domInput = {};
+    input.props.ref(domInput);
+    assert.equal(domInput.indeterminate, true);
+    assert.equal(input.props["aria-checked"], "mixed");
+    input.props.onChange();
+    assert.deepEqual([...selection.ids], ["a", "b"]);
+    const [archive, del, cancel] = element.props.children[1].props.children;
+    assert.equal(archive.props.children, archiveView ? "sidebar.restore" : "sidebar.archive");
+    assert.equal(archive.props.disabled, true);
+    assert.equal(del.props.disabled, true);
+    assert.equal(cancel.props.disabled, false);
+  }
+});
+
+test("bulk delete closes only successful ids, exits selection, reloads once, then surfaces per-id failures", async () => {
+  const declaration = find(ast, (node) => ts.isVariableDeclaration(node) && node.name.getText(ast) === "deleteSelection");
+  const events = [];
+  const operation = execute(declaration.initializer, {
+    selectionBusy: false, setDeleteConfirm: noop, setSelectionBusy: noop, confirm: async () => true,
+    fetch: async (url, options) => {
+      assert.equal(url, "/api/sessions");
+      assert.equal(options.method, "DELETE");
+      assert.deepEqual(JSON.parse(options.body), { ids: ["a", "b"] });
+      return { ok: true, json: async () => ({ results: [{ id: "a", ok: true }, { id: "b", ok: false, error: "Session is running" }] }) };
+    },
+    onSessionDeleted: (id) => events.push(`closed:${id}`),
+    setSelection: (value) => { assert.equal(value, null); events.push("exit"); },
+    loadSessions: async () => events.push("reload"),
+    setError: (error) => events.push(error), t: (_key, values) => values?.error ?? _key,
+  });
+  await operation(["a", "b"]);
+  assert.deepEqual(events, ["closed:a", "exit", "reload", "b: Session is running"]);
+});
+
+test("bulk confirmation is modal, counted, dangerous, and cancellation preserves selection without deleting", async () => {
+  const declaration = find(ast, (node) => ts.isVariableDeclaration(node) && node.name.getText(ast) === "deleteSelection");
+  const events = [];
+  let decide;
+  const operation = execute(declaration.initializer, {
+    selectionBusy: false, setSelectionBusy: (busy) => events.push(busy),
+    confirm: (message, options) => {
+      assert.match(message, /Delete 2 sessions\?\nCannot be undone\./);
+      assert.equal(options.danger, true);
+      return new Promise((resolve) => { decide = resolve; });
+    },
+    t: (key, values) => key === "sidebar.deleteProjectSessionsConfirm" ? `Delete ${values.count} sessions?` : "Cannot be undone.",
+    fetch: () => assert.fail("must not delete before confirmation"),
+    setSelection: () => assert.fail("cancelling must preserve selection"),
+  });
+  const pending = operation(["a", "b"]);
+  assert.deepEqual(events, [true], "selection controls are frozen while the modal owns focus");
+  decide(false);
+  await pending;
+  assert.deepEqual(events, [true, false]);
+  assert.match(source, /import \{ useConfirm \} from "@\/hooks\/useConfirm"/);
+  assert.doesNotMatch(source, /kind: "selection"/);
+});
+
+test("eligibility changes reconcile the stored selection rather than only masking its summary", () => {
+  const effect = find(ast, (node) => ts.isCallExpression(node) && node.expression.getText(ast) === "useEffect"
+    && node.arguments[1]?.getText(ast) === "[eligibleSelectionIds]");
+  assert.ok(effect);
+  let selection = { ids: new Set(["a", "b"]), anchor: "b" };
+  const reconcileSessionSelection = (current, eligible) => ({ ...current,
+    ids: new Set([...current.ids].filter((id) => eligible.includes(id))), anchor: eligible.includes(current.anchor) ? current.anchor : null });
+  for (const eligibleSelectionIds of [["a"], ["a", "b"]]) execute(effect.arguments[0], {
+    eligibleSelectionIds, reconcileSessionSelection, setSelection: (edit) => { selection = edit(selection); },
+  })();
+  assert.deepEqual([...selection.ids], ["a"]);
+  assert.equal(selection.anchor, null);
+});
+
+test("project menus enter explicit selection instead of whole-project deletion or restore-all", () => {
   const menu = source.slice(source.indexOf("{projectMenu && (() =>"), source.indexOf("{/* Pinned sessions, across all projects */}"));
-  assert.match(menu, /archiveView \? \([\s\S]*?updateSessionSidebarState\(projectArchivedIds, \{ archived: false \}\)/);
-  assert.match(menu, /\{!archiveView && <button[\s\S]*?sidebar\.deleteSessions/);
+  assert.match(menu, /beginSelection\(projectMenu\.key\)/);
+  assert.match(menu, /sidebar\.selectSessions/);
+  assert.match(menu, /!archiveView && \([\s\S]*?sidebar\.archiveOlderThanWeek/);
+  assert.doesNotMatch(source, /unarchiveAll|deleteProject\s*=|fetch\("\/api\/projects"|kind: "project"/);
 });

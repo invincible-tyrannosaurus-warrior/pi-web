@@ -117,6 +117,18 @@ export async function updateProjectName(projectKey: string, name: string, path =
   return stored;
 }
 
+export async function removeSidebarSessions(ids: readonly string[], path = getSidebarStatePath()): Promise<void> {
+  const removed = new Set(ids);
+  await mutateSidebarState((state) => {
+    const pinned = state.pinned.filter((id) => !removed.has(id));
+    const archived = Object.fromEntries(Object.entries(state.archived).filter(([id]) => !removed.has(id)));
+    if (pinned.length === state.pinned.length && Object.keys(archived).length === Object.keys(state.archived).length) return false;
+    state.pinned = pinned;
+    state.archived = archived;
+    return true;
+  }, path);
+}
+
 export async function updateSidebarState(
   ids: readonly string[], update: SidebarUpdate, path = getSidebarStatePath(),
 ): Promise<SidebarState> {

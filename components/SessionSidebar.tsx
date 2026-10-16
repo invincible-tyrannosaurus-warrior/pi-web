@@ -2,12 +2,14 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode, type Ref } from "react";
 import type { SessionInfo } from "@/lib/types";
-import { listSessionFamilies, isFamilyArchived, familiesToArchive, previewSessionFamilies, markSessionFamilyRead, type SessionFamily } from "@/lib/session-family";
+import { useConfirm } from "@/hooks/useConfirm";
+import { selectionFamilies, reconcileSessionSelection, toggleSessionSelection, sessionSelectionSummary, selectedArchiveIds } from "@/lib/session-selection";
+import { listSessionFamilies, isFamilyArchived, familyHasMemberIn, familiesToArchive, previewSessionFamilies, markSessionFamilyRead, type SessionFamily } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getSessionDisplayTitle } from "@/lib/session-display-title";
-import { applyProjectOrderUpdate, isProjectKey, orderProjects, getProjectActivity, getRecentProjects, projectDisplayName, sessionsForProject, type ProjectOrderUpdate } from "@/lib/project-groups";
+import { applyProjectOrderUpdate, isProjectKey, orderProjects, getProjectActivity, getRecentProjects, projectDisplayName, type ProjectOrderUpdate } from "@/lib/project-groups";
 import { createPortal } from "react-dom";
 import { useProjectDrag, type ProjectDragBlock } from "@/hooks/useProjectDrag";
 import { workspaceKeyOf } from "@/lib/workspace-key";
@@ -338,6 +340,7 @@ function sameIdSet(current: Set<string>, ids: string[] | undefined): Set<string>
 
 export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSelectSession, onOpenSessionInNewTab, onForkSession, forking = false, onNewSession, initialSessionId, skipInitialProjectSelection, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionMarkersChange, onSessionsChange, onProjectPathsChange, onProjectNamesChange, pinnedCwds, onTogglePinnedCwd, onHomeDirChange, onWorktreeInfoChange }: Props) {
   const { t } = useI18n();
+  const confirm = useConfirm();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>([]);
   const [archivedSessionIds, setArchivedSessionIds] = useState<Record<string, string>>({});
@@ -377,6 +380,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   const [wtBusy, setWtBusy] = useState(false);
   const [wtConfirmRemove, setWtConfirmRemove] = useState<string | null>(null);
   const wtDropdownRef = useRef<HTMLDivElement>(null);
+  const wtMenuRef = useRef<HTMLDivElement>(null);
+  const [wtMenuPosition, setWtMenuPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   const wtNewInputRef = useRef<HTMLInputElement>(null);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [projectsOpen, setProjectsOpen] = useState(true);
@@ -466,20 +471,19 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
   const [sessionMenu, setSessionMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [projectMenu, setProjectMenu] = useState<{ key: string; cwd: string; x: number; y: number } | null>(null);
+  const [selection, setSelection] = useState<{ projectKey: string; archiveView: boolean; ids: Set<string>; anchor: string | null } | null>(null);
+  const [selectionBusy, setSelectionBusy] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<
-    | { kind: "project"; key: string; x: number; y: number }
     | { kind: "archiveProject"; key: string; x: number; y: number }
     | { kind: "session"; id: string; x: number; y: number }
     | null
   >(null);
-  const confirmDeleteProjectKey = deleteConfirm?.kind === "project" ? deleteConfirm.key : null;
-  const [deletingProjectKey, setDeletingProjectKey] = useState<string | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
-  const [deleteProjectError, setDeleteProjectError] = useState<string | null>(null);
   const listScrollRafRef = useRef<number | null>(null);
   const handleListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     setSessionMenu(null);
     setProjectMenu(null);
+    setWtDropdownOpen(false);
     const top = e.currentTarget.scrollTop;
     if (listScrollRafRef.current != null) return;
     listScrollRafRef.current = requestAnimationFrame(() => {
@@ -1134,7 +1138,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
       }
-      if (wtDropdownRef.current && !wtDropdownRef.current.contains(e.target as Node)) {
+      if (wtDropdownRef.current && !wtDropdownRef.current.contains(e.target as Node)
+        && !wtMenuRef.current?.contains(e.target as Node)) {
         setWtDropdownOpen(false);
         setWtNewOpen(false);
         setWtNewBranch("");
@@ -1143,8 +1148,13 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         setWtFilter("");
       }
     };
+    const closeWorktreeMenu = () => setWtDropdownOpen(false);
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    window.addEventListener("resize", closeWorktreeMenu);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      window.removeEventListener("resize", closeWorktreeMenu);
+    };
   }, []);
 
   // Clicking a session only moves Explorer when that session lives in a
@@ -1300,44 +1310,90 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     return { running, unread };
   }, [projectActivity, selectedProject?.key]);
 
-  // Removes a project from the sidebar by clearing every source that lists it:
-  // its persisted sessions, any pinned cwd, and the current selection.
-  const deleteProject = useCallback(async (project: ProjectSelection) => {
+  const selectionProjectKey = selection?.archiveView === archiveView ? selection.projectKey : null;
+  const selectableFamilies = useMemo(() => selectionProjectKey ? selectionFamilies(allFamilies, selectionProjectKey, archiveView, archivedSessionIds, runningSessionIds) : [], [allFamilies, selectionProjectKey, archiveView, archivedSessionIds, runningSessionIds]);
+  const eligibleSelectionIds = useMemo(() => selectableFamilies.filter((family) => !family.root.transient && !familyHasMemberIn(family, runningSessionIds)).map((family) => family.root.id), [selectableFamilies, runningSessionIds]);
+  useEffect(() => {
+    setSelection((current) => current && reconcileSessionSelection(current, eligibleSelectionIds));
+  }, [eligibleSelectionIds]);
+  const selectionSummary = sessionSelectionSummary(selection?.ids ?? new Set(), eligibleSelectionIds);
+  const beginSelection = (projectKey: string) => {
+    setSelection({ projectKey, archiveView, ids: new Set(), anchor: null });
+    setProjectsOpen(true);
+    setSessionSearchOpen(false);
+    setSessionMenu(null);
+    setProjectMenu(null);
     setDeleteConfirm(null);
-    setDeleteProjectError(null);
-    setDeletingProjectKey(project.key);
-    try {
-      const response = await fetch("/api/projects", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectKey: project.key }),
-      });
-      const data = await response.json().catch(() => ({})) as { deletedSessionIds?: string[]; error?: string };
-      if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
-      for (const cwd of pinnedCwds) {
-        if (projectFor(cwd)?.key === project.key) onTogglePinnedCwd(cwd);
-      }
-      if (selectedProject?.key === project.key) {
-        setSelectedCwd(workspaceProjects.find((item) => item.key !== project.key)?.root ?? null);
-      }
-      for (const id of data.deletedSessionIds ?? []) onSessionDeleted?.(id);
-      void loadSessions();
-    } catch (e) {
-      setDeleteProjectError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setDeletingProjectKey(null);
+  };
+  const toggleSelection = (id: string, range: boolean) => {
+    if (selectionBusy) return;
+    setSelection((current) => current && ({ ...current, anchor: id,
+      ids: toggleSessionSelection(current.ids, eligibleSelectionIds, id, current.anchor, range) }));
+  };
+  useEffect(() => {
+    if (!selection) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !selectionBusy) { setSelection(null); setDeleteConfirm(null); }
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [selection, selectionBusy]);
+  useEffect(() => {
+    if (selection && (selection.archiveView !== archiveView || (singleProject && selectedProject?.key !== selection.projectKey))) {
+      setSelection(null);
+      setDeleteConfirm(null);
     }
-  }, [loadSessions, onSessionDeleted, onTogglePinnedCwd, pinnedCwds, projectFor, selectedProject?.key, workspaceProjects]);
+  }, [archiveView, selectedProject?.key, singleProject, selection]);
+
+  const archiveSelection = async () => {
+    if (selectionBusy || !selectionSummary.ids.length) return;
+    setSelectionBusy(true);
+    try {
+      await updateSessionSidebarState(selectedArchiveIds(selectableFamilies, new Set(selectionSummary.ids)), { archived: !archiveView });
+    } finally { setSelectionBusy(false); setSelection(null); }
+  };
+  const deleteSelection = async (ids: string[]) => {
+    if (selectionBusy || !ids.length) return;
+    setSelectionBusy(true);
+    if (!await confirm(`${t("sidebar.deleteProjectSessionsConfirm", { count: ids.length })}\n${t("sidebar.deleteSelectedDetail")}`, { danger: true, okLabel: t("sidebar.delete") })) {
+      setSelectionBusy(false);
+      return;
+    }
+    const failures: string[] = [];
+    try {
+      for (let start = 0; start < ids.length; start += 500) {
+        const response = await fetch("/api/sessions", {
+          method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: ids.slice(start, start + 500) }),
+        });
+        const data = await response.json() as { error?: string; results?: { id: string; ok: boolean; error?: string; warning?: string }[] };
+        if (!response.ok || !data.results) throw new Error(data.error ?? `HTTP ${response.status}`);
+        for (const result of data.results) {
+          if (result.ok) onSessionDeleted?.(result.id);
+          if (!result.ok || result.warning) failures.push(`${result.id}: ${result.error ?? result.warning ?? t("sidebar.deleteFailed")}`);
+        }
+      }
+    } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
+    finally {
+      setSelectionBusy(false);
+      setSelection(null);
+      await loadSessions();
+      if (failures.length) setError(t("sidebar.deleteProjectSessionsFailed", { error: failures.join("; ") }));
+    }
+  };
 
   const deleteSession = useCallback(async (sessionId: string) => {
     setDeleteConfirm(null);
     setDeletingSessionId(sessionId);
     try {
       const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      onSessionDeleted?.(sessionId);
-      void loadSessions();
-    } catch {
+      const data = await response.json().catch(() => ({})) as { deletedSessionIds?: string[]; error?: string; warning?: string };
+      if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+      for (const id of data.deletedSessionIds ?? [sessionId]) onSessionDeleted?.(id);
+      await loadSessions();
+      if (data.warning) setError(data.warning);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
       setDeletingSessionId(null);
     }
   }, [loadSessions, onSessionDeleted]);
@@ -1358,7 +1414,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     for (const project of listedProjects) {
       const projectFamilies = allFamilies.filter((family) => workspaceKeyOf(family.root) === project.key);
       // Pinned sessions live in their own section above the projects.
-      const families = projectFamilies.filter((family) => archiveView
+      const selecting = selectionProjectKey === project.key;
+      const families = selecting ? selectionFamilies(projectFamilies, project.key, archiveView, archivedSessionIds, runningSessionIds) : projectFamilies.filter((family) => archiveView
         ? isFamilyArchived(family, archivedSessionIds, runningSessionIds)
         : !pinnedSessionIds.includes(family.root.id) && !isFamilyArchived(family, archivedSessionIds, runningSessionIds));
       if (archiveView && families.length === 0) continue;
@@ -1368,12 +1425,12 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         cwd: families[0]?.root.cwd ?? project.root,
       });
       const open = archiveView ? !collapsedArchiveProjectKeys.has(project.key) : expanded.has(project.key);
-      if ((singleProject || open) && project.key !== draggedProjectKey) {
+      if ((selecting || singleProject || open) && project.key !== draggedProjectKey) {
         const limit = workspaceSessionLimits[project.key] ?? WORKSPACE_SESSION_PREVIEW_LIMIT;
         const forcedIds = new Set([...runningSessionIds, ...unreadSessionIds]);
         if (selectedSessionId) forcedIds.add(selectedSessionId);
         const { visible: visibleFamilies, revealed, nextShown } = previewSessionFamilies(
-          families, singleProject || archiveView ? Infinity : WORKSPACE_SESSION_PREVIEW_LIMIT,
+          families, selecting || singleProject || archiveView ? Infinity : WORKSPACE_SESSION_PREVIEW_LIMIT,
           Math.max(0, limit - WORKSPACE_SESSION_PREVIEW_LIMIT), forcedIds, WORKSPACE_SESSION_PAGE_SIZE,
         );
         rows.push(...visibleFamilies.map((family) => ({ kind: "session" as const, family })));
@@ -1383,7 +1440,15 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
       }
     }
     return rows;
-  }, [allFamilies, archiveView, archivedSessionIds, collapsedArchiveProjectKeys, defaultExpandedWorkspaceKeys, draggedProjectKey, expandedWorkspaceKeys, pinnedSessionIds, runningSessionIds, unreadSessionIds, selectedProject, selectedSessionId, singleProject, workspaceProjects, workspaceSessionLimits]);
+  }, [selectionProjectKey, allFamilies, archiveView, archivedSessionIds, collapsedArchiveProjectKeys, defaultExpandedWorkspaceKeys, draggedProjectKey, expandedWorkspaceKeys, pinnedSessionIds, runningSessionIds, unreadSessionIds, selectedProject, selectedSessionId, singleProject, workspaceProjects, workspaceSessionLimits]);
+
+  useLayoutEffect(() => {
+    if (!selectionProjectKey || !listScrollRef.current) return;
+    const index = workspaceRows.findIndex((row) => row.kind === "workspace" && row.project.key === selectionProjectKey);
+    listScrollRef.current.scrollTop = Math.max(0, index * SESSION_LIST_ITEM_HEIGHT);
+  // Only entering/switching selection scrolls; polling must not move the list.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionProjectKey]);
 
   // Archive view lists only projects that have archived families.
   const archiveProjectKeys = archiveView
@@ -1402,7 +1467,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   }, [workspaceRows]);
   const projectDrag = useProjectDrag({
     enabled: !loading && projectsOpen && !sessionSearchActive,
-    allowDrag: !archiveView && !singleProject,
+    allowDrag: !archiveView && !singleProject && !selection,
     blocks: projectDragBlocks, scrollRef: listScrollRef, innerRef: listInnerRef,
     onMove: (key, anchor, position) => {
       // Keep the lifted project collapsed at commit: expanding it here would move the landed rows.
@@ -1429,8 +1494,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   });
 
   const pinnedFamilies = useMemo(
-    () => allFamilies.filter((family) => pinnedSessionIds.includes(family.root.id) && !archivedMemberIds.has(family.root.id)),
-    [allFamilies, archivedMemberIds, pinnedSessionIds],
+    () => allFamilies.filter((family) => workspaceKeyOf(family.root) !== selectionProjectKey && pinnedSessionIds.includes(family.root.id) && !archivedMemberIds.has(family.root.id)),
+    [allFamilies, archivedMemberIds, pinnedSessionIds, selectionProjectKey],
   );
 
   const virtualIndices = getSessionListIndices(
@@ -1458,6 +1523,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
+                        const row = event.currentTarget.closest(".workspace-list-row")!.getBoundingClientRect();
+                        setWtMenuPosition({ left: row.left + 2, top: row.bottom + 4, width: row.width - 4 });
                         setWtDropdownOpen((v) => !v);
                         setDropdownOpen(false);
                       }}
@@ -1511,15 +1578,15 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                         {branchLabel}
                       </span>
                     </button>
-                    {wtDropdownOpen && (
+                    {/* Keep the switcher class so project dragging also ignores portal events. */}
+                    {wtDropdownOpen && wtMenuPosition && createPortal(
                     <div
+                      ref={wtMenuRef}
                       role="menu"
-                      className="menu-surface"
+                      className="workspace-worktree-switcher menu-surface"
                       style={{
-                        position: "absolute",
-                        top: "calc(100% + 4px)",
-                        left: 2,
-                        right: 2,
+                        position: "fixed",
+                        ...wtMenuPosition,
                         zIndex: 100,
                       }}
                     >
@@ -1733,7 +1800,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                       {wtError}
                     </div>
                   )}
-                    </div>
+                    </div>,
+                    document.body,
                     )}
                   </div>
               );
@@ -1746,6 +1814,11 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     return (
       <div onFocus={() => setFocusedSessionId(family.root.id)} onBlur={() => setFocusedSessionId(null)}>
         <SessionItem
+          selection={selectionProjectKey === workspaceKeyOf(family.root) ? {
+            checked: selectionSummary.ids.includes(family.root.id),
+            disabled: selectionBusy || !eligibleSelectionIds.includes(family.root.id),
+            onToggle: (range) => toggleSelection(family.root.id, range),
+          } : undefined}
           session={displaySession}
           indent={14}
           isSelected={familySessions.some((session) => session.id === selectedSessionId)}
@@ -1794,11 +1867,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
       )}
 
       {projectMenu && (() => {
-        const running = Boolean(projectActivity.get(projectMenu.key)?.running);
         const olderCount = archiveOlderFamilies(projectMenu.key).length;
-        const projectArchivedIds = archivedFamilies
-          .filter((family) => workspaceKeyOf(family.root) === projectMenu.key)
-          .map((family) => family.root.id);
         const projectIndex = workspaceProjects.findIndex((project) => project.key === projectMenu.key);
         return (
           <div
@@ -1846,17 +1915,12 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                 {t(position === "before" ? "sidebar.moveProjectUp" : "sidebar.moveProjectDown")}
               </button>;
             })}
-            {archiveView ? (
-              // The archive view mirrors the list's actions: restore, never delete the whole project from here.
-              <button type="button" role="menuitem" disabled={projectArchivedIds.length === 0} onClick={() => {
-                setProjectMenu(null);
-                void updateSessionSidebarState(projectArchivedIds, { archived: false });
-              }}>
-                <ArchiveIcon />
-                {t("sidebar.unarchiveAll", { count: projectArchivedIds.length })}
-              </button>
-            ) : (
-              <button type="button" role="menuitem" disabled={olderCount === 0} title={t("sidebar.archiveOlderTitle")} onClick={() => {
+            <button type="button" role="menuitem" disabled={selectionBusy} onClick={() => beginSelection(projectMenu.key)}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="m7 12 3 3 7-7" /></svg>
+              {t("sidebar.selectSessions")}
+            </button>
+            {!archiveView && (
+              <button type="button" role="menuitem" disabled={olderCount === 0 || selectionBusy} title={t("sidebar.archiveOlderTitle")} onClick={() => {
                 setDeleteConfirm({ kind: "archiveProject", key: projectMenu.key, x: projectMenu.x, y: projectMenu.y });
                 setProjectMenu(null);
               }}>
@@ -1864,20 +1928,6 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                 {t("sidebar.archiveOlderThanWeek", { count: olderCount })}
               </button>
             )}
-            {!archiveView && <button
-              type="button"
-              role="menuitem"
-              className="is-danger"
-              disabled={running || deletingProjectKey === projectMenu.key}
-              title={t(running ? "sidebar.deleteProjectSessionsRunning" : "sidebar.deleteProjectSessions")}
-              onClick={() => {
-                setDeleteConfirm({ kind: "project", key: projectMenu.key, x: projectMenu.x, y: projectMenu.y });
-                setProjectMenu(null);
-              }}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
-              {t("sidebar.deleteSessions")}
-            </button>}
           </div>
         );
       })()}
@@ -1902,6 +1952,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
       <div ref={dropdownRef} className="sidebar-section-row" style={{ position: "relative" }}>
         <button
           type="button"
+          disabled={Boolean(selection)}
           onClick={() => archiveView ? setArchiveView(false) : setProjectsOpen((open) => !open)}
           className="sidebar-section-label"
           title={archiveView ? t("sidebar.backToSessions") : undefined}
@@ -1981,6 +2032,9 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
           )}
           <ToolbarIconButton
             onClick={() => {
+              if (selectionBusy) return;
+              setSelection(null);
+              setDeleteConfirm(null);
               setSessionSearchOpen((open) => {
                 const next = !open;
                 if (next) setProjectsOpen(true);
@@ -2037,23 +2091,6 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                       {activity?.running ? <LivePulseBeacon size={11} /> : null}
                       {activity?.unread ? <span style={{ color: "var(--success)", fontSize: 10 }}>{activity.unread}</span> : null}
                     </button>
-                    {/* Bulk archive stays in the current project's menu: a second icon per row is noise for a rare action. */}
-                    {/* Single-project mode: this list is the only place other projects
-                        are visible, so it must be able to delete them without switching. */}
-                    {allSessions.some((session) => workspaceKeyOf(session) === project.key) && (
-                      <ToolbarIconButton
-                        onClick={(event) => {
-                          setDropdownOpen(false);
-                          setDeleteConfirm({ kind: "project", key: project.key, x: event.clientX, y: event.clientY });
-                        }}
-                        className="workspace-row-action"
-                        disabled={Boolean(activity?.running) || deletingProjectKey === project.key}
-                        title={t(activity?.running ? "sidebar.deleteProjectSessionsRunning" : "sidebar.deleteProjectSessions")}
-                        color="var(--text-muted)"
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
-                      </ToolbarIconButton>
-                    )}
                   </div>
                 );
               })}
@@ -2117,22 +2154,20 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
 
       {deleteConfirm && (() => {
         const archiving = deleteConfirm.kind === "archiveProject";
-        const project = deleteConfirm.kind !== "session"
+        const project = deleteConfirm.kind === "archiveProject"
           ? workspaceProjects.find((item) => item.key === deleteConfirm.key)
           : null;
         const session = deleteConfirm.kind === "session"
           ? allSessions.find((item) => item.id === deleteConfirm.id)
           : null;
-        if (deleteConfirm.kind !== "session" ? !project : !session) return null;
+        if (!project && !session) return null;
         const olderFamilies = project && archiving ? archiveOlderFamilies(project.key) : [];
-        const count = project ? (archiving ? olderFamilies.length : sessionsForProject(allSessions, project.key).length) : 0;
+        const count = olderFamilies.length;
         const title = archiving
           ? t("sidebar.archiveProjectConfirm", { count })
-          : project ? t("sidebar.deleteProjectSessionsConfirm", { count })
           : t("sidebar.deleteSession");
         const detail = archiving
           ? t("sidebar.archiveProjectDetail")
-          : project ? t("sidebar.deleteProjectSessionsDetail", { count })
           : session ? getSessionDisplayTitle(session) : null;
         return (
           <div
@@ -2156,8 +2191,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                   if (archiving) {
                     setDeleteConfirm(null);
                     void updateSessionSidebarState(olderFamilies.map((family) => family.root.id), { archived: true });
-                  } else if (project) void deleteProject(project);
-                  else if (session) void deleteSession(session.id);
+                  } else if (session) void deleteSession(session.id);
                 }}>{t(archiving ? "sidebar.archive" : "sidebar.delete")}</button>
               </div>
             </div>
@@ -2171,15 +2205,10 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         ref={listScrollRef}
         onScroll={handleListScroll}
         onClickCapture={projectDrag.onClickCapture}
-        className="sidebar-list-scroll"
+        className="sidebar-list-scroll scroll-fade-block"
         style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", padding: "0", minHeight: 80 }}
       >
         {error && <div style={{ padding: "12px 14px", color: "var(--danger)", fontSize: 12 }}>{error}</div>}
-        {deleteProjectError && (
-          <div role="alert" onClick={() => setDeleteProjectError(null)} style={{ padding: "6px 14px", color: "var(--danger)", fontSize: 12, cursor: "pointer" }}>
-            {t("sidebar.deleteProjectSessionsFailed", { error: deleteProjectError })}
-          </div>
-        )}
         {!loading && !error && !showSelectProjectPrompt && workspaceProjects.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>{t("sidebar.noSessions")}</div>
         )}
@@ -2192,17 +2221,15 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
             {virtualIndices.map((index) => {
               const row = workspaceRows[index];
               if (row.kind === "workspace") {
-                const expanded = row.project.key !== draggedProjectKey && (archiveView ? !collapsedArchiveProjectKeys.has(row.project.key) : (expandedWorkspaceKeys ?? defaultExpandedWorkspaceKeys).has(row.project.key));
+                const expanded = selectionProjectKey === row.project.key || (row.project.key !== draggedProjectKey && (archiveView ? !collapsedArchiveProjectKeys.has(row.project.key) : (expandedWorkspaceKeys ?? defaultExpandedWorkspaceKeys).has(row.project.key)));
                 const active = row.project.key === selectedProject?.key;
                 const activity = projectActivity.get(row.project.key);
                 const workspaceCwd = active && selectedCwd ? selectedCwd : row.cwd;
-                const pendingDelete = confirmDeleteProjectKey === row.project.key;
                 return (
                   <div
                     className={`workspace-list-row${projectDrag.view ? " project-drag-row" : ""}`}
                     key={`workspace:${row.project.key}`}
                     data-active={active ? "true" : "false"}
-                    data-pending-delete={pendingDelete ? "true" : undefined}
                     data-expanded={!singleProject && expanded ? "true" : undefined}
                     onPointerDown={(event) => projectDrag.onPointerDown(event, row.project.key)}
                     onContextMenu={(event) => {
@@ -2228,6 +2255,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                       // document outside-click handler from closing it first.
                       onMouseDown={singleProject ? (event) => event.stopPropagation() : undefined}
                       onClick={() => {
+                        if (selectionProjectKey === row.project.key) return;
                         if (archiveView && !singleProject) {
                           setCollapsedArchiveProjectKeys((current) => {
                             const next = new Set(current);
@@ -2433,7 +2461,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
             </div>
           </div>
           {explorerOpen && (
-            <div className="sidebar-list-scroll" style={{ flex: 1 }}>
+            <div className="sidebar-list-scroll scroll-fade-block" style={{ flex: 1 }}>
               <FileExplorer
                 ref={fileExplorerRef}
                 cwd={selectedCwd ?? selectedCwdProp!}
@@ -2449,6 +2477,23 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
               />
             </div>
           )}
+        </div>
+      )}
+      {selection && selectionProjectKey && (
+        <div className="sidebar-selection-bar" role="group" aria-label={t("sidebar.selectionActions")} aria-busy={selectionBusy}>
+          <label className="sidebar-selection-count" title={projectNames.get(selectionProjectKey) ?? getFileName(selectionProjectKey)}>
+            <input type="checkbox" className="sidebar-session-checkbox" autoFocus
+              ref={(input) => { if (input) input.indeterminate = selectionSummary.indeterminate; }}
+              checked={selectionSummary.all} aria-checked={selectionSummary.indeterminate ? "mixed" : selectionSummary.all}
+              aria-label={t("sidebar.selectAllSessions")} disabled={selectionBusy || !eligibleSelectionIds.length}
+              onChange={() => setSelection((current) => current && ({ ...current, anchor: null, ids: new Set(selectionSummary.all ? [] : eligibleSelectionIds) }))} />
+            <span aria-live="polite">{t("sidebar.selectedCount", { count: selectionSummary.ids.length, total: eligibleSelectionIds.length })}</span>
+          </label>
+          <div className="sidebar-selection-actions">
+            <button type="button" disabled={selectionBusy || !selectionSummary.ids.length} onClick={() => void archiveSelection()}>{t(archiveView ? "sidebar.restore" : "sidebar.archive")}</button>
+            <button type="button" className="is-danger" disabled={selectionBusy || !selectionSummary.ids.length} onClick={() => void deleteSelection(selectionSummary.ids)}>{t("sidebar.delete")}</button>
+            <button type="button" disabled={selectionBusy} onClick={() => { setSelection(null); setDeleteConfirm(null); }}>{t("sidebar.cancel")}</button>
+          </div>
         </div>
       )}
     </div>
@@ -2525,6 +2570,7 @@ function RunningSessionIndicator() {
 }
 
 export function SessionItem({
+  selection,
   session,
   isSelected,
   isRunning,
@@ -2553,6 +2599,7 @@ export function SessionItem({
   collapsed = false,
   onToggleCollapse,
 }: {
+  selection?: { checked: boolean; disabled: boolean; onToggle: (range: boolean) => void };
   session: SessionInfo;
   isSelected: boolean;
   isRunning?: boolean;
@@ -2594,7 +2641,7 @@ export function SessionItem({
   const isLongPressRef = useRef(false);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (renaming || session.transient) return;
+    if (selection || renaming || session.transient) return;
     const touch = e.touches[0];
     touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
     isLongPressRef.current = false;
@@ -2610,7 +2657,7 @@ export function SessionItem({
       }
       onOpenMenu?.(touch.clientX, touch.clientY);
     }, 400);
-  }, [onOpenMenu, renaming, session.transient]);
+  }, [onOpenMenu, renaming, session.transient, selection]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (!touchStartPosRef.current || !longPressTimerRef.current) return;
@@ -2705,11 +2752,15 @@ export function SessionItem({
           e.stopPropagation();
           return;
         }
+        if (selection) {
+          if (!selection.disabled) selection.onToggle(e.shiftKey);
+          return;
+        }
         if (renaming) return;
         onClick();
       }}
       onDoubleClick={() => {
-        if (renaming || session.transient) return;
+        if (selection || renaming || session.transient) return;
         onOpenInNewTab?.();
       }}
       onTouchStart={handleTouchStart}
@@ -2720,13 +2771,13 @@ export function SessionItem({
         if (e.button === 1) e.preventDefault();
       }}
       onAuxClick={(e) => {
-        if (e.button === 1 && onOpenInNewTab && !renaming) {
+        if (e.button === 1 && onOpenInNewTab && !renaming && !selection) {
           e.preventDefault();
           e.stopPropagation();
           onOpenInNewTab();
         }
       }}
-      onContextMenu={renaming ? undefined : handleContextMenu}
+      onContextMenu={selection ? (event) => event.preventDefault() : renaming ? undefined : handleContextMenu}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
       style={{
@@ -2739,10 +2790,10 @@ export function SessionItem({
         cursor: renaming ? "default" : "pointer",
         background: pendingDelete
           ? "color-mix(in srgb, var(--danger) 6%, transparent)"
-          : isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
+          : selection?.checked || isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
         borderRadius: 4,
         transition: "background 0.1s",
-        opacity: deleting ? 0.5 : 1,
+        color: deleting ? "var(--text-dim)" : undefined,
         gap: 6,
         overflow: "hidden",
         userSelect: "none",
@@ -2768,8 +2819,16 @@ export function SessionItem({
       ) : (
         /* ── Normal view ── */
         <>
+          {selection && (
+            <span className="session-selection-checkbox" title={selection.disabled ? t(isRunning ? "sidebar.runningNotSelectable" : "sidebar.sessionNotSelectable") : undefined}>
+              <input type="checkbox" className="sidebar-session-checkbox" checked={selection.checked} disabled={selection.disabled}
+                aria-label={t("sidebar.selectSession", { title })}
+                onChange={() => {}}
+                onClick={(event) => { event.stopPropagation(); if (!selection.disabled) selection.onToggle(event.shiftKey); }} />
+            </span>
+          )}
           {/* Pin toggle sits in the row's left indent so titles never shift */}
-          {onTogglePin && !session.transient && (
+          {!selection && onTogglePin && !session.transient && (
             <button
               type="button"
               className={`session-row-pin${isPinned ? " is-pinned" : ""}`}
@@ -2801,7 +2860,8 @@ export function SessionItem({
           )}
           <button
             type="button"
-            aria-current={isSelected ? "page" : undefined}
+            aria-current={isSelected && !selection ? "page" : undefined}
+            tabIndex={selection ? -1 : undefined}
             style={{
               flex: 1,
               minWidth: 0,
@@ -2871,7 +2931,7 @@ export function SessionItem({
           </div>
 
           {/* Action buttons — shown on hover or keyboard focus */}
-          {!session.transient && (
+          {!selection && !session.transient && (
             <div className="session-row-actions" style={{ display: "flex", alignItems: "center", gap: 2, position: "absolute", right: 6, top: 0, height: "100%", background: isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "var(--bg-panel)", paddingLeft: 4, borderRadius: 4 }}>
               {onOpenInNewTab && (
                 <button
@@ -2911,7 +2971,7 @@ export function SessionItem({
         </>
       )}
     </div>
-    {menuAt && (
+    {menuAt && !selection && createPortal(
       <div
         role="menu"
         className="project-context-menu menu-surface"
@@ -2958,7 +3018,8 @@ export function SessionItem({
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
           {t("sidebar.delete")}
         </button>
-      </div>
+      </div>,
+      document.body,
     )}
     </>
   );

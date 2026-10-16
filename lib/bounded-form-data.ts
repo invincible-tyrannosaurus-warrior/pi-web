@@ -11,18 +11,14 @@ function declaredContentLength(request: Request): number | null {
   return Number.isSafeInteger(length) ? length : null;
 }
 
-/**
- * Parse multipart data only after constraining the complete wire body. This
- * bounds chunked requests too, where Content-Length is unavailable or false.
- */
-export async function parseFormDataWithinLimit(request: Request, maxBytes: number): Promise<FormData> {
+async function readBodyWithinLimit(request: Request, maxBytes: number): Promise<Blob> {
   const declared = declaredContentLength(request);
   if (declared !== null && declared > maxBytes) {
     throw new RequestBodyTooLargeError();
   }
 
   const reader = request.body?.getReader();
-  if (!reader) return request.formData();
+  if (!reader) return new Blob();
 
   const chunks: BlobPart[] = [];
   let size = 0;
@@ -43,7 +39,17 @@ export async function parseFormDataWithinLimit(request: Request, maxBytes: numbe
     reader.releaseLock();
   }
 
+  return new Blob(chunks);
+}
+
+/** Bound the actual stream as well as Content-Length before either parser runs. */
+export async function parseJsonWithinLimit(request: Request, maxBytes: number): Promise<unknown> {
+  return JSON.parse(await (await readBodyWithinLimit(request, maxBytes)).text());
+}
+
+export async function parseFormDataWithinLimit(request: Request, maxBytes: number): Promise<FormData> {
+  const body = await readBodyWithinLimit(request, maxBytes);
   const contentType = request.headers.get("content-type");
   const headers = contentType ? { "content-type": contentType } : undefined;
-  return new Response(new Blob(chunks), { headers }).formData();
+  return new Response(body, { headers }).formData();
 }

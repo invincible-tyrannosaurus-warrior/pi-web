@@ -3577,6 +3577,78 @@ span.token.table {
   line-height: 1.4 !important;
 }
 
+.sidebar-session-checkbox {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--control-on);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sidebar-session-checkbox:disabled {
+  cursor: not-allowed;
+}
+
+.session-selection-checkbox {
+  position: absolute;
+  left: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 26px;
+}
+
+.sidebar-selection-bar {
+  flex-shrink: 0;
+  padding: 6px calc(8px + var(--sidebar-scrollbar-gutter, 0px)) max(6px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.sidebar-selection-count,
+.sidebar-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-selection-actions {
+  margin-top: 4px;
+  gap: 4px;
+}
+
+.sidebar-selection-actions button {
+  flex: 1;
+  min-height: 28px;
+  padding: 4px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-md);
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.sidebar-selection-actions button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.sidebar-selection-actions button.is-danger:not(:disabled) {
+  color: var(--danger);
+}
+
+.sidebar-selection-actions button:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
 .session-row-actions {
   opacity: 0;
   pointer-events: none;

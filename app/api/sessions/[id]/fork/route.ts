@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getRpcSession } from "@/lib/rpc-manager";
+import { getRpcSession, isRpcSessionFileMutationReserved } from "@/lib/rpc-manager";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { forkSessionBranch, getForkLeafId, SessionForkError } from "@/lib/session-fork";
 import { getForkSessionName } from "@/lib/session-display-title";
@@ -32,6 +32,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (prefix !== "Fork: " && prefix !== "分叉：") {
       return refusal(400, "invalid_request", "Invalid fork name prefix");
     }
+    if (isRpcSessionFileMutationReserved(id)) return refusal(409, "busy", "Session file is reserved for deletion");
     const opened = getRpcSession(id);
     const sourcePath = (opened?.isAlive() ? opened.sessionFile : "") || await resolveSessionPath(id);
     if (!sourcePath) {
@@ -42,6 +43,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     // No await between selecting the live/disk leaf and finishing the copy:
     // in-process appends are synchronous, and cannot interleave this snapshot.
+    if (isRpcSessionFileMutationReserved(id)) return refusal(409, "busy", "Session file is reserved for deletion");
     const wrapper = getRpcSession(id);
     const currentPath = (wrapper?.isAlive() ? wrapper.sessionFile : "") || sourcePath;
     const leafId = getForkLeafId(currentPath, wrapper);

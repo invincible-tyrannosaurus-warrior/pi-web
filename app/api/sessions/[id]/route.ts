@@ -1,28 +1,19 @@
 import { NextResponse } from "next/server";
-import { existsSync, readdirSync, readFileSync, statSync } from "fs";
-import { dirname, join } from "path";
-import {
-  commitSessionDeletes,
-  readSessionFileRecord,
-  reparentSessionRecord,
-  type SessionFileRecord,
-} from "@/lib/session-delete";
+import { existsSync, statSync } from "fs";
+import { deleteSessionById } from "@/lib/session-delete-operation";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   attachSessionProjectInfo,
   resolveSessionPath,
   resolveSessionIdByPath,
-  invalidateSessionPathCache,
   invalidateSessionListCache,
   mergeSessionLists,
   listAllSessions,
   buildSessionContext,
   probeLatestEntryId,
-  readSessionHeader,
   openSessionForRead,
 } from "@/lib/session-reader";
-import { sessionPathKey } from "@/lib/session-path";
-import { getRpcSession, getSubagentRun, getRunningRpcSessionIds, getRpcSessionInfos, releaseRpcSessionForExternalWrite, reserveRpcSessionFileMutation } from "@/lib/rpc-manager";
+import { getRpcSession, getSubagentRun, getRunningRpcSessionIds, getRpcSessionInfos, releaseRpcSessionForExternalWrite } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 import { computeSessionStats } from "@/lib/session-stats";
@@ -30,7 +21,6 @@ import { computeSessionContextUsage } from "@/lib/session-context-usage";
 import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
-import { writePrivateFileAtomicSync } from "@/lib/atomic-file";
 import { updateSidebarState } from "@/lib/sidebar-state";
 import { getSessionFamily, familyHasMemberIn } from "@/lib/session-family";
 
@@ -220,112 +210,5 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  try {
-    const filePath = await resolveSessionPath(id);
-    const missingOnDisk = !filePath || !existsSync(filePath);
-    if (missingOnDisk) {
-      const runtime = getRpcSession(id);
-      if (!runtime) {
-        if (filePath) invalidateSessionPathCache(id);
-        return NextResponse.json({ error: "Session not found" }, { status: 404 });
-      }
-      const persistedPath = runtime.sessionFile || filePath;
-      await runtime.shutdown();
-      // Same delete path as below, so the usage cache records the file first.
-      if (persistedPath) commitSessionDeletes([persistedPath]);
-      invalidateSessionPathCache(id);
-      invalidateSessionListCache();
-      return NextResponse.json({ ok: true });
-    }
-
-    // Build and validate the complete mutation plan before touching any file.
-    const parentSessionPath = readSessionHeader(filePath)?.parentSession;
-    let parentSessionId: string | undefined;
-    if (parentSessionPath) {
-      try {
-        parentSessionId = readSessionHeader(parentSessionPath)?.id;
-      } catch {
-        parentSessionId = undefined;
-      }
-    }
-
-    const targetPathKey = sessionPathKey(filePath);
-    const dir = dirname(filePath);
-    const records = readdirSync(dir)
-      .filter((file) => file.endsWith(".jsonl"))
-      .map((file) => readSessionFileRecord(join(dir, file)))
-      .filter((record): record is SessionFileRecord => record !== null);
-    const targetRecord = records.find((record) => record.pathKey === targetPathKey);
-    if (!targetRecord || targetRecord.id !== id) {
-      return NextResponse.json({ error: "Session changed while preparing deletion" }, { status: 409 });
-    }
-
-    const childrenByParent = new Map<string, SessionFileRecord[]>();
-    for (const record of records) {
-      if (!record.parentPath) continue;
-      const key = sessionPathKey(record.parentPath);
-      childrenByParent.set(key, [...(childrenByParent.get(key) ?? []), record]);
-    }
-    const directChildren = childrenByParent.get(targetPathKey) ?? [];
-    const cascadeDeleteKeys = new Set<string>();
-    // A root session owns its direct subagent families. Intermediate sessions
-    // retain the existing reparenting behavior so nested subagents stay useful.
-    if (!parentSessionPath) {
-      const queue = directChildren.filter((record) => record.isSubagent);
-      while (queue.length > 0) {
-        const record = queue.shift()!;
-        if (cascadeDeleteKeys.has(record.pathKey)) continue;
-        cascadeDeleteKeys.add(record.pathKey);
-        queue.push(...(childrenByParent.get(record.pathKey) ?? []));
-      }
-    }
-
-    const cascadeDeletes = records.filter((record) => cascadeDeleteKeys.has(record.pathKey));
-    const reparents = directChildren.filter((record) => !cascadeDeleteKeys.has(record.pathKey));
-    if (reparents.some((record) => record.isSubagent) && (!parentSessionPath || !parentSessionId)) {
-      return NextResponse.json({ error: "Cannot reparent subagent session" }, { status: 409 });
-    }
-
-    const affected = [targetRecord, ...cascadeDeletes, ...reparents];
-    const release = await reserveRpcSessionFileMutation(affected.map((record) => record.id));
-    if (!release) {
-      return NextResponse.json({ error: "Session is busy" }, { status: 409 });
-    }
-
-    try {
-      if (affected.some((record) => {
-        try { return readFileSync(record.path, "utf8") !== record.original; }
-        catch { return true; }
-      })) {
-        return NextResponse.json({ error: "Session changed while preparing deletion" }, { status: 409 });
-      }
-
-      const rewrites = reparents.map((record) => ({
-        record,
-        updated: reparentSessionRecord(record, parentSessionPath, parentSessionId),
-      }));
-      const applied: SessionFileRecord[] = [];
-      try {
-        for (const { record, updated } of rewrites) {
-          writePrivateFileAtomicSync(record.path, updated);
-          applied.push(record);
-        }
-        commitSessionDeletes([filePath, ...cascadeDeletes.map((record) => record.path)]);
-      } catch (error) {
-        for (const record of applied.reverse()) {
-          try { writePrivateFileAtomicSync(record.path, record.original); } catch { /* preserve original error */ }
-        }
-        throw error;
-      }
-
-      invalidateSessionPathCache(id);
-      for (const record of cascadeDeletes) invalidateSessionPathCache(record.id);
-      invalidateSessionListCache();
-      return NextResponse.json({ ok: true });
-    } finally {
-      release();
-    }
-  } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
-  }
+  return deleteSessionById(id);
 }

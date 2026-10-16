@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { createJiti } from "jiti";
+
+// Every deletion keeps transcripts and sidebar/usage writes in temp storage.
+const suiteAgentDir = await mkdtemp(join(tmpdir(), "pi-web-runtime-agent-"));
+const suiteSessionsDir = join(suiteAgentDir, "sessions");
+await mkdir(suiteSessionsDir);
+const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+process.env.PI_CODING_AGENT_DIR = suiteAgentDir;
+after(async () => {
+  if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+  await rm(suiteAgentDir, { recursive: true, force: true });
+});
 
 const listRoute = await readFile(new URL("./route.ts", import.meta.url), "utf8");
 const detailRoute = await readFile(new URL("./[id]/route.ts", import.meta.url), "utf8");
@@ -108,7 +120,7 @@ test("live agent state is available before the session file is persisted", () =>
 });
 
 test("deleting an intermediate subagent reparents both relation representations", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-web-delete-reparent-"));
+  const dir = await mkdtemp(join(suiteSessionsDir, "pi-web-delete-reparent-"));
   const grandparentPath = join(dir, "grandparent.jsonl");
   const parentPath = join(dir, "parent.jsonl");
   const childPath = join(dir, "child.jsonl");
@@ -166,7 +178,7 @@ test("deleting an intermediate subagent reparents both relation representations"
 });
 
 test("deleting a root session cascades its persisted subagent family", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-web-delete-subagents-"));
+  const dir = await mkdtemp(join(suiteSessionsDir, "pi-web-delete-subagents-"));
   const rootPath = join(dir, "root.jsonl");
   const childPath = join(dir, "child.jsonl");
   const nestedPath = join(dir, "nested.jsonl");
@@ -222,7 +234,7 @@ test("deleting a root session cascades its persisted subagent family", async (t)
 });
 
 test("deleting a busy session returns conflict without touching its file", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-web-delete-busy-"));
+  const dir = await mkdtemp(join(suiteSessionsDir, "pi-web-delete-busy-"));
   const filePath = join(dir, "busy.jsonl");
   const id = "delete-busy-session";
   await writeFile(filePath, `${JSON.stringify({
@@ -310,7 +322,8 @@ test("deletes an unpersisted runtime session without a JSONL file", async (t) =>
   const id = "live-unpersisted-delete";
   let shutdowns = 0;
   globalThis.__piSessions = new Map([[id, {
-    sessionFile: `/tmp/pi-web-unpersisted-${process.pid}.jsonl`,
+    sessionFile: join(suiteSessionsDir, `pi-web-unpersisted-${process.pid}.jsonl`),
+    isBusyForFileMutation: () => false,
     shutdown: async () => { shutdowns += 1; },
   }]]);
   t.after(() => {
@@ -329,7 +342,7 @@ test("deletes an unpersisted runtime session without a JSONL file", async (t) =>
 });
 
 test("does not treat a missing file as deleted when no runtime session exists", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-web-missing-delete-"));
+  const dir = await mkdtemp(join(suiteSessionsDir, "pi-web-missing-delete-"));
   const id = "missing-on-disk";
   const filePath = join(dir, `${id}.jsonl`);
   cacheSessionPath(id, filePath);

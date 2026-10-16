@@ -148,7 +148,7 @@ test("project menus clamp using their measured height on desktop, phone, and in 
         React, projectMenu, archiveView, window: { innerWidth: 390, innerHeight },
         projectActivity: new Map(), archiveOlderFamilies: () => [], archivedFamilies: [],
         workspaceProjects: [{ key: "p" }], workspaceKeyOf: (session) => session.projectKey,
-        deletingProjectKey: null, t: (key) => key, ArchiveIcon: noop,
+        selectionBusy: false, beginSelection: noop, t: (key) => key, ArchiveIcon: noop,
         setProjectMenu: noop, setSelectedCwd: noop, setExplorerOpen: noop, saveExplorerOpen: noop,
         setRenamingProjectKey: noop, moveProject: noop, updateSessionSidebarState: noop, setDeleteConfirm: noop,
       });

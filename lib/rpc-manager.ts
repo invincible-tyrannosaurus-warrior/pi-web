@@ -788,6 +788,9 @@ export class AgentSessionWrapper {
       if (type !== "get_state") this.resetIdleTimer();
       if (this.shouldWaitUntilReady(type)) await this.waitUntilReady();
       if (!this._alive || this._closing) throw new Error("Session is closing");
+      if ((type === "fork" || type === "fork_branch" || type === "clone") && isRpcSessionFileMutationReserved(this.sessionId)) {
+        throw new Error("Session file is reserved for deletion");
+      }
       if (this.sessionReplacement && !allowedDuringReplacement) {
         throw new Error("Session is being copied to a new session");
       }
@@ -1950,6 +1953,10 @@ export function releaseRpcSessionForExternalWrite(sessionId: string): boolean {
 function getSessionFileMutations(): Set<string> {
   if (!globalThis.__piSessionFileMutations) globalThis.__piSessionFileMutations = new Set();
   return globalThis.__piSessionFileMutations;
+}
+
+export function isRpcSessionFileMutationReserved(sessionId: string): boolean {
+  return getSessionFileMutations().has(sessionId);
 }
 
 /**

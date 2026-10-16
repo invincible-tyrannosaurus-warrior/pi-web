@@ -17,12 +17,13 @@ test("active project row owns the only worktree switcher and its full-width menu
   assert.match(source, /const worktreeSwitcher = showWorktreeSwitcher && worktreeState/);
   assert.match(source, /\{active \? worktreeSwitcher : null\}/);
   assert.match(source, /className="workspace-worktree-switcher"/);
-  assert.match(source, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*setWtDropdownOpen/);
+  assert.match(source, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*const row = event\.currentTarget\.closest\("\.workspace-list-row"\)!\.getBoundingClientRect\(\)/);
   assert.match(source, /onTouchStart=\{\(event\) => event\.stopPropagation\(\)\}/);
   assert.match(
     source,
-    /\{wtDropdownOpen && \([\s\S]*?className="menu-surface"[\s\S]*?top: "calc\(100% \+ 4px\)"[\s\S]*?left: 2,[\s\S]*?right: 2,/,
+    /\{wtDropdownOpen && wtMenuPosition && createPortal\([\s\S]*?className="workspace-worktree-switcher menu-surface"[\s\S]*?position: "fixed",[\s\S]*?\.\.\.wtMenuPosition/,
   );
+  assert.match(source, /setWtMenuPosition\(\{ left: row\.left \+ 2, top: row\.bottom \+ 4, width: row\.width - 4 \}\)/);
 });
 
 test("worktree menu keeps filtering, creation, removal, dirty confirmation, and errors", () => {
@@ -75,31 +76,25 @@ test("projects section owns workspace sessions and new-session actions", () => {
 test("single-project mode lists only the current project and switches via the dropdown", () => {
   assert.match(source, /isSidebarSingleProject\(\)/);
   assert.match(source, /workspaceProjects\.filter\(\(project\) => project\.key === \(selectedProject \?\? workspaceProjects\[0\]\)\?\.key\)/);
-  assert.match(source, /families, singleProject \|\| archiveView \? Infinity : WORKSPACE_SESSION_PREVIEW_LIMIT/);
+  assert.match(source, /families, selecting \|\| singleProject \|\| archiveView \? Infinity : WORKSPACE_SESSION_PREVIEW_LIMIT/);
   assert.match(source, /singleProject \? "sidebar\.switchProject" : "sidebar\.addProject"/);
   assert.match(source, /onClick=\{\(\) => \{ setSelectedCwd\(project\.root\); setDropdownOpen\(false\); \}\}/);
   assert.match(source, /otherProjectActivity\.running > 0/);
 });
 
-test("project rows delete all sessions behind an unskippable confirmation", () => {
-  assert.match(source, /fetch\("\/api\/projects", \{\s*method: "DELETE"/);
-  // Delete lives in the project context menu (right-click / long press), not the hover actions.
-  const menu = source.slice(source.indexOf('className="project-context-menu'), source.indexOf("{/* Pinned sessions"));
-  assert.match(menu, /disabled=\{running \|\| deletingProjectKey === projectMenu\.key\}/);
-  assert.match(menu, /setDeleteConfirm\(\{ kind: "project", key: projectMenu\.key, x: projectMenu\.x, y: projectMenu\.y \}\)/);
-  const rowActions = source.slice(source.indexOf('<span className="workspace-row-action">'), source.indexOf('if (row.kind === "showMore")'));
-  assert.doesNotMatch(rowActions, /setConfirmDeleteProjectKey/);
-  assert.match(source, /if \(projectFor\(cwd\)\?\.key === project\.key\) onTogglePinnedCwd\(cwd\)/);
-  assert.match(source, /for \(const id of data\.deletedSessionIds \?\? \[\]\) onSessionDeleted\?\.\(id\)/);
-  const confirm = source.slice(source.indexOf("{deleteConfirm &&"), source.indexOf("<SessionSearch "));
-  assert.match(confirm, /sidebar\.deleteProjectSessionsDetail/);
-  assert.doesNotMatch(confirm, /title=\{t\("sidebar\.deleteProjectSessionsDetail"/);
-  assert.doesNotMatch(confirm, /shiftKey/);
+test("project-wide deletes are replaced by selection with a counted irreversible confirmation", () => {
+  assert.doesNotMatch(source, /fetch\("\/api\/projects"|kind: "project"/);
+  assert.match(source, /beginSelection\(projectMenu\.key\)/);
+  assert.match(source, /useConfirm/);
+  const deletion = source.slice(source.indexOf("const deleteSelection ="), source.indexOf("const deleteSession ="));
+  assert.match(deletion, /ids\.length/);
+  assert.match(deletion, /sidebar\.deleteSelectedDetail/);
+  assert.match(deletion, /await confirm\([\s\S]*?danger: true/);
+  assert.doesNotMatch(source, /kind: "selection"/);
 });
 
-test("single-project switcher can delete any listed project without switching to it", () => {
-  const dropdown = source.slice(source.indexOf("{singleProject && ("), source.indexOf("handleCustomPathClick(); }}"));
-  assert.match(dropdown, /setDropdownOpen\(false\);\s*setDeleteConfirm\(\{ kind: "project", key: project\.key, x: event\.clientX, y: event\.clientY \}\)/);
-  assert.doesNotMatch(dropdown, /setDeleteConfirm[\s\S]*setSelectedCwd\(project\.root\)[\s\S]*setDeleteConfirm/);
-  assert.match(dropdown, /disabled=\{Boolean\(activity\?\.running\) \|\| deletingProjectKey === project\.key\}/);
+test("single-project switcher navigates without destructive shortcuts", () => {
+  const dropdown = source.slice(source.indexOf("{workspaceProjects.map((project, index) =>"), source.indexOf("handleCustomPathClick(); }}"));
+  assert.match(dropdown, /setSelectedCwd\(project\.root\)/);
+  assert.doesNotMatch(dropdown, /setDeleteConfirm|sidebar\.delete/);
 });

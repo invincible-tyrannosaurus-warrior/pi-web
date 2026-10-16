@@ -55,7 +55,7 @@ test("session windows stay valid after a project shrinks and before the viewport
 test("uses a native main action without row-level deletion shortcuts", () => {
   assert.doesNotMatch(sessionItemSource, /const handleKeyDown/);
   assert.doesNotMatch(sessionItemSource, /onKeyDown=\{handleKeyDown\}/);
-  assert.match(sessionItemSource, /<button\s*type="button"\s*aria-current=\{isSelected \? "page" : undefined\}/);
+  assert.match(sessionItemSource, /<button\s*type="button"\s*aria-current=\{isSelected && !selection \? "page" : undefined\}/);
 });
 
 test("polls running sessions only while the tab is visible", () => {
@@ -130,7 +130,7 @@ test("offers the downstream context-menu hook only on a normal session row", () 
   assert.match(sessionItemSource, /const handleContextMenu[\s\S]*?dispatchSessionRowContextMenu\(\{/);
   assert.match(
     sessionItemSource,
-    /onContextMenu=\{renaming \? undefined : handleContextMenu\}/,
+    /onContextMenu=\{selection \? \(event\) => event\.preventDefault\(\) : renaming \? undefined : handleContextMenu\}/,
   );
 });
 
@@ -144,14 +144,14 @@ test("list reloads never force a rescan: the server invalidates before the brows
 
 test("keeps a session visible when the delete request fails", () => {
   assert.match(source, /const response = await fetch\(`\/api\/sessions\/\$\{encodeURIComponent\(sessionId\)\}`/);
-  assert.match(source, /if \(!response\.ok\) throw new Error\(`HTTP \$\{response\.status\}`\)/);
-  assert.match(source, /onSessionDeleted\?\.\(sessionId\)/);
+  assert.match(source, /if \(!response\.ok\) throw new Error\(data\.error \?\? `HTTP \$\{response\.status\}`\)/);
+  assert.match(source, /for \(const id of data\.deletedSessionIds \?\? \[sessionId\]\) onSessionDeleted\?\.\(id\)/);
   assert.match(source, /setDeletingSessionId\(null\)/);
 });
 
 test("does not expose disk-backed actions for transient sessions", () => {
   assert.match(sessionItemSource, /if \(session\.transient\) return;/);
-  assert.match(sessionItemSource, /\{!session\.transient && \(\s*<div className="session-row-actions"/);
+  assert.match(sessionItemSource, /\{!selection && !session\.transient && \(\s*<div className="session-row-actions"/);
 });
 
 test("hides subagent rows and aggregates their state into the main session row", () => {
