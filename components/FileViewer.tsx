@@ -1874,7 +1874,7 @@ function TextFileViewer({
     window.getSelection()?.removeAllRanges();
   }, [onAttachSelection]);
 
-  // The floating "Add to chat" button appears once a selection gesture ends, placed like the
+  // The floating "Quote" button appears once a selection gesture ends, placed like the
   // chat's selection toolbar (lib/selection-toolbar.ts).
   const showAttachButton = useCallback(() => {
     const selection = window.getSelection();
@@ -2319,7 +2319,7 @@ function TextFileViewer({
             onPointerDown={(event) => event.preventDefault()}
             onClick={() => attachSelection(selectionAttachment)}
           >
-            <span aria-hidden="true">+</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16" /></svg>
             <span>{t("chat.askInCurrent")}</span>
           </button>
         </div>,

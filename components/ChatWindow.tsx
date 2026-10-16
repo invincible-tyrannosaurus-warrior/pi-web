@@ -2531,7 +2531,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             onPointerDown={(event) => event.preventDefault()}
             onClick={askSelectionHere}
           >
-            <span aria-hidden="true">+</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M12 4v16M4 12h16" /></svg>
             <span>{t("chat.askInCurrent")}</span>
           </button>
           {onAskInNewChat && (
