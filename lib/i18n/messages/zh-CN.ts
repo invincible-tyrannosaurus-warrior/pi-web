@@ -44,7 +44,6 @@ export const zhCNLocale: LocalePlugin = {
     "settings.quoteSelectionDescription": "在回复中选中文字后，可在新对话里针对它提问。",
     "settings.sidebarSingleProjectDescription": "侧边栏隐藏其他项目的会话。",
     "settings.browserNotificationsDescription": "页面在后台时，会话完成或需要你处理会发出提醒。",
-    "settings.version": "版本",
     "settings.logOutDescription": "让此浏览器退出 Pi Web。",
     "skills.modelInvocation": "模型可自动调用",
     "skills.modelInvocationOn": "模型会在合适的时候自己使用它。对所有项目生效。",

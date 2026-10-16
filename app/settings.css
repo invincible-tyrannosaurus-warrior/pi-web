@@ -764,6 +764,33 @@
   justify-content: flex-end;
 }
 
+.about-links {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.about-link:hover {
+  color: var(--text);
+}
+
+@media (pointer: coarse) {
+  .about-link {
+    min-height: 32px;
+  }
+}
+
 .app-update-line {
   position: relative;
   display: flex;

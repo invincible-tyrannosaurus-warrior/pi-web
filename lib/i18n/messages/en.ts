@@ -44,7 +44,6 @@ export const enLocale: LocalePlugin = {
     "settings.quoteSelectionDescription": "Selecting text in a reply offers to ask about it in a new chat.",
     "settings.sidebarSingleProjectDescription": "Hide other projects' sessions from the sidebar.",
     "settings.browserNotificationsDescription": "Alert when a session finishes or needs you while this tab is in the background.",
-    "settings.version": "Version",
     "settings.logOutDescription": "Sign this browser out of Pi Web.",
     "skills.modelInvocation": "Model can invoke automatically",
     "skills.modelInvocationOn": "The model uses it on its own when relevant. Applies to every project.",
