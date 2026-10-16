@@ -1171,6 +1171,66 @@ pre, code {
   mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent);
 }
 
+/* Scroll timelines are inactive without overflow: registered lengths stay zero.
+   Match the chat's 16px fade without changing its always-on bottom mask. */
+@property --scroll-fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --scroll-fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes scroll-fade-start {
+  from { --scroll-fade-start: 0px; }
+  to { --scroll-fade-start: 16px; }
+}
+@keyframes scroll-fade-end {
+  from { --scroll-fade-end: 16px; }
+  to { --scroll-fade-end: 0px; }
+}
+@supports (animation-timeline: scroll(self block)) and (animation-range: 0px 16px) {
+  .scroll-fade-block,
+  .markdown-code-block pre,
+  .markdown-table-wrap {
+    animation-name: scroll-fade-start, scroll-fade-end;
+    animation-duration: auto;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+    animation-range: 0px 16px, calc(100% - 16px) 100%;
+    mask-repeat: no-repeat;
+  }
+  /* Keep the classic scrollbar strip opaque, not part of the edge gradient. */
+  .scroll-fade-block {
+    --scroll-fade-gutter: var(--sidebar-scrollbar-gutter, 0px);
+    animation-timeline: scroll(self block);
+    mask-image:
+      linear-gradient(to bottom, transparent, #000 var(--scroll-fade-start), #000 calc(100% - var(--scroll-fade-end)), transparent),
+      linear-gradient(#000, #000);
+    mask-size: calc(100% - var(--scroll-fade-gutter)) 100%, var(--scroll-fade-gutter) 100%;
+    mask-position: left top, right top;
+  }
+  .markdown-code-block pre,
+  .markdown-table-wrap {
+    --scroll-fade-gutter: 0px;
+    animation-timeline: scroll(self inline);
+    mask-image:
+      linear-gradient(to right, transparent, #000 var(--scroll-fade-start), #000 calc(100% - var(--scroll-fade-end)), transparent),
+      linear-gradient(#000, #000);
+    mask-size: 100% calc(100% - var(--scroll-fade-gutter)), 100% var(--scroll-fade-gutter);
+    mask-position: left top, left bottom;
+  }
+  /* These browsers use our 5px classic bar; touch bars are hidden. */
+  @supports selector(::-webkit-scrollbar) {
+    @media (pointer: fine) {
+      .markdown-code-block pre,
+      .markdown-table-wrap { --scroll-fade-gutter: 5px; }
+    }
+  }
+}
+
 /* react-markdown output styles */
 .chat-content {
   --chat-font-size-offset: calc(var(--chat-content-font-size, 14px) - 14px);
@@ -1331,13 +1391,17 @@ pre, code {
 }
 .markdown-body blockquote > p:first-child { margin-top: 0; }
 .markdown-body blockquote > p:last-child { margin-bottom: 0; }
-.markdown-table-wrap {
+.markdown-table-frame {
   width: 100%;
   margin: 8px 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--ui-radius-md);
+}
+.markdown-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .markdown-body table {
   border-collapse: separate;
@@ -1785,7 +1849,7 @@ pre, code {
 .markdown-user-message ol {
   margin: 2px 0 4px;
 }
-.markdown-user-message .markdown-table-wrap,
+.markdown-user-message .markdown-table-frame,
 .markdown-user-message .markdown-code-block {
   margin: 4px 0;
 }

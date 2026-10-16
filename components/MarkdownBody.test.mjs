@@ -26,6 +26,12 @@ function renderMarkdown(markdown, props = {}) {
   );
 }
 
+test("table borders surround the scroller without entering its mask", () => {
+  const html = renderMarkdown("| a | b |\n| - | - |\n| 1 | 2 |");
+  assert.match(html, /<div class="markdown-table-block"><div class="markdown-table-frame"><div class="markdown-table-wrap"><table>/);
+  assert.match(html, /<\/table><\/div><\/div><div class="markdown-table-actions">/);
+});
+
 test("opens non-file markdown links in a safe new tab", () => {
   const html = renderMarkdown("[docs](https://example.com/docs)");
 

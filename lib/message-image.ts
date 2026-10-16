@@ -13,11 +13,12 @@ const MAX_CANVAS_AREA = 16_000_000;
 const EXCLUDE = ".markdown-code-actions, .markdown-table-actions, .message-action-button, [data-export-exclude]";
 // html-to-image freezes every element's computed size. A sub-pixel overflow in the clone
 // then paints a classic scrollbar inside a table/code wrapper's fixed height, covering
-// its last row. A picture cannot scroll, so hide scrollbars; !important beats the inline copies.
-const EXPORT_CSS = "*{scrollbar-width:none!important}*::-webkit-scrollbar{display:none!important}"
+// its last row. A picture cannot scroll, so hide scrollbars and edge masks only in
+// the clone; !important beats the inline copies (including an active scroll animation).
+const EXPORT_CSS = "*{scrollbar-width:none!important;mask-image:none!important;-webkit-mask-image:none!important;animation:none!important}*::-webkit-scrollbar{display:none!important}"
   // Wide tables and code blocks scroll on screen; a picture cannot, so they unfold to full width
   // (the bordered box grows with them) while the prose keeps its on-screen line length.
-  + ".markdown-table-wrap,.markdown-code-block{width:max-content!important;min-width:100%!important;max-width:none!important;overflow:visible!important}"
+  + ".markdown-table-frame,.markdown-table-wrap,.markdown-code-block{width:max-content!important;min-width:100%!important;max-width:none!important;overflow:visible!important}"
   // flow-root keeps the block formatting context overflow:hidden gave, so margins and height stay put.
   + ".markdown-body{overflow:visible!important;display:flow-root!important}"
   + ".markdown-code-block>*{width:auto!important}.markdown-code-block pre{overflow:visible!important}"

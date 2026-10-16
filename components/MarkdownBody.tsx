@@ -176,8 +176,10 @@ export function tableSource(markdown: string, start: number, end: number): strin
 export function MarkdownTableBlock({ children, actions = true, getSource }: { children: ReactNode; actions?: boolean; getSource?: () => string }) {
   return (
     <div className="markdown-table-block">
-      <div className="markdown-table-wrap">
-        <table>{children}</table>
+      <div className="markdown-table-frame">
+        <div className="markdown-table-wrap">
+          <table>{children}</table>
+        </div>
       </div>
       {actions && (
         <div className="markdown-table-actions">

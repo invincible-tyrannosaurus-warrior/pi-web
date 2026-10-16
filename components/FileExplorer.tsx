@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { iconStroke } from "./iconStroke";
 import { getFileIcon, SidebarChevronGlyph } from "./FileIcons";
 import {
@@ -1156,7 +1157,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       </div>
       )}
 
-      {fileMenu && (
+      {fileMenu && createPortal(
         <div
           key={fileMenu.confirm ? "confirm" : "menu"}
           role={fileMenu.confirm ? undefined : "menu"}
@@ -1215,7 +1216,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               </button>
             </>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
 
       {deleteError && (
