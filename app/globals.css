@@ -4491,10 +4491,6 @@ span.token.table {
   cursor: default;
 }
 
-.composer-btn[data-active] {
-  color: var(--accent);
-}
-
 /* Touch screens wider than a phone (tablets) keep the dense 24px drawing; an invisible
    ring grows the hit box to 32px tall, 1px sideways so neighbours in the 2px gap never overlap. */
 @media (pointer: coarse) {

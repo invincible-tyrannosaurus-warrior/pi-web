@@ -32,7 +32,6 @@ import { QuoteCard } from "./QuoteCard";
 import { ImageMentionChip } from "./GeneratedImageResult";
 import { ImageAttachmentStrip } from "./ImageAttachmentStrip";
 import { FolderIcon, getFileIcon } from "./FileIcons";
-import { ThinkingIcon } from "./ThinkingIcon";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
@@ -2549,7 +2548,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   type="button"
                   className="composer-btn is-icon"
                   disabled={disabled}
-                  data-active={attachedImages.length > 0 || undefined}
                   onClick={() => {
                     if (onOpenImageGeneration) {
                       setControlsMenuOpen(false);
@@ -2565,7 +2563,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   aria-haspopup={onOpenImageGeneration ? "menu" : undefined}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" />
+                    <path d="M12 5v14M5 12h14" />
                   </svg>
                 </button>
                 {imageMenuOpen && onOpenImageGeneration && (
@@ -2600,7 +2598,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     aria-haspopup="menu"
                     aria-expanded={thinkingDropdownOpen}
                   >
-                    <ThinkingIcon size={13} />
                     <span>{thinkingDisplayLabel}</span>
                   </button>
                   {thinkingDropdownOpen && (
