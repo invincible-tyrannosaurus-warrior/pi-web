@@ -60,9 +60,8 @@ export function QuoteCard({ quote, onRemove }: { quote: Quote; onRemove?: () => 
         {quote.file ? (
           <span className="quote-chip-icon" aria-hidden="true">{getFileIcon(getFileName(quote.file), 13)}</span>
         ) : (
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M17 6H3M21 12H8M21 18H8M3 12v6" />
-          </svg>
+          // A text excerpt is marked like a blockquote, by a rule; a file keeps its type icon.
+          <span className="quote-chip-rule" aria-hidden="true" />
         )}
         {fileLabel ? (
           <span className="quote-chip-file">

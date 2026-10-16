@@ -4984,7 +4984,15 @@ span.token.table {
   border-radius: var(--ui-radius-md);
 }
 
-.quote-chip-body > svg,
+/* Neutral blockquote rule: marks the excerpt without an icon's ink. */
+.quote-chip-rule {
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+}
+
 .quote-chip-icon {
   display: flex;
   flex-shrink: 0;
