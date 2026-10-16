@@ -230,6 +230,8 @@ async function createTrackedFilePatch(
       "diff",
       "--no-color",
       "--no-ext-diff",
+      // A nested checkout's own textconv driver would run a command just to show a preview.
+      "--no-textconv",
       "--unified=3",
       "HEAD",
       "--",
@@ -240,9 +242,23 @@ async function createTrackedFilePatch(
   }
 }
 
+/**
+ * The file spelled through its nearest existing folder's real path, so a symlinked folder
+ * inside the cwd and git's toplevel agree; a deleted file keeps its missing segments.
+ */
+function realSpelledPath(filePath: string): { existingDir: string; realPath: string } {
+  const resolved = path.resolve(filePath);
+  let dir = path.dirname(resolved);
+  while (!fs.existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir);
+  return { existingDir: dir, realPath: path.join(realPathOrSelf(dir), path.relative(dir, resolved)) };
+}
+
 export async function getGitFileDiff(cwd: string, filePath: string): Promise<GitFileDiffResponse> {
-  const repositoryRoot = await findRepositoryRoot(cwd);
-  const relativePath = repositoryRoot ? toRepoRelativePath(cwd, repositoryRoot, filePath) : null;
+  // The file's own repository, not the cwd's: a cwd may be a plain folder of several
+  // repositories, or hold a nested checkout.
+  const { existingDir, realPath } = realSpelledPath(filePath);
+  const repositoryRoot = await findRepositoryRoot(existingDir) ?? await findRepositoryRoot(cwd);
+  const relativePath = repositoryRoot ? toRepoRelativePath(cwd, repositoryRoot, realPath) : null;
   if (!repositoryRoot || relativePath === null) return { supported: false };
 
   const resolvedFilePath = path.resolve(filePath);
