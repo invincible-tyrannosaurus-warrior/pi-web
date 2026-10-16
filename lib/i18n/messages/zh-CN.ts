@@ -766,6 +766,8 @@ export const zhCNLocale: LocalePlugin = {
     "terminal.connecting": "连接中",
     "terminal.ready": "已连接",
     "terminal.exited": "终端已关闭",
+    "terminal.lightTheme": "将终端切换为浅色主题",
+    "terminal.darkTheme": "将终端切换为深色主题",
     "terminal.error": "连接错误",
     "terminal.exitCode": "进程已退出，退出码 {code}",
     "chat.outputLocal": "输出保留在本地",

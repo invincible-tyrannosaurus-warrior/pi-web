@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useI18n } from "@/hooks/useI18n";
@@ -16,6 +16,7 @@ import {
 import type { TerminalEvent } from "@/lib/terminal-manager";
 import { TerminalExtraKeys, useTerminalExtraKeysVisible } from "./TerminalExtraKeys";
 import type { TerminalTab } from "./terminal-tab-state";
+import { isTerminalLight, setTerminalLight, subscribeTerminalTheme, TERMINAL_THEMES } from "./terminal-theme";
 
 interface Props {
   tab: TerminalTab;
@@ -42,6 +43,9 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
   const [modifiers, setModifiers] = useState<TerminalModifiers>(NO_TERMINAL_MODIFIERS);
   const modifiersRef = useRef(modifiers);
   const showExtraKeys = useTerminalExtraKeysVisible();
+  const light = useSyncExternalStore(subscribeTerminalTheme, isTerminalLight, () => false);
+  const theme = light ? "light" : "dark";
+  const themeLabel = light ? "terminal.darkTheme" : "terminal.lightTheme";
 
   const consumeModifiers = useCallback(() => {
     const current = modifiersRef.current;
@@ -84,15 +88,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
       scrollback: 8000,
       screenReaderMode: true,
       disableStdin: true,
-      theme: {
-        background: "#111318", foreground: "#d7dce5", cursor: "#60a5fa",
-        selectionBackground: "#365b8a",
-        black: "#1d222b", red: "#f87171", green: "#4ade80", yellow: "#facc15",
-        blue: "#60a5fa", magenta: "#c084fc", cyan: "#22d3ee", white: "#e5e7eb",
-        brightBlack: "#6b7280", brightRed: "#fca5a5", brightGreen: "#86efac",
-        brightYellow: "#fde047", brightBlue: "#93c5fd", brightMagenta: "#d8b4fe",
-        brightCyan: "#67e8f9", brightWhite: "#ffffff",
-      },
+      theme: TERMINAL_THEMES[isTerminalLight() ? "light" : "dark"],
     });
     terminalRef.current = terminal;
     const fit = new FitAddon();
@@ -217,6 +213,10 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
   }, [id, cwd, restored, reconnectKey, consumeModifiers]);
 
   useEffect(() => {
+    if (terminalRef.current) terminalRef.current.options.theme = TERMINAL_THEMES[theme];
+  }, [theme]);
+
+  useEffect(() => {
     if (active) terminalRef.current?.focus();
   }, [active]);
 
@@ -239,24 +239,35 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
   }, [id, tab.closing]);
 
   return (
-    <section className={`terminal-panel${showExtraKeys ? " has-extra-keys" : ""}`} aria-label={t("terminal.title")}>
+    <section className={`terminal-panel${showExtraKeys ? " has-extra-keys" : ""}`} data-terminal-theme={theme} aria-label={t("terminal.title")}>
       <header className="terminal-panel-header">
         <div className="terminal-panel-path">
           <span className={`terminal-status-dot is-${status}`} title={t(`terminal.${status}`)} />
           <span title={cwd}>{cwd}</span>
         </div>
-        {status === "error" && (
-          <button type="button" onClick={() => setReconnectKey((key) => key + 1)} disabled={Boolean(tab.closing)} title={t("terminal.reconnect")} aria-label={t("terminal.reconnect")}>
+        <div className="terminal-panel-actions">
+          <button type="button" onClick={() => setTerminalLight(!isTerminalLight())} title={t(themeLabel)} aria-label={t(themeLabel)}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2" />
+              {light ? (
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              ) : (
+                <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></>
+              )}
             </svg>
           </button>
-        )}
-        <button type="button" onClick={onRestart} disabled={Boolean(tab.closing)} title={t("terminal.restart")} aria-label={t("terminal.restart")}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M20 11a8 8 0 1 0-2.34 5.66" /><polyline points="20 4 20 11 13 11" />
-          </svg>
-        </button>
+          {status === "error" && (
+            <button type="button" onClick={() => setReconnectKey((key) => key + 1)} disabled={Boolean(tab.closing)} title={t("terminal.reconnect")} aria-label={t("terminal.reconnect")}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2" />
+              </svg>
+            </button>
+          )}
+          <button type="button" onClick={onRestart} disabled={Boolean(tab.closing)} title={t("terminal.restart")} aria-label={t("terminal.restart")}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 11a8 8 0 1 0-2.34 5.66" /><polyline points="20 4 20 11 13 11" />
+            </svg>
+          </button>
+        </div>
       </header>
       <div>
         {error && <div className="terminal-panel-error" role="alert">{error}</div>}

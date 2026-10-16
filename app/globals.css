@@ -899,13 +899,54 @@ body {
 }
 
 .terminal-panel {
+  --terminal-bg: #111318;
+  --terminal-header-bg: #181b21;
+  --terminal-border: #2f3540;
+  --terminal-button-border: #343a46;
+  --terminal-hover: #242932;
+  --terminal-muted: #9ca3af;
+  --terminal-strong: #e5e7eb;
+  --terminal-accent: #60a5fa;
+  --terminal-status-connecting: #facc15;
+  --terminal-status-ready: #4ade80;
+  --terminal-status-error: #f87171;
+  --terminal-error-border: #5f2424;
+  --terminal-error-bg: #321b1b;
+  --terminal-error-text: #fca5a5;
+  color-scheme: dark;
   display: grid;
   grid-template-rows: 38px auto minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  background: #111318;
+  background: var(--terminal-bg);
+}
+
+/* Match components/terminal-theme.ts independently of the app theme. */
+.terminal-panel[data-terminal-theme="light"] {
+  --terminal-bg: #ffffff;
+  --terminal-header-bg: #ffffff;
+  --terminal-border: #e0e0e0;
+  --terminal-button-border: #e0e0e0;
+  --terminal-hover: #eeeeee;
+  --terminal-muted: #565e6b;
+  --terminal-strong: #1a1a1a;
+  --terminal-accent: #2563eb;
+  --terminal-status-connecting: #b45309;
+  --terminal-status-ready: #15803d;
+  --terminal-status-error: #dc2626;
+  --terminal-error-border: #fecaca;
+  --terminal-error-bg: #fef2f2;
+  --terminal-error-text: #b91c1c;
+  color-scheme: light;
+}
+
+.terminal-panel-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
 }
 
 .terminal-panel-header {
@@ -914,9 +955,9 @@ body {
   justify-content: space-between;
   min-width: 0;
   padding: 0 10px 0 13px;
-  border-bottom: 1px solid #2f3540;
-  background: #181b21;
-  color: #9ca3af;
+  border-bottom: 1px solid var(--terminal-border);
+  background: var(--terminal-header-bg);
+  color: var(--terminal-muted);
   font-family: var(--font-mono);
   font-size: 11px;
 }
@@ -939,12 +980,12 @@ body {
   height: 7px;
   flex: 0 0 7px;
   border-radius: 50%;
-  background: #facc15;
+  background: var(--terminal-status-connecting);
 }
 
-.terminal-status-dot.is-ready { background: #4ade80; }
+.terminal-status-dot.is-ready { background: var(--terminal-status-ready); }
 .terminal-status-dot.is-exited,
-.terminal-status-dot.is-error { background: #f87171; }
+.terminal-status-dot.is-error { background: var(--terminal-status-error); }
 
 .terminal-panel-header button {
   display: inline-flex;
@@ -953,31 +994,31 @@ body {
   height: 27px;
   flex-shrink: 0;
   padding: 0 8px;
-  border: 1px solid #343a46;
+  border: 1px solid var(--terminal-button-border);
   border-radius: var(--ui-radius-md);
   background: transparent;
-  color: #9ca3af;
+  color: var(--terminal-muted);
   cursor: pointer;
   font: inherit;
 }
 
 .terminal-panel-exit {
   padding: 7px 12px;
-  color: #9ca3af;
+  color: var(--terminal-muted);
   font-family: var(--font-ui);
   font-size: 11px;
 }
 
 .terminal-panel-header button:hover {
-  background: #242932;
-  color: #e5e7eb;
+  background: var(--terminal-hover);
+  color: var(--terminal-strong);
 }
 
 .terminal-panel-error {
   padding: 7px 12px;
-  border-bottom: 1px solid #5f2424;
-  background: #321b1b;
-  color: #fca5a5;
+  border-bottom: 1px solid var(--terminal-error-border);
+  background: var(--terminal-error-bg);
+  color: var(--terminal-error-text);
   font-family: var(--font-ui);
   font-size: 11px;
 }
@@ -1015,8 +1056,8 @@ body {
   grid-template-columns: repeat(7, minmax(0, 1fr));
   grid-auto-rows: 36px;
   padding-bottom: env(safe-area-inset-bottom);
-  border-top: 1px solid #2f3540;
-  background: #181b21;
+  border-top: 1px solid var(--terminal-border);
+  background: var(--terminal-header-bg);
 }
 
 .terminal-extra-keys button {
@@ -1024,7 +1065,7 @@ body {
   padding: 0;
   border: none;
   background: transparent;
-  color: #9ca3af;
+  color: var(--terminal-muted);
   font-family: var(--font-mono);
   font-size: 12px;
   touch-action: manipulation;
@@ -1035,12 +1076,12 @@ body {
 }
 
 .terminal-extra-keys button:active {
-  background: #242932;
-  color: #e5e7eb;
+  background: var(--terminal-hover);
+  color: var(--terminal-strong);
 }
 
 .terminal-extra-keys button.is-active {
-  color: #60a5fa;
+  color: var(--terminal-accent);
 }
 
 .terminal-extra-keys .is-rotated {
@@ -1049,7 +1090,7 @@ body {
 }
 
 .terminal-xterm .xterm-viewport {
-  background-color: #111318;
+  background-color: var(--terminal-bg);
 }
 
 /* Scrollbars follow the input device. Touch hides them except in file preview:

@@ -766,6 +766,8 @@ export const enLocale: LocalePlugin = {
     "terminal.connecting": "Connecting",
     "terminal.ready": "Connected",
     "terminal.exited": "Terminal closed",
+    "terminal.lightTheme": "Switch terminal to light theme",
+    "terminal.darkTheme": "Switch terminal to dark theme",
     "terminal.error": "Connection error",
     "terminal.exitCode": "Process exited with code {code}",
     "chat.outputLocal": "output stays local",
