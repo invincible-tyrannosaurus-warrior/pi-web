@@ -9,11 +9,10 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const { DELETE } = await jiti.import("./route.ts");
-const { cacheSessionPath, invalidateSessionPathCache, invalidateSessionListCache, listAllSessions } = await jiti.import("../../../lib/session-reader.ts");
+const { cacheSessionPath, invalidateSessionPathCache, invalidateSessionListCache } = await jiti.import("../../../lib/session-reader.ts");
 const { updateSidebarState, readSidebarState, getSidebarStatePath } = await jiti.import("../../../lib/sidebar-state.ts");
 const { readSessionFileRecord } = await jiti.import("../../../lib/session-delete.ts");
-const { deleteSessionById } = await jiti.import("../../../lib/session-delete-operation.ts");
-const { listSessionFamilies } = await jiti.import("../../../lib/session-family.ts");
+const { DELETE: singleDelete } = await jiti.import("./[id]/route.ts");
 const bulk = (ids) => DELETE(new Request("http://localhost/api/sessions", { method: "DELETE", body: JSON.stringify({ ids }) }));
 
 async function fixture(t) {
@@ -85,30 +84,29 @@ test("bulk delete refuses running and busy sessions but reports independent succ
   await assert.rejects(readFile(idlePath), { code: "ENOENT" });
 });
 
-test("exact bulk root deletion reparents forks, preserves subagents, and cleans only deleted sidebar ids", async (t) => {
-  const f = await fixture(t);
-  const root = await f.session("root");
-  const fork = await f.session("fork", root);
-  const child = await f.session("child", root, true);
-  const other = await f.session("other");
-  await updateSidebarState(["root", "other"], { pinned: true });
-  await updateSidebarState(["root"], { archived: true });
-  const otherBytes = await readFile(other, "utf8");
-  const { results } = await (await bulk(["root"])).json();
-  assert.equal(results[0].ok, true);
-  assert.deepEqual(results[0].deletedSessionIds, ["root"]);
-  await assert.rejects(readFile(root), { code: "ENOENT" });
-  assert.equal(JSON.parse((await readFile(fork, "utf8")).split("\n")[0]).parentSession, undefined);
-  const childRecord = readSessionFileRecord(child);
-  assert.equal(childRecord.parentPath, undefined);
-  assert.equal(childRecord.isSubagent, false, "an unselected subagent survives as a standalone session");
-  const provenance = childRecord.entries.find((entry) => entry.customType === "pi-web:detached-subagent");
-  assert.equal(provenance.data.description, "Preserve this transcript");
-  assert.equal(provenance.data.parentSessionPath, root);
-  assert.match(await readFile(child, "utf8"), /keep child/);
-  assert.equal(await readFile(other, "utf8"), otherBytes);
-  assert.deepEqual(readSidebarState().archived, {});
-  assert.deepEqual(readSidebarState().pinned, ["other"]);
+test("single and bulk root deletion cascade subagent families, reparent forks, and clean sidebar ids", async (t) => {
+  for (const mode of ["single", "bulk"]) await t.test(mode, async (t) => {
+    const f = await fixture(t);
+    const root = await f.session("root");
+    const fork = await f.session("fork", root);
+    const child = await f.session("child", root, true);
+    const nested = await f.session("nested", child, true);
+    const childFork = await f.session("child-fork", child);
+    const other = await f.session("other");
+    await updateSidebarState(["root", "child", "other"], { pinned: true });
+    await updateSidebarState(["root"], { archived: true });
+    const otherBytes = await readFile(other, "utf8");
+    const result = mode === "bulk" ? (await (await bulk(["root"])).json()).results[0]
+      : await (await singleDelete(new Request("http://localhost/api/sessions/root", { method: "DELETE" }),
+        { params: Promise.resolve({ id: "root" }) })).json();
+    assert.equal(result.ok, true);
+    assert.deepEqual(new Set(result.deletedSessionIds), new Set(["root", "child", "nested", "child-fork"]));
+    for (const path of [root, child, nested, childFork]) await assert.rejects(readFile(path), { code: "ENOENT" });
+    assert.equal(JSON.parse((await readFile(fork, "utf8")).split("\n")[0]).parentSession, undefined);
+    assert.equal(await readFile(other, "utf8"), otherBytes);
+    assert.deepEqual(readSidebarState().archived, {});
+    assert.deepEqual(readSidebarState().pinned, ["other"]);
+  });
 });
 
 test("deleting an intermediate selected fork reparents its children to the surviving ancestor", async (t) => {
@@ -214,7 +212,7 @@ test("cached and runtime paths cannot escape through symlinked directories or no
   assert.equal((await (await bulk(["wrong-suffix"])).json()).results[0].status, 403);
 });
 
-test("a request scans relations once and never reads unrelated transcript bodies", async (t) => {
+test("per-id header scans never read unrelated transcript bodies", async (t) => {
   const f = await fixture(t);
   const targets = [];
   for (let i = 0; i < 6; i++) targets.push(await f.session(`target-${i}`));
@@ -241,36 +239,38 @@ test("a request scans relations once and never reads unrelated transcript bodies
   }));
   const { results } = await response.json();
   assert.ok(results.every((result) => result.ok), JSON.stringify(results));
-  assert.equal(directoryScans, 1);
+  assert.equal(directoryScans, targets.length);
   assert.equal(bodiesRead.includes(unrelated), false);
-  assert.equal(bodiesRead.length, targets.length, "only usage accounting reads each deleted transcript once");
+  assert.ok(targets.every((path) => bodiesRead.includes(path)), "affected files are read for consistency and usage accounting");
 });
 
-test("pre-commit verification refuses changes made during shutdown without rewriting children", async (t) => {
+test("affected children outside the real sessions root are refused before any mutation", async (t) => {
   const f = await fixture(t);
   const root = await f.session("root");
-  const child = await f.session("child", root);
-  const childBytes = await readFile(child, "utf8");
-  globalThis.__piSessions.set("root", { isBusyForFileMutation: () => false,
-    shutdown: async () => writeFile(root, (await readFile(root, "utf8")).replace("keep root", "changed!!")) });
+  const outside = await f.session("child", root, true, join(f.dir, "outside"));
+  const original = await readFile(outside, "utf8");
+  await symlink(outside, join(f.dir, "sessions", "fixture", "child.jsonl"));
   const { results } = await (await bulk(["root"])).json();
-  assert.equal(results[0].status, 409);
-  assert.equal(await readFile(child, "utf8"), childBytes);
-  assert.match(await readFile(root, "utf8"), /changed!!/);
+  assert.equal(results[0].status, 403);
+  assert.equal(await readFile(outside, "utf8"), original);
+  assert.match(await readFile(root, "utf8"), /keep root/);
 });
 
-test("cross-directory subagent orphaning is the existing HEAD single-delete limitation, retained in both modes", async (t) => {
-  for (const exact of [false, true]) await t.test(exact ? "bulk" : "single", async (t) => {
+test("pre-commit verification refuses changes to any affected file without rewriting forks", async (t) => {
+  for (const changed of ["root", "child", "fork"]) await t.test(changed, async (t) => {
     const f = await fixture(t);
     const root = await f.session("root");
-    const child = await f.session("child", root, true, join(f.dir, "sessions", "another-cwd"));
-    const bytes = await readFile(child, "utf8");
-    assert.equal(listSessionFamilies(await listAllSessions({ force: true })).length, 1);
-    assert.equal((await deleteSessionById("root", exact)).status, 200);
-    assert.equal(await readFile(child, "utf8"), bytes);
-    const remaining = await listAllSessions({ force: true });
-    assert.equal(remaining.length, 1);
-    assert.equal(listSessionFamilies(remaining).length, 0);
+    const child = await f.session("child", root, true);
+    const fork = await f.session("fork", root);
+    const paths = { root, child, fork };
+    const original = await readFile(paths[changed], "utf8");
+    globalThis.__piSessions.set("root", { isBusyForFileMutation: () => false,
+      shutdown: async () => writeFile(paths[changed], original.replace(`keep ${changed}`, "changed!!")) });
+    const { results } = await (await bulk(["root"])).json();
+    assert.equal(results[0].status, 409);
+    assert.match(await readFile(paths[changed], "utf8"), /changed!!/);
+    assert.equal(JSON.parse((await readFile(fork, "utf8")).split("\n")[0]).parentSession, root);
+    for (const path of [root, child]) assert.ok(await readFile(path, "utf8"));
   });
 });
 

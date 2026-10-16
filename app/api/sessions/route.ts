@@ -1,4 +1,4 @@
-import { createSessionDeleteIndex, deleteSessionById } from "@/lib/session-delete-operation";
+import { deleteSessionById } from "@/lib/session-delete-operation";
 import { parseJsonWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { existsSync } from "node:fs";
 import { NextResponse } from "next/server";
@@ -79,7 +79,7 @@ export async function PATCH(req: Request) {
   }
 }
 
-// DELETE /api/sessions: exactly the requested ids; independent results allow partial success.
+// DELETE /api/sessions: same family semantics as single delete; independent results allow partial success.
 export async function DELETE(req: Request) {
   let body: unknown;
   try { body = await parseJsonWithinLimit(req, 64 * 1024); }
@@ -93,10 +93,9 @@ export async function DELETE(req: Request) {
     || ids.some((id) => typeof id !== "string" || id.length > 256 || !SESSION_ID_PATTERN.test(id))) {
     return NextResponse.json({ error: "Send 1–500 valid session ids" }, { status: 400 });
   }
-  const index = createSessionDeleteIndex();
   const results = [];
   for (const id of new Set<string>(ids)) {
-    const response = await deleteSessionById(id, true, index);
+    const response = await deleteSessionById(id);
     const data = await response.json() as { error?: string; warning?: string };
     results.push({ id, ok: response.ok, status: response.status, ...data });
   }

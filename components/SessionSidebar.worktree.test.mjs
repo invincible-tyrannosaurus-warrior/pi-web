@@ -82,15 +82,12 @@ test("single-project mode lists only the current project and switches via the dr
   assert.match(source, /otherProjectActivity\.running > 0/);
 });
 
-test("project-wide deletes are replaced by selection with a counted irreversible confirmation", () => {
-  assert.doesNotMatch(source, /fetch\("\/api\/projects"|kind: "project"/);
+test("project-wide deletes are replaced by selection, confirmed in the sidebar's own delete popover", () => {
+  assert.doesNotMatch(source, /fetch\("\/api\/projects"|kind: "project"|useConfirm/);
   assert.match(source, /beginSelection\(projectMenu\.key\)/);
-  assert.match(source, /useConfirm/);
-  const deletion = source.slice(source.indexOf("const deleteSelection ="), source.indexOf("const deleteSession ="));
-  assert.match(deletion, /ids\.length/);
-  assert.match(deletion, /sidebar\.deleteSelectedDetail/);
-  assert.match(deletion, /await confirm\([\s\S]*?danger: true/);
-  assert.doesNotMatch(source, /kind: "selection"/);
+  assert.match(source, /setDeleteConfirm\(\{ kind: "selection"/);
+  assert.match(source, /selecting \? t\("sidebar\.deleteProjectSessionsConfirm", \{ count: selectionSummary\.ids\.length \}\)/);
+  assert.match(source, /else if \(selecting\) void deleteSelection\(selectionSummary\.ids\)/);
 });
 
 test("single-project switcher navigates without destructive shortcuts", () => {

@@ -228,7 +228,7 @@ test("fork route and all RPC child-copy commands refuse during a delete shutdown
   const entered = new Promise((resolve) => { enterShutdown = resolve; });
   const stopped = new Promise((resolve) => { finishShutdown = resolve; });
   t.mock.method(wrapper, "shutdown", async () => { enterShutdown(); await stopped; });
-  const deleting = deleteSessionById(id, true);
+  const deleting = deleteSessionById(id);
   await entered;
   assert.equal(isRpcSessionFileMutationReserved(id), true);
   try {
@@ -257,7 +257,7 @@ test("a fork already resolving its source rechecks reservations before copying",
   let deleting;
   // Start deletion only after the route's first reservation check, when it snapshots its source.
   t.mock.method(wrapper, "isAlive", () => {
-    deleting ??= deleteSessionById(id, true);
+    deleting ??= deleteSessionById(id);
     return true;
   });
   try {

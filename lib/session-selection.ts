@@ -39,9 +39,3 @@ export function sessionSelectionSummary(selected: ReadonlySet<string>, eligibleI
   const ids = eligibleIds.filter((id) => selected.has(id));
   return { ids, all: ids.length > 0 && ids.length === eligibleIds.length, indeterminate: ids.length > 0 && ids.length < eligibleIds.length };
 }
-
-/** Forks are their own families; only subagents map to a different root. */
-export function selectedArchiveIds(families: readonly SessionFamily[], selected: ReadonlySet<string>): string[] {
-  return families.filter((family) => selected.has(family.root.id)
-    || family.subagents.some((session) => selected.has(session.id))).map((family) => family.root.id);
-}

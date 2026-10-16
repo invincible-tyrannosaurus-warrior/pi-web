@@ -47,7 +47,6 @@ export function reparentSessionRecord(
   record: SessionFileRecord,
   parentSessionPath: string | undefined,
   parentSessionId: string | undefined,
-  detachSubagent = false,
 ): string {
   const lines = [...record.lines];
   const header = JSON.parse(lines[0]) as { parentSession?: string };
@@ -56,18 +55,6 @@ export function reparentSessionRecord(
   lines[0] = JSON.stringify(header);
 
   if (record.isSubagent) {
-    // Exact deletion preserves unselected subagents as standalone sessions when their root goes.
-    if (detachSubagent && !parentSessionPath) {
-      return lines.map((line, index) => {
-        if (index === 0) return line;
-        try {
-          const entry = JSON.parse(line);
-          // Retain provenance without treating the surviving transcript as a linked subagent.
-          return entry.type === "custom" && entry.customType === SUBAGENT_META_TYPE
-            ? JSON.stringify({ ...entry, customType: "pi-web:detached-subagent" }) : line;
-        } catch { return line; }
-      }).join("\n");
-    }
     if (!parentSessionPath || !parentSessionId) {
       throw new Error("Cannot reparent a subagent without a valid parent session");
     }

@@ -50,12 +50,12 @@ export function openConfirmDialog(message: string, labels: { ok: string; cancel:
   });
 }
 
-/** `confirm(message, { danger })` resolves true on OK; `{ alert: true }` shows only OK; `okLabel` names the action. */
+/** `confirm(message, { danger })` resolves true on OK; `{ alert: true }` shows only OK. */
 export function useConfirm() {
   const { t } = useI18n();
   return useCallback(
-    (message: string, { danger = false, alert = false, okLabel }: { danger?: boolean; alert?: boolean; okLabel?: string } = {}) =>
-      openConfirmDialog(message, { ok: okLabel ?? t("common.ok"), cancel: alert ? null : t("i18n.cancel") }, danger),
+    (message: string, { danger = false, alert = false }: { danger?: boolean; alert?: boolean } = {}) =>
+      openConfirmDialog(message, { ok: t("common.ok"), cancel: alert ? null : t("i18n.cancel") }, danger),
     [t],
   );
 }

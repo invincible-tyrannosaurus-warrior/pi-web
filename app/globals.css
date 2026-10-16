@@ -3577,22 +3577,59 @@ span.token.table {
   line-height: 1.4 !important;
 }
 
+/* Sidebar selection checkbox: drawn like the chat's task-list box, filled with the
+   selection-control token when on (see --control-on). */
 .sidebar-session-checkbox {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: var(--control-on);
-  cursor: pointer;
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
   flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 30%, transparent);
+  border-radius: var(--ui-radius-sm);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.sidebar-session-checkbox:checked,
+.sidebar-session-checkbox:indeterminate {
+  border-color: var(--control-on);
+  background: var(--control-on);
+}
+
+.sidebar-session-checkbox:checked::before {
+  content: "";
+  width: 3.5px;
+  height: 7px;
+  border: solid var(--control-knob-on);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg) translateY(-1px);
+}
+
+.sidebar-session-checkbox:indeterminate::before {
+  content: "";
+  width: 7px;
+  height: 1.5px;
+  background: var(--control-knob-on);
 }
 
 .sidebar-session-checkbox:disabled {
+  border-color: var(--border);
+  background: var(--bg-hover);
   cursor: not-allowed;
+}
+
+.sidebar-session-checkbox:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .session-selection-checkbox {
   position: absolute;
-  left: 6px;
+  /* Centered on the project folder icon column above it. */
+  left: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3600,53 +3637,28 @@ span.token.table {
   height: 26px;
 }
 
+/* The selection toolbar takes the Projects header row: same height, gutter and type. */
 .sidebar-selection-bar {
-  flex-shrink: 0;
-  padding: 6px calc(8px + var(--sidebar-scrollbar-gutter, 0px)) max(6px, env(safe-area-inset-bottom));
-  border-top: 1px solid var(--border);
-  background: var(--bg-panel);
-  color: var(--text-muted);
-  font-family: var(--font-ui);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.4;
+  gap: 2px;
+  padding-right: 6px;
 }
 
-.sidebar-selection-count,
-.sidebar-selection-actions {
+.sidebar-selection-count {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.sidebar-selection-actions {
-  margin-top: 4px;
-  gap: 4px;
-}
-
-.sidebar-selection-actions button {
   flex: 1;
-  min-height: 28px;
-  padding: 4px;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--ui-radius-md);
-  font: inherit;
-  color: var(--text);
+  min-width: 0;
+  padding-left: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
   cursor: pointer;
 }
 
-.sidebar-selection-actions button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.sidebar-selection-actions button.is-danger:not(:disabled) {
-  color: var(--danger);
-}
-
-.sidebar-selection-actions button:disabled {
-  color: var(--text-dim);
-  cursor: default;
+.sidebar-selection-count > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-row-actions {
@@ -3992,6 +4004,10 @@ span.token.table {
 
 .project-confirm-actions button.is-danger {
   color: var(--danger);
+}
+
+.project-confirm-actions button.is-danger:disabled {
+  color: var(--text-dim);
 }
 
 /* Compact running-state beacon: refined 5px core with a smooth expanding wave ring */

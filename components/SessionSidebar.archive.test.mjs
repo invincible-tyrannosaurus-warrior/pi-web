@@ -279,15 +279,15 @@ test("entering a project starts an empty view-scoped selection, and Escape cance
   }
 });
 
-test("selection bar exposes tri-state select-all, disables empty actions, and switches Archive to Restore", () => {
+test("selection toolbar exposes tri-state select-all, disables empty actions, and switches Archive to Restore", () => {
   const bar = find(ast, (node) => ts.isJsxElement(node)
     && node.openingElement.attributes.properties.some((attr) => ts.isJsxAttribute(attr)
-      && attr.name.getText(ast) === "className" && attr.initializer?.text === "sidebar-selection-bar"));
+      && attr.name.getText(ast) === "className" && attr.initializer?.text === "sidebar-section-row sidebar-selection-bar"));
   assert.ok(bar);
   for (const archiveView of [false, true]) {
     let selection = { ids: new Set(["a"]) };
     const element = execute(bar, {
-      React, selectionBusy: false, archiveView, selectionProjectKey: "/p", projectNames: new Map(), getFileName: () => "p",
+      React, selectionBusy: false, archiveView, ToolbarIconButton: "button",
       selectionSummary: { ids: [], all: false, indeterminate: true }, eligibleSelectionIds: ["a", "b"],
       t: (key) => key, setSelection: (edit) => { selection = edit(selection); },
       archiveSelection: noop, setDeleteConfirm: noop,
@@ -296,14 +296,12 @@ test("selection bar exposes tri-state select-all, disables empty actions, and sw
     const domInput = {};
     input.props.ref(domInput);
     assert.equal(domInput.indeterminate, true);
-    assert.equal(input.props["aria-checked"], "mixed");
     input.props.onChange();
     assert.deepEqual([...selection.ids], ["a", "b"]);
-    const [archive, del, cancel] = element.props.children[1].props.children;
+    const [archive, del] = element.props.children[1].props.children;
     assert.equal(archive.props.children, archiveView ? "sidebar.restore" : "sidebar.archive");
     assert.equal(archive.props.disabled, true);
     assert.equal(del.props.disabled, true);
-    assert.equal(cancel.props.disabled, false);
   }
 });
 
@@ -311,7 +309,7 @@ test("bulk delete closes only successful ids, exits selection, reloads once, the
   const declaration = find(ast, (node) => ts.isVariableDeclaration(node) && node.name.getText(ast) === "deleteSelection");
   const events = [];
   const operation = execute(declaration.initializer, {
-    selectionBusy: false, setDeleteConfirm: noop, setSelectionBusy: noop, confirm: async () => true,
+    selectionBusy: false, setDeleteConfirm: noop, setSelectionBusy: noop,
     fetch: async (url, options) => {
       assert.equal(url, "/api/sessions");
       assert.equal(options.method, "DELETE");
@@ -325,30 +323,6 @@ test("bulk delete closes only successful ids, exits selection, reloads once, the
   });
   await operation(["a", "b"]);
   assert.deepEqual(events, ["closed:a", "exit", "reload", "b: Session is running"]);
-});
-
-test("bulk confirmation is modal, counted, dangerous, and cancellation preserves selection without deleting", async () => {
-  const declaration = find(ast, (node) => ts.isVariableDeclaration(node) && node.name.getText(ast) === "deleteSelection");
-  const events = [];
-  let decide;
-  const operation = execute(declaration.initializer, {
-    selectionBusy: false, setSelectionBusy: (busy) => events.push(busy),
-    confirm: (message, options) => {
-      assert.match(message, /Delete 2 sessions\?\nCannot be undone\./);
-      assert.equal(options.danger, true);
-      return new Promise((resolve) => { decide = resolve; });
-    },
-    t: (key, values) => key === "sidebar.deleteProjectSessionsConfirm" ? `Delete ${values.count} sessions?` : "Cannot be undone.",
-    fetch: () => assert.fail("must not delete before confirmation"),
-    setSelection: () => assert.fail("cancelling must preserve selection"),
-  });
-  const pending = operation(["a", "b"]);
-  assert.deepEqual(events, [true], "selection controls are frozen while the modal owns focus");
-  decide(false);
-  await pending;
-  assert.deepEqual(events, [true, false]);
-  assert.match(source, /import \{ useConfirm \} from "@\/hooks\/useConfirm"/);
-  assert.doesNotMatch(source, /kind: "selection"/);
 });
 
 test("eligibility changes reconcile the stored selection rather than only masking its summary", () => {

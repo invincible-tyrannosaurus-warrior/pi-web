@@ -77,7 +77,7 @@ test("menus and the worktree popover portal to body, while the selection bar sta
         assert.match(portaled[0].getText(ast), /autoFocus/);
       }
     }
-    const bar = elements.find((element) => className(element) === "sidebar-selection-bar");
+    const bar = elements.find((element) => className(element) === "sidebar-section-row sidebar-selection-bar");
     if (file === "SessionSidebar.tsx") {
       assert.ok(bar);
       for (let parent = bar.parent; parent; parent = parent.parent) {

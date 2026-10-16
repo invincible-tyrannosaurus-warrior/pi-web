@@ -341,6 +341,41 @@ test("deletes an unpersisted runtime session without a JSONL file", async (t) =>
   assert.equal(shutdowns, 1);
 });
 
+test("runtime-only deletion removes a transcript persisted during shutdown", async (t) => {
+  const id = "saved-on-shutdown";
+  const filePath = join(suiteSessionsDir, `${id}.jsonl`);
+  const previousRegistry = globalThis.__piSessions;
+  globalThis.__piSessions = new Map([[id, {
+    sessionFile: filePath,
+    isRunning: () => false,
+    isBusyForFileMutation: () => false,
+    shutdown: async () => writeFile(filePath, `${JSON.stringify({ type: "session", id, cwd: suiteSessionsDir })}\n`),
+  }]]);
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+    invalidateSessionPathCache(id);
+    invalidateSessionListCache();
+  });
+  const response = await deleteSession(new Request(`http://localhost/api/sessions/${id}`, { method: "DELETE" }),
+    { params: Promise.resolve({ id }) });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, deletedSessionIds: [id] });
+  await assert.rejects(readFile(filePath), { code: "ENOENT" });
+});
+
+test("a running runtime-only session cannot be deleted", async (t) => {
+  const id = "running-unpersisted";
+  const previousRegistry = globalThis.__piSessions;
+  globalThis.__piSessions = new Map([[id, {
+    isRunning: () => true,
+    shutdown: async () => assert.fail("running session must not shut down"),
+  }]]);
+  t.after(() => { globalThis.__piSessions = previousRegistry; });
+  const response = await deleteSession(new Request(`http://localhost/api/sessions/${id}`, { method: "DELETE" }),
+    { params: Promise.resolve({ id }) });
+  assert.equal(response.status, 409);
+});
+
 test("does not treat a missing file as deleted when no runtime session exists", async (t) => {
   const dir = await mkdtemp(join(suiteSessionsDir, "pi-web-missing-delete-"));
   const id = "missing-on-disk";

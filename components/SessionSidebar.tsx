@@ -2,8 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode, type Ref } from "react";
 import type { SessionInfo } from "@/lib/types";
-import { useConfirm } from "@/hooks/useConfirm";
-import { selectionFamilies, reconcileSessionSelection, toggleSessionSelection, sessionSelectionSummary, selectedArchiveIds } from "@/lib/session-selection";
+import { selectionFamilies, reconcileSessionSelection, toggleSessionSelection, sessionSelectionSummary } from "@/lib/session-selection";
 import { listSessionFamilies, isFamilyArchived, familyHasMemberIn, familiesToArchive, previewSessionFamilies, markSessionFamilyRead, type SessionFamily } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
@@ -340,7 +339,6 @@ function sameIdSet(current: Set<string>, ids: string[] | undefined): Set<string>
 
 export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSelectSession, onOpenSessionInNewTab, onForkSession, forking = false, onNewSession, initialSessionId, skipInitialProjectSelection, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionMarkersChange, onSessionsChange, onProjectPathsChange, onProjectNamesChange, pinnedCwds, onTogglePinnedCwd, onHomeDirChange, onWorktreeInfoChange }: Props) {
   const { t } = useI18n();
-  const confirm = useConfirm();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>([]);
   const [archivedSessionIds, setArchivedSessionIds] = useState<Record<string, string>>({});
@@ -476,6 +474,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   const [deleteConfirm, setDeleteConfirm] = useState<
     | { kind: "archiveProject"; key: string; x: number; y: number }
     | { kind: "session"; id: string; x: number; y: number }
+    | { kind: "selection"; x: number; y: number }
     | null
   >(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
@@ -1349,16 +1348,13 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     if (selectionBusy || !selectionSummary.ids.length) return;
     setSelectionBusy(true);
     try {
-      await updateSessionSidebarState(selectedArchiveIds(selectableFamilies, new Set(selectionSummary.ids)), { archived: !archiveView });
+      await updateSessionSidebarState(selectionSummary.ids, { archived: !archiveView });
     } finally { setSelectionBusy(false); setSelection(null); }
   };
   const deleteSelection = async (ids: string[]) => {
     if (selectionBusy || !ids.length) return;
+    setDeleteConfirm(null);
     setSelectionBusy(true);
-    if (!await confirm(`${t("sidebar.deleteProjectSessionsConfirm", { count: ids.length })}\n${t("sidebar.deleteSelectedDetail")}`, { danger: true, okLabel: t("sidebar.delete") })) {
-      setSelectionBusy(false);
-      return;
-    }
     const failures: string[] = [];
     try {
       for (let start = 0; start < ids.length; start += 500) {
@@ -1949,10 +1945,32 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
       )}
 
       {/* Projects and their sessions */}
+      {selection && selectionProjectKey ? (
+        // Selecting turns the section header into the selection's toolbar, above the rows it acts on.
+        <div className="sidebar-section-row sidebar-selection-bar" role="toolbar" aria-label={t("sidebar.selectionActions")} aria-busy={selectionBusy}>
+          <label className="sidebar-selection-count" title={t("sidebar.selectAllSessions")}>
+            <input type="checkbox" className="sidebar-session-checkbox"
+              ref={(input) => { if (input) input.indeterminate = selectionSummary.indeterminate; }}
+              checked={selectionSummary.all}
+              aria-label={t("sidebar.selectAllSessions")} disabled={selectionBusy || !eligibleSelectionIds.length}
+              onChange={() => setSelection((current) => current && ({ ...current, anchor: null, ids: new Set(selectionSummary.all ? [] : eligibleSelectionIds) }))} />
+            <span aria-live="polite">{t("sidebar.selectedCount", { count: selectionSummary.ids.length })}</span>
+          </label>
+          <div className="project-confirm-actions">
+            <button type="button" disabled={selectionBusy || !selectionSummary.ids.length} onClick={() => void archiveSelection()}>{t(archiveView ? "sidebar.restore" : "sidebar.archive")}</button>
+            <button type="button" className="is-danger" disabled={selectionBusy || !selectionSummary.ids.length} onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              setDeleteConfirm({ kind: "selection", x: rect.right - 150, y: rect.bottom + 2 });
+            }}>{t("sidebar.delete")}</button>
+          </div>
+          <ToolbarIconButton onClick={() => { if (!selectionBusy) { setSelection(null); setDeleteConfirm(null); } }} title={t("sidebar.cancel")} color="var(--text-muted)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+          </ToolbarIconButton>
+        </div>
+      ) : (
       <div ref={dropdownRef} className="sidebar-section-row" style={{ position: "relative" }}>
         <button
           type="button"
-          disabled={Boolean(selection)}
           onClick={() => archiveView ? setArchiveView(false) : setProjectsOpen((open) => !open)}
           className="sidebar-section-label"
           title={archiveView ? t("sidebar.backToSessions") : undefined}
@@ -2108,6 +2126,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         </div>
         )}
       </div>
+      )}
 
       {sessionSearchOpen && projectsOpen && (
         <div className="sidebar-search-container">
@@ -2160,14 +2179,17 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         const session = deleteConfirm.kind === "session"
           ? allSessions.find((item) => item.id === deleteConfirm.id)
           : null;
-        if (!project && !session) return null;
+        const selecting = deleteConfirm.kind === "selection";
+        if (!project && !session && !selecting) return null;
         const olderFamilies = project && archiving ? archiveOlderFamilies(project.key) : [];
         const count = olderFamilies.length;
         const title = archiving
           ? t("sidebar.archiveProjectConfirm", { count })
+          : selecting ? t("sidebar.deleteProjectSessionsConfirm", { count: selectionSummary.ids.length })
           : t("sidebar.deleteSession");
         const detail = archiving
           ? t("sidebar.archiveProjectDetail")
+          : selecting ? t("sidebar.deleteSelectedDetail")
           : session ? getSessionDisplayTitle(session) : null;
         return (
           <div
@@ -2191,7 +2213,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                   if (archiving) {
                     setDeleteConfirm(null);
                     void updateSessionSidebarState(olderFamilies.map((family) => family.root.id), { archived: true });
-                  } else if (session) void deleteSession(session.id);
+                  } else if (selecting) void deleteSelection(selectionSummary.ids);
+                  else if (session) void deleteSession(session.id);
                 }}>{t(archiving ? "sidebar.archive" : "sidebar.delete")}</button>
               </div>
             </div>
@@ -2477,23 +2500,6 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
               />
             </div>
           )}
-        </div>
-      )}
-      {selection && selectionProjectKey && (
-        <div className="sidebar-selection-bar" role="group" aria-label={t("sidebar.selectionActions")} aria-busy={selectionBusy}>
-          <label className="sidebar-selection-count" title={projectNames.get(selectionProjectKey) ?? getFileName(selectionProjectKey)}>
-            <input type="checkbox" className="sidebar-session-checkbox" autoFocus
-              ref={(input) => { if (input) input.indeterminate = selectionSummary.indeterminate; }}
-              checked={selectionSummary.all} aria-checked={selectionSummary.indeterminate ? "mixed" : selectionSummary.all}
-              aria-label={t("sidebar.selectAllSessions")} disabled={selectionBusy || !eligibleSelectionIds.length}
-              onChange={() => setSelection((current) => current && ({ ...current, anchor: null, ids: new Set(selectionSummary.all ? [] : eligibleSelectionIds) }))} />
-            <span aria-live="polite">{t("sidebar.selectedCount", { count: selectionSummary.ids.length, total: eligibleSelectionIds.length })}</span>
-          </label>
-          <div className="sidebar-selection-actions">
-            <button type="button" disabled={selectionBusy || !selectionSummary.ids.length} onClick={() => void archiveSelection()}>{t(archiveView ? "sidebar.restore" : "sidebar.archive")}</button>
-            <button type="button" className="is-danger" disabled={selectionBusy || !selectionSummary.ids.length} onClick={() => void deleteSelection(selectionSummary.ids)}>{t("sidebar.delete")}</button>
-            <button type="button" disabled={selectionBusy} onClick={() => { setSelection(null); setDeleteConfirm(null); }}>{t("sidebar.cancel")}</button>
-          </div>
         </div>
       )}
     </div>
