@@ -77,11 +77,12 @@ function isSuppressibleUnmatchedGlob(pattern: string): boolean {
 export async function resolveVisibleModels(
   modelRuntime: ModelRuntime,
   patterns: string[] | undefined,
+  signal?: AbortSignal,
 ): Promise<ModelScopeResult> {
   const cleaned = (patterns ?? []).map((pattern) => pattern.trim()).filter(Boolean);
   if (cleaned.length === 0) {
     return {
-      visible: await modelRuntime.getAvailable(),
+      visible: await modelRuntime.getAvailable(undefined, { signal }),
       scopedModels: [],
       thinkingLevelPins: {},
       warnings: [],
@@ -89,11 +90,11 @@ export async function resolveVisibleModels(
     };
   }
 
-  const available = await modelRuntime.getAvailable();
+  const available = await modelRuntime.getAvailable(undefined, { signal });
   const snapshotRuntime = {
     getAvailable: async () => available,
   } as ModelRuntime;
-  const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, snapshotRuntime);
+  const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, snapshotRuntime, { signal });
   const ambiguous = [...new Set(diagnostics
     .filter((diagnostic) => diagnostic.code === "ambiguous")
     .map((diagnostic) => diagnostic.pattern))];

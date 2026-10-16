@@ -124,6 +124,7 @@ type AgentSessionWrapperOptions = {
   beforeAgentRunComplete?: AgentRunCompletionGate;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
+  finishStartup?: () => Promise<void>;
 };
 
 const IDLE_RESET_EVENT_TYPES = new Set([
@@ -324,6 +325,8 @@ export class AgentSessionWrapper {
   private extensionsBound = false;
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
+  private startupPromise: Promise<void> | null = null;
+  private readonly finishStartup?: () => Promise<void>;
   private readonly chatOnly: boolean;
   private readonly getExactSystemPrompt?: () => string;
   private readonly beforeAgentRunComplete?: AgentRunCompletionGate;
@@ -350,6 +353,7 @@ export class AgentSessionWrapper {
     this.beforeAgentRunComplete = options.beforeAgentRunComplete;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
+    this.finishStartup = options.finishStartup;
   }
 
   get sessionId(): string {
@@ -458,7 +462,8 @@ export class AgentSessionWrapper {
         this.lastRunAborted = false;
       }
       if (event.type === "agent_settled") this.lastRunAborted = event.aborted === true;
-      if (event.type === "agent_end") {
+      // session_info_changed: an extension (e.g. auto-naming) may set the title after agent_end.
+      if (event.type === "agent_end" || event.type === "session_info_changed") {
         invalidateSessionListCache();
       }
       const toolCallId = event.toolCallId;
@@ -504,6 +509,7 @@ export class AgentSessionWrapper {
 
   async waitUntilReady(): Promise<void> {
     await this.waitForExtensionsBound();
+    if (this.finishStartup) await (this.startupPromise ??= this.finishStartup());
   }
 
   private ensureExtensionsBound(): Promise<void> {
@@ -575,12 +581,19 @@ export class AgentSessionWrapper {
     }
   }
 
-  private shouldWaitForExtensions(type: string): boolean {
+  private shouldWaitUntilReady(type: string): boolean {
     return type === "prompt"
       || type === "steer"
       || type === "follow_up"
       || type === "get_commands"
-      || type === "get_state";
+      || type === "get_state"
+      || type === "set_model"
+      || type === "set_thinking_level"
+      || type === "fork"
+      || type === "fork_branch"
+      || type === "clone"
+      || type === "navigate_tree"
+      || type === "compact";
   }
 
   private async withFinalIdleReset<T>(operation: () => Promise<T>): Promise<T> {
@@ -773,7 +786,8 @@ export class AgentSessionWrapper {
     try {
       // Status reconciliation must not postpone forced cleanup after Stop.
       if (type !== "get_state") this.resetIdleTimer();
-      if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
+      if (this.shouldWaitUntilReady(type)) await this.waitUntilReady();
+      if (!this._alive || this._closing) throw new Error("Session is closing");
       if (this.sessionReplacement && !allowedDuringReplacement) {
         throw new Error("Session is being copied to a new session");
       }
@@ -2476,10 +2490,8 @@ export async function startRpcSession(
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
-    const scope = await resolveVisibleModels(
-      services.modelRuntime,
-      services.settingsManager.getEnabledModels(),
-    );
+    const enabledModels = services.settingsManager.getEnabledModels();
+    const scope = await resolveVisibleModels(services.modelRuntime, enabledModels);
     const effectiveInitialModel = initialModel && (
       !allowInitialModelFallback
       || scope.visible.some((model) => model.provider === initialModel.provider && model.id === initialModel.modelId)
@@ -2519,21 +2531,15 @@ export async function startRpcSession(
       } : {}),
     });
 
-    const persistedPreferences = await persistExplicitStartupPreferences(
-      services.settingsManager,
-      {
-        ...(effectiveInitialModel ? { model: effectiveInitialModel } : {}),
-        ...(thinkingLevel ? { thinkingLevel } : {}),
-      },
-      {
-        ...(inner.model
-          ? { model: { provider: inner.model.provider, modelId: inner.model.id } }
-          : {}),
-        thinkingLevel: inner.thinkingLevel,
-        supportsThinking: inner.supportsThinking(),
-      },
+    // shortcut: explicit late-provider requests still use eager scope validation; defer them when needed.
+    const retryStartupModel = !initialModel && !chatOnly && !subagentResources && !hasExistingMessages && (
+      (defaultProvider && defaultModelId
+        && (inner.model?.provider !== defaultProvider || inner.model.id !== defaultModelId))
+      || (enabledModels?.some((pattern) => pattern.trim()) && (
+        scope.scopedModels.length === 0 || !initial?.model
+        || inner.model?.provider !== initial.model.provider || inner.model.id !== initial.model.id
+      ))
     );
-    if (persistedPreferences.modelDefaultChanged) invalidateModelsCache();
 
     // Keep extension tools that the extension has already activated (for example
     // web_enable's selected web tools), instead of reactivating every extension
@@ -2546,6 +2552,75 @@ export async function startRpcSession(
 
     const wrapper = new AgentSessionWrapper(inner, {
       chatOnly,
+      finishStartup: async () => {
+        if (!wrapper.isAlive()) return;
+        // session_start can add the default or the first in-scope model after construction.
+        if (retryStartupModel) {
+          const runtime = services.modelRuntime;
+          const controller = new AbortController();
+          const { signal } = controller;
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const deadline = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              const error = new Error("Startup model recovery timed out after 15000 ms");
+              controller.abort(error);
+              reject(error);
+            }, 15_000);
+            timer.unref?.();
+          });
+          try {
+            await Promise.race([deadline, (async () => {
+              // Registration refreshes availability asynchronously; wait for an offline snapshot.
+              await runtime.refresh({ allowNetwork: false, signal });
+              signal.throwIfAborted();
+              const boundScope = await resolveVisibleModels(runtime, services.settingsManager.getEnabledModels(), signal);
+              signal.throwIfAborted();
+              if (!wrapper.isAlive()) return;
+              const boundInitial = selectInitialModelScope(boundScope, {
+                ...(defaultProvider && defaultModelId
+                  ? { defaultModel: { provider: defaultProvider, modelId: defaultModelId } }
+                  : {}),
+                ...(thinkingLevel ? { thinkingLevel } : {}),
+              });
+              inner.setScopedModels([...boundScope.scopedModels]);
+              const model = boundInitial.model;
+              if (!model) return;
+              if (inner.model?.provider !== model.provider || inner.model.id !== model.id) {
+                // shortcut: SDK setModel takes no signal, so late auth may still switch models after timeout; upgrade when it accepts a signal.
+                await Promise.race([inner.setModel(model), deadline]);
+                signal.throwIfAborted();
+              }
+              if (!wrapper.isAlive()) return;
+              // setModel otherwise inherits the stand-in's clamped thinking level.
+              inner.setThinkingLevel(boundInitial.thinkingLevel
+                ?? services.settingsManager.getModelThinkingLevel(model.provider, model.id)
+                ?? services.settingsManager.getDefaultThinkingLevel()
+                ?? "medium");
+            })()]);
+          } catch (error) {
+            console.error("[pi-web] could not restore startup model:", error instanceof Error ? error.message : error);
+          } finally {
+            clearTimeout(timer);
+            controller.abort();
+          }
+        }
+        if (!wrapper.isAlive()) return;
+        const persistedPreferences = await persistExplicitStartupPreferences(
+          services.settingsManager,
+          {
+            ...(effectiveInitialModel ? { model: effectiveInitialModel } : {}),
+            ...(thinkingLevel ? { thinkingLevel } : {}),
+          },
+          {
+            ...(inner.model
+              ? { model: { provider: inner.model.provider, modelId: inner.model.id } }
+              : {}),
+            thinkingLevel: inner.thinkingLevel,
+            supportsThinking: inner.supportsThinking(),
+          },
+        );
+        if (persistedPreferences.modelDefaultChanged) invalidateModelsCache();
+      },
       beforeAgentRunComplete: (completedSessionId) => (
         SUBAGENT_CONTROLLER.flushParentNotifications(completedSessionId)
       ),
