@@ -2546,7 +2546,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <div ref={imageMenuRef} className="chat-input-popover-anchor">
                 <button
                   type="button"
-                  className="composer-btn is-icon"
+                  className="composer-btn is-icon chat-input-attach"
                   disabled={disabled}
                   onClick={() => {
                     if (onOpenImageGeneration) {
