@@ -23,7 +23,7 @@ test.after(() => {
 });
 
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() }, moduleCache: false });
-const { GET: files } = await jiti.import("./[...path]/route.ts");
+const { GET: files, POST: upload } = await jiti.import("./[...path]/route.ts");
 const { GET: diff } = await jiti.import("../git/diff/route.ts");
 const { GET: index } = await jiti.import("../file-index/route.ts");
 const { getGitStatus } = await jiti.import("../../../lib/git-changes.ts");
@@ -43,6 +43,43 @@ function request(handler, pathname, query) {
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
   return handler(new NextRequest(url));
 }
+test("upload preflight and writes authorize nested directories and reject traversal and symlink escapes", async () => {
+  const root = fixture();
+  const nested = path.join(root, "src", "deep");
+  fs.mkdirSync(nested, { recursive: true });
+  const outside = fs.mkdtempSync(path.join(base, "upload-outside-"));
+  link(outside, path.join(root, "escape"));
+  link(nested, path.join(root, "inside"));
+  const existingFile = path.join(root, "file.txt");
+  fs.writeFileSync(existingFile, "original");
+  async function post(directory, type, fileName = "uploaded.txt") {
+    const body = type === "upload-check" ? JSON.stringify({ fileNames: [fileName] }) : new FormData();
+    if (body instanceof FormData) body.append("files", new File(["uploaded"], fileName));
+    return upload(new NextRequest(`http://localhost/api/files/target?type=${type}`, {
+      method: "POST", body,
+      headers: { host: "localhost", ...(type === "upload-check" ? { "Content-Type": "application/json" } : {}) },
+    }), { params: Promise.resolve({ path: [directory.replace(/^\/+/, "")] }) });
+  }
+  for (const type of ["upload-check", "upload"]) {
+    for (const directory of [outside, path.join(root, "escape"), `${root}/src/../src/deep`, `${root}/escape/../src`]) {
+      assert.equal((await post(directory, type)).status, 403, `${type}: ${directory}`);
+    }
+    assert.equal((await post(existingFile, type)).status, 400);
+    assert.equal((await post(path.join(root, "missing"), type)).status, 404);
+    if (type === "upload-check") assert.equal((await post(nested, type, "../bad.txt")).status, 400);
+  }
+  assert.equal((await post(nested, "upload-check")).status, 200);
+  const written = await post(nested, "upload");
+  assert.equal(written.status, 200);
+  assert.deepEqual((await written.json()).uploaded, ["uploaded.txt"]);
+  assert.equal(fs.readFileSync(path.join(nested, "uploaded.txt"), "utf8"), "uploaded");
+  assert.equal(fs.existsSync(path.join(root, "uploaded.txt")), false);
+  assert.equal(fs.existsSync(path.join(outside, "uploaded.txt")), false);
+  assert.deepEqual((await (await post(nested, "upload-check")).json()).conflicts, ["uploaded.txt"]);
+  assert.equal((await post(path.join(root, "inside"), "upload", "via-link.txt")).status, 200);
+  assert.equal(fs.readFileSync(path.join(nested, "via-link.txt"), "utf8"), "uploaded");
+});
+
 const diffRequest = (cwd, filePath) => request(diff, "/api/git/diff", { cwd, path: filePath });
 const link = (target, destination) => fs.symlinkSync(target, destination, process.platform === "win32" ? "junction" : "dir");
 

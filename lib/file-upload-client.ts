@@ -96,3 +96,24 @@ export function dropMentionText(files: File[], present: string[]): string {
     .map((file) => buildAtMentionText(file.name, false))
     .join("");
 }
+
+/**
+ * Reads a drop's files and folders. `webkitGetAsEntry()` only answers during
+ * the drop event, so this has to run inside the handler. A folder is told by
+ * its entry first: some browsers return no `File` for it.
+ */
+export function droppedItems(dataTransfer: DataTransfer): DroppedItem[] {
+  const items: DroppedItem[] = [];
+  for (const item of Array.from(dataTransfer.items)) {
+    if (item.kind !== "file") continue;
+    const entry = item.webkitGetAsEntry?.();
+    if (entry?.isDirectory) {
+      items.push({ kind: "folder", name: entry.name });
+      continue;
+    }
+    const file = item.getAsFile();
+    if (file) items.push({ kind: "file", file });
+  }
+  if (items.length > 0) return items;
+  return Array.from(dataTransfer.files).map((file) => ({ kind: "file", file }));
+}
