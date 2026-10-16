@@ -422,13 +422,13 @@ function normalizeInlineLatexMath(line: string): string {
 
   // `\$` (a literal dollar inside TeX) would close single-dollar math early, so
   // such formulas use `$$`, which remark-math also renders inline mid-line.
-  // The same for `$...\$...$`; a TeX command tells it from prose prices like `$5 or \$6 $`.
+  // The same for `$...\$...$`; a TeX command or a tight `$\$25,000$` tells it from prose prices like `$5 or \$6 $`.
   return line.replace(
     /(?<!\\)\\\(((?:\\\$|[^`\r\n$])+?)(?<!\\)\\\)/g,
     (match, math: string) => (!math.trim() ? match : math.includes("$") ? `$$${math}$$` : `$${math}$`),
   ).replace(
     /(?<![\\$])\$(?!\$)((?:\\\$|[^$\r\n])*?\\\$(?:\\\$|[^$\r\n])*?)(?<!\\)\$(?!\$)/g,
-    (match, math: string) => (isLikelyMathExpression(math) ? `$$${math}$$` : match),
+    (match, math: string) => (isLikelyMathExpression(math) || /^\\\$.*\S$/.test(math) ? `$$${math}$$` : match),
   );
 }
 
