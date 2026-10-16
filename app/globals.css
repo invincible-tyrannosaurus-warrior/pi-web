@@ -1393,7 +1393,6 @@ pre, code {
 .markdown-body blockquote > p:last-child { margin-bottom: 0; }
 .markdown-table-frame {
   width: 100%;
-  margin: 8px 0;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--ui-radius-md);
@@ -1413,6 +1412,8 @@ pre, code {
 /* Copy this table as Markdown: a chip on the header row's right end, outside the scroller. */
 .markdown-table-block {
   position: relative;
+  /* Margin here, not on the frame: the chips anchor to this box, and a frame margin only collapses through it in some layouts. */
+  margin: 8px 0;
 }
 .markdown-table-actions {
   position: absolute;
@@ -1849,7 +1850,7 @@ pre, code {
 .markdown-user-message ol {
   margin: 2px 0 4px;
 }
-.markdown-user-message .markdown-table-frame,
+.markdown-user-message .markdown-table-block,
 .markdown-user-message .markdown-code-block {
   margin: 4px 0;
 }
