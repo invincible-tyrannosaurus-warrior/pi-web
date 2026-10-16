@@ -65,7 +65,11 @@ export function QuoteCard({ quote, onRemove }: { quote: Quote; onRemove?: () => 
         )}
         {fileLabel ? (
           <span className="quote-chip-file">
-            <span className="quote-chip-title">{fileLabel}</span>
+            <span className="quote-chip-title">
+              {getFileName(quote.file!)}
+              {/* Line range is metadata: a tier down, so caps and digits do not outweigh the name. */}
+              {lines && <span className="quote-chip-lines"> · L{lines}</span>}
+            </span>
             <span className="quote-chip-text is-code">{quote.text.trim()}</span>
           </span>
         ) : (

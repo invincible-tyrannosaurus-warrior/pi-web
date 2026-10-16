@@ -5014,6 +5014,13 @@ span.token.table {
   white-space: nowrap;
 }
 
+/* Line range: the metadata tier beside the file name. */
+.quote-chip-lines {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* A file excerpt previews its first line only, dimmer than the file label. */
 .quote-chip-text.is-code {
   -webkit-line-clamp: 1;
