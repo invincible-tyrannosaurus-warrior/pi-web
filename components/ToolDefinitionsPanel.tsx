@@ -292,7 +292,7 @@ function ToolDefinitionsPanel({ loading, translate, browser }: Omit<Props, "tool
           line-height: 1.4;
           cursor: pointer;
           text-align: left;
-          transition: background-color 0.1s ease;
+          transition: background-color var(--motion-fast);
         }
         .tool-definitions-item:not(.selected):hover {
           background: var(--bg-hover);
@@ -324,7 +324,7 @@ function ToolDefinitionsPanel({ loading, translate, browser }: Omit<Props, "tool
         }
         .tool-definition-scroll {
           padding: 16px 20px 22px;
-          animation: tool-definition-in 0.14s ease-out;
+          animation: tool-definition-in var(--motion-fast) var(--ease-out);
         }
         .tool-definition-title {
           margin: 0 0 10px;
@@ -430,7 +430,7 @@ function ToolDefinitionsPanel({ loading, translate, browser }: Omit<Props, "tool
           }
           /* Same motion as the settings sheet: the pane that appears replays menu-surface-in. */
           .tool-definitions-panel[data-pane="list"][data-returned] .tool-definitions-sidebar {
-            animation: menu-surface-in 0.12s ease-out;
+            animation: menu-surface-in var(--motion-fast) var(--ease-out);
           }
           .tool-definitions-sidebar {
             border-right: 0;
@@ -467,7 +467,7 @@ function ToolDefinitionsPanel({ loading, translate, browser }: Omit<Props, "tool
           }
           .tool-definition-scroll {
             padding: 16px 16px 32px;
-            animation: menu-surface-in 0.12s ease-out;
+            animation: menu-surface-in var(--motion-fast) var(--ease-out);
           }
           .tool-definition-title {
             display: none;

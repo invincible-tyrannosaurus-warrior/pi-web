@@ -209,7 +209,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab, o
               flexShrink: 0,
               userSelect: "none",
               position: "relative",
-              transition: "background 0.1s, color 0.1s",
+              transition: "background var(--motion-fast), color var(--motion-fast)",
             }}
           >
             {dropIndex !== null && (dropIndex === index || (dropIndex === tabs.length && index === tabs.length - 1)) && (
@@ -270,7 +270,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab, o
                 cursor: "pointer",
                 padding: 0,
                 flexShrink: 0,
-                transition: "background 0.1s, color 0.1s",
+                transition: "background var(--motion-fast), color var(--motion-fast)",
               }}
                title={t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")}
                aria-label={`${t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")} ${displayLabel}`}

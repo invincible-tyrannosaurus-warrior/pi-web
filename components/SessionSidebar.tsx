@@ -106,7 +106,7 @@ function ToolbarIconButton({
         borderRadius: 4,
         flexShrink: 0,
         opacity: disabled ? 0.6 : 1,
-        transition: "color 0.3s, background 0.3s",
+        transition: "color var(--motion-slow), background var(--motion-slow)",
       }}
       onMouseEnter={enter}
       onMouseLeave={leave}
@@ -1556,7 +1556,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                         color: "var(--text-dim)",
                         textAlign: "left",
                         overflow: "hidden",
-                        transition: "background 0.12s, color 0.12s",
+                        transition: "background var(--motion-fast), color var(--motion-fast)",
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = "var(--bg-hover)";
@@ -1721,7 +1721,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                                 background: "none", border: "none",
                                 color: "var(--text-muted)", cursor: "pointer",
                                 borderRadius: 4, flexShrink: 0,
-                                transition: "color 0.12s, background 0.12s",
+                                transition: "color var(--motion-fast), background var(--motion-fast)",
                               }}
                               onMouseEnter={(e) => { e.currentTarget.style.color = "var(--danger)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
                               onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "none"; }}
@@ -2810,7 +2810,7 @@ export function SessionItem({
           ? "color-mix(in srgb, var(--danger) 6%, transparent)"
           : selection?.checked || isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
         borderRadius: 4,
-        transition: "background 0.1s",
+        transition: "background var(--motion-fast)",
         color: deleting ? "var(--text-dim)" : undefined,
         gap: 6,
         overflow: "hidden",
@@ -2933,7 +2933,7 @@ export function SessionItem({
                 background: "none", border: "none",
                 color: "var(--text-dim)", cursor: "pointer",
                 transform: collapsed ? "rotate(-90deg)" : "none",
-                transition: "transform 0.15s",
+                transition: "transform var(--motion-fast)",
               }}
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
@@ -2966,7 +2966,7 @@ export function SessionItem({
                     background: "transparent", border: "none",
                     borderRadius: 4, color: "var(--text-muted)",
                     cursor: "pointer", flexShrink: 0,
-                    transition: "background 0.12s, color 0.12s",
+                    transition: "background var(--motion-fast), color var(--motion-fast)",
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = isSelected ? "var(--bg-hover)" : "var(--bg-selected)";

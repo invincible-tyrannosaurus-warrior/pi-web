@@ -720,7 +720,7 @@ function ProcessDetailsGroup({
               fontWeight: 400,
               color: "inherit",
               lineHeight: 1.35,
-              transition: "color 0.12s ease",
+              transition: "color var(--motion-fast)",
             }}
           >
             {stepsLabel}
@@ -739,7 +739,7 @@ function ProcessDetailsGroup({
             flexShrink: 0,
             display: "block",
             transform: isPanelOpen ? "rotate(90deg)" : "none",
-            transition: "transform 0.15s ease",
+            transition: "transform var(--motion-fast)",
           }}
           aria-hidden="true"
         >

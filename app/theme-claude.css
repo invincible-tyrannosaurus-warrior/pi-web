@@ -97,7 +97,7 @@ html[data-theme="claude"] .markdown-body a {
   color: inherit;
   text-underline-offset: 0.2em;
   text-decoration-color: var(--text-dim);
-  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+  transition: color var(--motion-fast), text-decoration-color var(--motion-fast);
 }
 html[data-theme="claude"] .markdown-body a:hover {
   color: var(--text);

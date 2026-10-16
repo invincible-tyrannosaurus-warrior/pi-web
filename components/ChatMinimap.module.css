@@ -16,7 +16,7 @@
   border-radius: 9px;
   background: transparent;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background var(--motion-fast);
 }
 
 .trigger:hover,
@@ -36,7 +36,7 @@
   position: absolute;
   inset: 0 0 auto;
   display: block;
-  transition: transform 0.3s ease-out;
+  transition: transform var(--motion-slow) var(--ease-out);
 }
 
 .marker {
@@ -55,7 +55,7 @@
   height: 1.5px;
   border-radius: 1px;
   background: color-mix(in srgb, var(--text) 18%, transparent);
-  transition: width 0.15s ease, background-color 0.15s ease;
+  transition: width var(--motion-fast), background-color var(--motion-fast);
 }
 
 .marker[data-active="true"]::before {
@@ -111,7 +111,7 @@
   color: var(--text);
   font-family: inherit;
   overflow: hidden;
-  animation: minimapFadeIn 0.12s ease-out;
+  animation: minimapFadeIn var(--motion-fast) var(--ease-out);
 }
 
 @keyframes minimapFadeIn {
@@ -161,7 +161,7 @@
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 0.1s ease, color 0.1s ease;
+  transition: background var(--motion-fast), color var(--motion-fast);
 }
 
 .rowText {

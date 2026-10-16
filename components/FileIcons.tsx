@@ -130,7 +130,7 @@ export function SidebarChevronGlyph({ open }: { open: boolean }) {
       width="12" height="12" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
       aria-hidden="true"
-      style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s", display: "block", flexShrink: 0 }}
+      style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform var(--motion-fast)", display: "block", flexShrink: 0 }}
     >
       <polyline points="9 6 15 12 9 18" />
     </svg>

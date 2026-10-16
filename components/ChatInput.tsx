@@ -1938,7 +1938,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         padding: compact ? 0 : "0 16px 8px",
         paddingRight: compact ? 0 : 16,
         opacity: builtinCommandPending ? 0.5 : 1,
-        transition: "opacity 0.15s",
+        transition: "opacity var(--motion-fast)",
       }}
     >
       {/* Hidden file input. No `accept` or `capture`: any file, and phones still offer the photo library and camera. */}
@@ -2243,7 +2243,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                                 color: dormant ? "var(--text-dim)" : "var(--text)",
                                 cursor: "pointer",
                                 textAlign: "left",
-                                transition: "background 0.08s ease",
+                                transition: "background var(--motion-fast)",
                               }}
                             >
                               <span style={{
@@ -2382,7 +2382,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                             cursor: "pointer",
                             textAlign: "left",
                             fontSize: 12,
-                            transition: "background 0.08s ease",
+                            transition: "background var(--motion-fast)",
                           }}
                         >
                           <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center" }}>

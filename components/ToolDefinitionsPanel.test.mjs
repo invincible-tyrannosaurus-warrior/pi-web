@@ -44,8 +44,8 @@ test("phone shows the tool list and one tool's details as pushed panes, like the
   assert.match(panelSource, /data-pane="list"\] \.tool-definition-detail,[\s\S]*?data-pane="detail"\] \.tool-definitions-sidebar \{[\s\S]*?display: none/);
   assert.match(panelSource, /select: \(name: string\) => \{ setSelectedToolName\(name\); setPane\("detail"\); \}/);
   // Entering a tool replays the settings motion; no sideways slide.
-  assert.match(panelSource, /data-pane="list"\]\[data-returned\] \.tool-definitions-sidebar \{[\s\S]*?menu-surface-in 0\.12s/);
-  assert.match(panelSource, /padding: 16px 16px 32px;\s*animation: menu-surface-in 0\.12s/);
+  assert.match(panelSource, /data-pane="list"\]\[data-returned\] \.tool-definitions-sidebar \{[\s\S]*?menu-surface-in var\(--motion-fast\)/);
+  assert.match(panelSource, /padding: 16px 16px 32px;\s*animation: menu-surface-in var\(--motion-fast\)/);
   assert.doesNotMatch(panelSource, /tool-pane-(push|pop)/);
   assert.match(panelSource, /onBack=\{showingDetail \? browser\.back : undefined\}/);
 });

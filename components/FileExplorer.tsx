@@ -332,7 +332,7 @@ function TreeNode({
             : markPhase === "pending"
             ? "color-mix(in srgb, var(--danger) 6%, transparent)"
             : hovered ? "var(--bg-hover)" : isRevealed ? "var(--bg-selected)" : "transparent",
-          transition: "background 0.1s",
+          transition: "background var(--motion-fast)",
           opacity: markPhase === "deleting" ? 0.5 : 1,
           outline: node.isDir && dropTargetPath === node.fullPath
             ? "1px solid color-mix(in srgb, var(--accent) 50%, transparent)"
@@ -1023,7 +1023,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             </div>
             {uploadPhase === "uploading" && (
               <div style={{ height: 3, marginTop: 4, overflow: "hidden", borderRadius: 2, background: "var(--border)" }}>
-                <div style={{ width: `${uploadProgress}%`, height: "100%", background: "var(--text-muted)", transition: "width 120ms ease" }} />
+                <div style={{ width: `${uploadProgress}%`, height: "100%", background: "var(--text-muted)", transition: "width var(--motion-fast)" }} />
               </div>
             )}
           </div>

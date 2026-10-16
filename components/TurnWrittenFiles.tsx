@@ -42,7 +42,7 @@ export function TurnWrittenFiles({ files, onOpenFile }: {
               border: "1px solid color-mix(in srgb, var(--border) 70%, transparent)",
               borderRadius: "var(--ui-radius-md)",
               cursor: "pointer",
-              transition: "background 0.12s ease, color 0.12s ease",
+              transition: "background var(--motion-fast), color var(--motion-fast)",
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = "var(--bg-hover)";

@@ -71,6 +71,6 @@ test("Save stays disabled after models.json loading fails, even with a draft", (
 test("loading uses the shared settings indicator inside a keyed page", async () => {
   assert.match(source, /<div key=\{loading \? "loading" : JSON\.stringify\(view\)\} className="settings-page">\s*\{loading \? <SettingsLoading label=\{t\("i18n\.loading"\)\} \/> : renderProvidersTab\(\)\}/);
   const css = await readFile(new URL("../app/settings.css", import.meta.url), "utf8");
-  assert.match(css, /\.settings-loading > span \{\s*animation: menu-surface-fade 0\.12s ease-out 0\.4s both;/);
+  assert.match(css, /\.settings-loading > span \{\s*animation: menu-surface-fade var\(--motion-fast\) var\(--ease-out\) 0\.4s both;/);
   assert.match(css, /prefers-reduced-motion: reduce\) \{\s*\.settings-dialog-surface,\s*\.settings-page,[\s\S]*?animation-name: menu-surface-fade/);
 });

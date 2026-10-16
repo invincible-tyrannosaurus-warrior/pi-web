@@ -24,6 +24,9 @@ Design notes moved out of AGENTS.md. Typography rules are enforced by `component
 - Everything inside a framed object is borderless: buttons and chips are ghost (transparent, hover fill), nested regions use a tint. Internal divisions are single-side rules (`border-top`/`border-bottom`), never a smaller box.
 - Exempt: an image's own edge (a faint ring over the pixels, e.g. `.image-thumb::after`, so white screenshots keep their shape), focus rings, drag/drop indicators, form-control state (checkbox, radio, switch), and floating layers (menus, popovers, dialogs, tooltips), which start their own count.
 
+## Motion
+- Durations are tokens: `--motion-fast` (120ms: hover, color, press, menus), `--motion-base` (200ms: panels, reveals), `--motion-slow` (300ms: wide color fades). Moving things use `--ease-out`; color fades keep the default `ease`. Loops, delays and reduced-motion zeros stay literal; a deliberate one-off carries a `motion-exempt` comment. Enforced by `components/Motion.test.mjs`.
+
 ## Modal dialogs and confirms
 - Modal shells (Settings, its nested dialogs, info, trust, directory picker, agent import, image generation) render through `components/ModalDialog.tsx`: the `<dialog>` element is the full-viewport scrim (the caller's backdrop class), its children are the surface. Layering is the browser's top layer, so no z-index; the latest `showModal()` is on top and everything else is inert.
 - Escape belongs to the topmost dialog: `ModalDialog` handles it on keydown (preventDefault + stopPropagation, so an outer dialog stays open) unless a nested control already prevented it (a select menu, a rename field). Pass no `onClose` while the dialog must stay open (busy); if the browser still closes it, it is reopened.

@@ -223,7 +223,7 @@ export function BranchNavigator({ tree, open, onToggle, hasSession, compact, dis
           opacity: isEffectiveDisabled ? 0.45 : 1,
           fontSize: 11,
           whiteSpace: "nowrap",
-          transition: "color 0.1s, background 0.1s, opacity 0.1s",
+          transition: "color var(--motion-fast), background var(--motion-fast), opacity var(--motion-fast)",
         }}
         onMouseEnter={(e) => {
           if (isEffectiveDisabled) return;

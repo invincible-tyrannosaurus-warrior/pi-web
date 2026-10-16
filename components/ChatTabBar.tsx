@@ -389,7 +389,7 @@ export function ChatTabBar({
                 WebkitUserSelect: "none",
                 touchAction: "pan-x",
                 position: "relative",
-                transition: "background 0.12s, color 0.12s",
+                transition: "background var(--motion-fast), color var(--motion-fast)",
                 // Visible tabs drop the bottom rule to join their pane; the focused
                 // pane's tab also carries the top accent bar.
                 // In the unified header the first tab sits next to header icons, so a
@@ -497,7 +497,7 @@ export function ChatTabBar({
                     cursor: "pointer",
                     padding: 0,
                     flexShrink: 0,
-                    transition: "background 0.1s, color 0.1s",
+                    transition: "background var(--motion-fast), color var(--motion-fast)",
                   }}
                   title={t("chatTabs.closeTab", { defaultValue: "关闭标签" })}
                   aria-label={`${t("chatTabs.closeTab", { defaultValue: "关闭标签" })}: ${tab.title}`}
@@ -580,7 +580,7 @@ export function ChatTabBar({
             color: "var(--text-muted)",
             cursor: "pointer",
             padding: 0,
-            transition: "color 0.12s, background 0.12s",
+            transition: "color var(--motion-fast), background var(--motion-fast)",
           }}
           title={t("chatTabs.newTab", { defaultValue: "新建对话标签" })}
           aria-label={t("chatTabs.newTab", { defaultValue: "新建对话标签" })}
@@ -618,7 +618,7 @@ export function ChatTabBar({
               color: isSplitActive ? "var(--text)" : "var(--text-muted)",
               cursor: "pointer",
               padding: 0,
-              transition: "color 0.12s, background 0.12s",
+              transition: "color var(--motion-fast), background var(--motion-fast)",
             }}
             title={
               isSplitActive

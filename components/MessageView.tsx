@@ -474,7 +474,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, p
                     strokeWidth="2.2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    style={{ flexShrink: 0, opacity: 0.75, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
+                    style={{ flexShrink: 0, opacity: 0.75, transform: expanded ? "rotate(180deg)" : "none", transition: "transform var(--motion-fast)" }}
                     aria-hidden="true"
                   >
                     <polyline points="6 9 12 15 18 9" />
@@ -516,7 +516,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, p
         gap: 4, marginTop: 2,
       }}>
           {/* The answer footer already dates the turn; the send time is on-demand detail. */}
-          {time && <span data-user-time style={{ fontSize: 11, lineHeight: 1.35, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums", userSelect: "none", opacity: hovered ? 1 : 0, transition: "opacity 0.12s ease" }}>{time}</span>}
+          {time && <span data-user-time style={{ fontSize: 11, lineHeight: 1.35, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums", userSelect: "none", opacity: hovered ? 1 : 0, transition: "opacity var(--motion-fast)" }}>{time}</span>}
           <div
             className="message-action-group"
             style={{

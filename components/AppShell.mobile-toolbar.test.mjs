@@ -211,7 +211,7 @@ test("mobile toolbar packs its whole group at the right end, fixed tools last", 
 });
 
 test("top-bar panels are cards that animate a wrapper, not the content nodes", async () => {
-  assert.match(cssSource, /\.popover-surface,\s*\.menu-surface \{[\s\S]*?animation: menu-surface-in 0\.12s ease-out;/);
+  assert.match(cssSource, /\.popover-surface,\s*\.menu-surface \{[\s\S]*?animation: menu-surface-in var\(--motion-fast\) var\(--ease-out\);/);
   assert.doesNotMatch(cssSource, /branch-dropdown/);
   assert.doesNotMatch(cssSource, /session-info-pop\b/);
   // Reduced motion keeps the fade; only the travel goes.

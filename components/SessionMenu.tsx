@@ -122,7 +122,7 @@ export function SessionMenu({
           cursor: disabled ? "not-allowed" : "pointer",
           opacity: disabled ? 0.45 : 1,
           flexShrink: 0,
-          transition: "color 0.1s, background 0.1s, opacity 0.1s, box-shadow 0.1s",
+          transition: "color var(--motion-fast), background var(--motion-fast), opacity var(--motion-fast), box-shadow var(--motion-fast)",
         }}
         onMouseEnter={(event) => hover(event, true)}
         onMouseLeave={(event) => hover(event, false)}
