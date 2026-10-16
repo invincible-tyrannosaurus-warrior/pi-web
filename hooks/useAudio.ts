@@ -32,8 +32,11 @@ function playTone(ctx: AudioContext) {
 export function useAudio() {
   const [enabled, setEnabled] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
-    const stored = localStorage.getItem("pi-sound-enabled");
-    return stored === null ? true : stored === "true";
+    try {
+      return localStorage.getItem("pi-sound-enabled") !== "false";
+    } catch {
+      return true; // Storage blocked by the browser.
+    }
   });
 
   const enabledRef = useRef(enabled);
@@ -95,7 +98,11 @@ export function useAudio() {
     if (next) unlockAudio(true);
     else ctxRef.current?.suspend().catch(() => {});
     enabledRef.current = next;
-    localStorage.setItem("pi-sound-enabled", String(next));
+    try {
+      localStorage.setItem("pi-sound-enabled", String(next));
+    } catch {
+      // Storage blocked: the toggle still applies to this page.
+    }
     setEnabled(next);
   }, [unlockAudio]);
 

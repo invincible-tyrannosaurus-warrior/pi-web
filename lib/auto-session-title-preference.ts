@@ -1,14 +1,11 @@
-const STORAGE_KEY = "pi-auto-session-title";
+import { createBooleanPreference } from "./boolean-preference";
+
+const preference = createBooleanPreference("pi-auto-session-title", true);
 
 export function isAutoSessionTitleEnabled(): boolean {
-  if (typeof window === "undefined") return true;
-  try {
-    return window.localStorage.getItem(STORAGE_KEY) !== "false";
-  } catch {
-    return true;
-  }
+  return preference.get();
 }
 
 export function setAutoSessionTitleEnabled(enabled: boolean): void {
-  window.localStorage.setItem(STORAGE_KEY, String(enabled));
+  preference.set(enabled);
 }

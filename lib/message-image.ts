@@ -1,5 +1,6 @@
 // Renders a chat answer to PNG in the browser (html-to-image snapshots the live DOM).
 import { downloadBlob, prefersShareSheet, shareProducedFile } from "./save-file";
+import { createBooleanPreference } from "./boolean-preference";
 
 export type MessageImageResult = "copied" | "shared" | "downloaded" | "canceled" | "retry";
 
@@ -24,16 +25,16 @@ const EXPORT_CSS = "*{scrollbar-width:none!important}*::-webkit-scrollbar{displa
   + ".mermaid-preview-button{max-height:none!important;overflow:visible!important}";
 const SCROLLERS = ".markdown-table-wrap, .markdown-code-block pre";
 const V_SCROLLERS = ".mermaid-preview-button";
-const FOOTER_KEY = "pi-export-image-footer";
+const footerPreference = createBooleanPreference("pi-export-image-footer", false);
 // Printable ASCII plus the list bullet, so markers and digits drawn outside the text still resolve.
 const BASE_CHARS = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join("") + "•";
 
 export function isExportImageFooterEnabled(): boolean {
-  return typeof window !== "undefined" && window.localStorage.getItem(FOOTER_KEY) === "true";
+  return footerPreference.get();
 }
 
 export function setExportImageFooterEnabled(enabled: boolean): void {
-  window.localStorage.setItem(FOOTER_KEY, String(enabled));
+  footerPreference.set(enabled);
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {

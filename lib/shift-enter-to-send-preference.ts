@@ -1,14 +1,11 @@
-const STORAGE_KEY = "pi-shift-enter-to-send";
+import { createBooleanPreference } from "./boolean-preference";
+
+const preference = createBooleanPreference("pi-shift-enter-to-send", false);
 
 export function isShiftEnterToSend(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(STORAGE_KEY) === "true";
-  } catch {
-    return false;
-  }
+  return preference.get();
 }
 
 export function setShiftEnterToSend(enabled: boolean): void {
-  window.localStorage.setItem(STORAGE_KEY, String(enabled));
+  preference.set(enabled);
 }
