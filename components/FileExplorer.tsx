@@ -904,6 +904,13 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setRevealed({ path, nonce: reveal.nonce });
   }, [cwd, reveal]);
 
+  // A brief locate mark, not a selection: same 2 s as the viewer's quote reveal.
+  useEffect(() => {
+    if (!revealed) return;
+    const timer = setTimeout(() => setRevealed(null), 2000);
+    return () => clearTimeout(timer);
+  }, [revealed]);
+
   useEffect(() => {
     let cancelled = false;
     const cwdChanged = gitStatusCwdRef.current !== cwd;
