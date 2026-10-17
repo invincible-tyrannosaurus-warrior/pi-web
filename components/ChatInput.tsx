@@ -1106,6 +1106,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const images = attachedImages.length ? attachedImages : undefined;
     clearInput();
     onSend(outgoing, images);
+    // Touch: dismiss the keyboard so the reply is readable; desktop keeps focus for follow-ups.
+    if (window.matchMedia("(hover: none)").matches) (document.activeElement as HTMLElement | null)?.blur();
   }, [disabled, value, quotes, attachedImages, mentionedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
@@ -1838,6 +1840,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       className="composer-send"
       aria-label={t("chat.send")}
       title={imageSendBlocked ? t("chat.tooManyImagesTitle") : t("chat.send")}
+      // Clicking send must not move focus: it ends up where Enter would leave it.
+      onMouseDown={(e) => e.preventDefault()}
       onClick={handleSend}
       disabled={!canSendMessage}
     >

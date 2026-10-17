@@ -4332,6 +4332,13 @@ span.token.table {
   border-color: color-mix(in srgb, var(--text) 30%, var(--border));
 }
 
+/* Touch: the soft keyboard already signals focus, so the border stays at rest (like native chat apps). */
+@media (hover: none) {
+  .chat-input:not(.is-compact) .chat-input-composer:focus-within {
+    border-color: var(--border);
+  }
+}
+
 .chat-input:not(.is-compact) .chat-input-composer.is-bash-mode {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   background: color-mix(in srgb, var(--bg-panel) 75%, var(--bg));
@@ -4347,6 +4354,12 @@ span.token.table {
   align-items: flex-end;
   gap: 8px;
   min-width: 0;
+}
+
+/* A text-colored caret reads as a stray glyph beside CJK (it spans the font's Latin
+   ascent+descent); one tier softer keeps it an insertion mark. */
+.chat-input-textarea {
+  caret-color: var(--text-muted);
 }
 
 /* Syntax hint at the metadata tier. It is chrome, not prose: UI face and the toolbar's 12px
