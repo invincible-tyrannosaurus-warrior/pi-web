@@ -299,6 +299,67 @@ function getFileApiUrl(
   return `/api/files/${encoded}?${searchParams.toString()}`;
 }
 
+function MentionButton({ filePath, cwd, onAtMention }: Pick<Props, "filePath" | "cwd" | "onAtMention">) {
+  const { t } = useI18n();
+  if (!onAtMention) return null;
+  return (
+    <button
+      type="button"
+      onPointerDown={(event) => event.preventDefault()}
+      onClick={() => onAtMention(getRelativeFilePath(filePath, cwd), false, cwd)}
+      title={t("files.insertPath")}
+      aria-label={t("files.mention")}
+      className="file-viewer-icon-button"
+    >
+      <MentionIcon />
+    </button>
+  );
+}
+
+function MediaToolbar({ filePath, cwd, sourceSessionId, meta, watching, onAtMention }: Pick<Props, "filePath" | "cwd" | "sourceSessionId" | "onAtMention"> & {
+  meta: Array<string | false | null | undefined>;
+  watching: boolean;
+}) {
+  const { t } = useI18n();
+  const metadata = meta.filter(Boolean).join(" · ");
+  return (
+    <div
+      className="file-viewer-toolbar"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "5px 12px",
+        borderBottom: "1px solid var(--border)",
+        fontSize: 11,
+        color: "var(--text-dim)",
+        background: "var(--bg)",
+        flexShrink: 0,
+      }}
+    >
+      <span className="file-viewer-path" title={filePath}>{getRelativeFilePath(filePath, cwd)}</span>
+      <span className="file-viewer-meta" title={metadata}>{metadata}</span>
+      <span
+        title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
+        aria-label={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
+        className="file-viewer-live-indicator"
+        style={{
+          background: watching ? "var(--success)" : "var(--border)",
+          boxShadow: watching ? "0 0 4px var(--success)" : "none",
+        }}
+      />
+      <div className="file-viewer-controls">
+        {onAtMention && (
+          <div className="file-viewer-actions">
+            <MentionButton filePath={filePath} cwd={cwd} onAtMention={onAtMention} />
+          </div>
+        )}
+        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
+      </div>
+    </div>
+  );
+}
+
 function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceSessionId?: string | null }) {
   const { t } = useI18n();
   return (
@@ -475,8 +536,7 @@ function DiffView({ patch }: { patch: string }) {
   );
 }
 
-function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
-  const { t } = useI18n();
+function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true, onAtMention }: Props) {
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
   const [size, setSize] = useState<number | null>(null);
@@ -571,43 +631,14 @@ function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "4px 16px",
-          borderBottom: "1px solid var(--border)",
-          fontSize: 11,
-          color: "var(--text-dim)",
-          background: "var(--bg)",
-          flexShrink: 0,
-        }}
-      >
-        <span title={filePath}>
-          {getRelativeFilePath(filePath, cwd)}
-        </span>
-        <span style={{ marginLeft: "auto" }}>{ext || "image"}</span>
-        {naturalSize && <span>{naturalSize.w} × {naturalSize.h}</span>}
-        {formatSizeStr && <span>{formatSizeStr}</span>}
-        <span
-          title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
-          style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "var(--success)" : "var(--text-dim)" }}
-        >
-          <span
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: watching ? "var(--success)" : "var(--border)",
-              display: "inline-block",
-              boxShadow: watching ? "0 0 4px var(--success)" : "none",
-            }}
-          />
-          {watching ? "live" : "static"}
-        </span>
-        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
-      </div>
+      <MediaToolbar
+        filePath={filePath}
+        cwd={cwd}
+        sourceSessionId={sourceSessionId}
+        meta={[ext || "image", naturalSize && `${naturalSize.w} × ${naturalSize.h}`, formatSizeStr]}
+        watching={watching}
+        onAtMention={onAtMention}
+      />
       <div
         style={{
           flex: 1,
@@ -666,8 +697,7 @@ function formatDuration(seconds: number): string {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
-function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
-  const { t } = useI18n();
+function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true, onAtMention }: Props) {
   const mediaRef = useRef<HTMLAudioElement | null>(null);
   // A hidden tab or closed panel pauses the watch; stop playback with it.
   useEffect(() => {
@@ -765,43 +795,14 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "4px 16px",
-          borderBottom: "1px solid var(--border)",
-          fontSize: 11,
-          color: "var(--text-dim)",
-          background: "var(--bg)",
-          flexShrink: 0,
-        }}
-      >
-        <span title={filePath}>
-          {getRelativeFilePath(filePath, cwd)}
-        </span>
-        <span style={{ marginLeft: "auto" }}>{ext || "audio"}</span>
-        {duration != null && <span>{formatDuration(duration)}</span>}
-        {size != null && <span>{formatSize(size)}</span>}
-        <span
-          title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
-          style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "var(--success)" : "var(--text-dim)" }}
-        >
-          <span
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: watching ? "var(--success)" : "var(--border)",
-              display: "inline-block",
-              boxShadow: watching ? "0 0 4px var(--success)" : "none",
-            }}
-          />
-          {watching ? "live" : "static"}
-        </span>
-        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
-      </div>
+      <MediaToolbar
+        filePath={filePath}
+        cwd={cwd}
+        sourceSessionId={sourceSessionId}
+        meta={[ext || "audio", duration != null && formatDuration(duration), size != null && formatSize(size)]}
+        watching={watching}
+        onAtMention={onAtMention}
+      />
       <div
         style={{
           flex: 1,
@@ -834,8 +835,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
   );
 }
 
-function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
-  const { t } = useI18n();
+function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true, onAtMention }: Props) {
   const mediaRef = useRef<HTMLVideoElement | null>(null);
   // A hidden tab or closed panel pauses the watch; stop playback with it.
   useEffect(() => {
@@ -933,43 +933,14 @@ function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "4px 16px",
-          borderBottom: "1px solid var(--border)",
-          fontSize: 11,
-          color: "var(--text-dim)",
-          background: "var(--bg)",
-          flexShrink: 0,
-        }}
-      >
-        <span title={filePath}>
-          {getRelativeFilePath(filePath, cwd)}
-        </span>
-        <span style={{ marginLeft: "auto" }}>{ext || "video"}</span>
-        {duration != null && <span>{formatDuration(duration)}</span>}
-        {size != null && <span>{formatSize(size)}</span>}
-        <span
-          title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
-          style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "var(--success)" : "var(--text-dim)" }}
-        >
-          <span
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: watching ? "var(--success)" : "var(--border)",
-              display: "inline-block",
-              boxShadow: watching ? "0 0 4px var(--success)" : "none",
-            }}
-          />
-          {watching ? "live" : "static"}
-        </span>
-        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
-      </div>
+      <MediaToolbar
+        filePath={filePath}
+        cwd={cwd}
+        sourceSessionId={sourceSessionId}
+        meta={[ext || "video", duration != null && formatDuration(duration), size != null && formatSize(size)]}
+        watching={watching}
+        onAtMention={onAtMention}
+      />
       <div
         style={{
           flex: 1,
@@ -1004,7 +975,7 @@ function VideoViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Pr
   );
 }
 
-function DocumentViewer({ filePath, cwd, sourceSessionId, watchEnabled = true, pdfPage }: Props) {
+function DocumentViewer({ filePath, cwd, sourceSessionId, watchEnabled = true, pdfPage, onAtMention }: Props) {
   const { t } = useI18n();
   const [watching, setWatching] = useState(false);
   const [bust, setBust] = useState(0);
@@ -1133,42 +1104,14 @@ function DocumentViewer({ filePath, cwd, sourceSessionId, watchEnabled = true, p
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "4px 16px",
-          borderBottom: "1px solid var(--border)",
-          fontSize: 11,
-          color: "var(--text-dim)",
-          background: "var(--bg)",
-          flexShrink: 0,
-        }}
-      >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={filePath}>
-          {getRelativeFilePath(filePath, cwd)}
-        </span>
-        <span style={{ marginLeft: "auto" }}>{ext === "docx" ? "docx preview" : "pdf"}</span>
-        {size != null && <span>{formatSize(size)}</span>}
-        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
-        <span
-          title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
-          style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "var(--success)" : "var(--text-dim)", flexShrink: 0 }}
-        >
-          <span
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: watching ? "var(--success)" : "var(--border)",
-              display: "inline-block",
-              boxShadow: watching ? "0 0 4px var(--success)" : "none",
-            }}
-          />
-          {watching ? "live" : "static"}
-        </span>
-      </div>
+      <MediaToolbar
+        filePath={filePath}
+        cwd={cwd}
+        sourceSessionId={sourceSessionId}
+        meta={[ext === "docx" ? "docx preview" : "pdf", size != null && formatSize(size)]}
+        watching={watching}
+        onAtMention={onAtMention}
+      />
       <div style={{ flex: 1, minHeight: 0, background: "var(--bg-panel)" }}>
         {error ? (
           <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: "var(--danger)", fontSize: 12, textAlign: "center" }}>
@@ -1208,16 +1151,16 @@ export function FileViewer({
   const [mountState] = useState(initialState);
   const diffRequested = resolveFileDisplayMode(filePath, mountState, initialDisplayMode) === "diff";
   if (!diffRequested && isImagePath(filePath)) {
-    return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} />;
+    return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} onAtMention={onAtMention} />;
   }
   if (!diffRequested && isAudioPath(filePath)) {
-    return <AudioViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} />;
+    return <AudioViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} onAtMention={onAtMention} />;
   }
   if (!diffRequested && isVideoPath(filePath)) {
-    return <VideoViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} />;
+    return <VideoViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} onAtMention={onAtMention} />;
   }
   if (!diffRequested && isDocumentPreviewPath(filePath)) {
-    return <DocumentViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} pdfPage={pdfPage} />;
+    return <DocumentViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} watchEnabled={watchEnabled} pdfPage={pdfPage} onAtMention={onAtMention} />;
   }
   return (
     <TextFileViewer
@@ -2042,7 +1985,12 @@ function TextFileViewer({
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "var(--danger)", fontSize: 12 }}>
         {error}
-        {error === BINARY_FILE_ERROR && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
+        {error === BINARY_FILE_ERROR && (
+          <>
+            <MentionButton filePath={filePath} cwd={cwd} onAtMention={onAtMention} />
+            <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
+          </>
+        )}
       </div>
     );
   }
