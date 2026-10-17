@@ -927,6 +927,7 @@ export function AppShell() {
   const filePersistenceRef = useRef({ tabs: fileTabs, activeTabId: activeFileTabId, open: rightPanelOpen });
   filePersistenceRef.current = { tabs: fileTabs, activeTabId: activeFileTabId, open: rightPanelOpen };
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
+  const [terminalActionsSlot, setTerminalActionsSlot] = useState<HTMLDivElement | null>(null);
   const [panelTabsRestored, setPanelTabsRestored] = useState(false);
   const [panelTabOrder, setPanelTabOrder] = useState<string[]>([]);
   const panelTabs = useMemo<Tab[]>(() => orderPanelTabs([
@@ -3502,6 +3503,8 @@ export function AppShell() {
               isMobile={isMobile}
             />
           </div>
+          {/* The selected terminal portals its actions here: one header row, no inner toolbar. */}
+          <div ref={setTerminalActionsSlot} className="terminal-header-actions" />
           <button
             type="button"
             onClick={() => closeRightPanel(true)}
@@ -3570,6 +3573,7 @@ export function AppShell() {
               <TerminalPanel
                 tab={tab}
                 active={rightPanelOpen && tab.id === activeFileTabId}
+                actionsSlot={tab.id === activeFileTabId ? terminalActionsSlot : null}
                 onRestart={() => setTerminalTabs((tabs) => tabs.map((item) => item.id === tab.id ? { ...item, closing: "restart" } : item))}
                 onClosed={() => handleTerminalClosed(tab)}
                 onCloseError={() => setTerminalTabs((tabs) => tabs.map((item) => item.id === tab.id ? { ...item, closing: undefined } : item))}

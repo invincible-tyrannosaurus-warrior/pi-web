@@ -906,24 +906,23 @@ body {
   cursor: not-allowed;
 }
 
+/* Terminal surfaces: the canvas is the app's --bg and the touch-key bar its
+   --bg-panel for the same palette, in the terminal's own light/dark mode.
+   Must match components/terminal-theme.ts. */
 .terminal-panel {
-  --terminal-bg: #111318;
-  --terminal-header-bg: #181b21;
-  --terminal-border: #2f3540;
-  --terminal-button-border: #343a46;
-  --terminal-hover: #242932;
-  --terminal-muted: #9ca3af;
-  --terminal-strong: #e5e7eb;
+  --terminal-bg: #1a1a1a;
+  --terminal-header-bg: #242424;
+  --terminal-border: #3a3a3a;
+  --terminal-hover: #2e2e2e;
+  --terminal-muted: #c2c5cc;
+  --terminal-strong: #e8e8e8;
   --terminal-accent: #60a5fa;
-  --terminal-status-connecting: #facc15;
-  --terminal-status-ready: #4ade80;
-  --terminal-status-error: #f87171;
   --terminal-error-border: #5f2424;
   --terminal-error-bg: #321b1b;
   --terminal-error-text: #fca5a5;
   color-scheme: dark;
   display: grid;
-  grid-template-rows: 38px auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -931,95 +930,87 @@ body {
   background: var(--terminal-bg);
 }
 
-/* Match components/terminal-theme.ts independently of the app theme. */
 .terminal-panel[data-terminal-theme="light"] {
   --terminal-bg: #ffffff;
-  --terminal-header-bg: #ffffff;
+  --terminal-header-bg: #f5f5f5;
   --terminal-border: #e0e0e0;
-  --terminal-button-border: #e0e0e0;
   --terminal-hover: #eeeeee;
-  --terminal-muted: #565e6b;
+  --terminal-muted: #3b4452;
   --terminal-strong: #1a1a1a;
   --terminal-accent: #2563eb;
-  --terminal-status-connecting: #b45309;
-  --terminal-status-ready: #15803d;
-  --terminal-status-error: #dc2626;
   --terminal-error-border: #fecaca;
   --terminal-error-bg: #fef2f2;
   --terminal-error-text: #b91c1c;
   color-scheme: light;
 }
 
-.terminal-panel-actions {
+/* Claude palette (app/theme-claude.css). */
+html[data-theme="claude"] .terminal-panel[data-terminal-theme="dark"] {
+  --terminal-bg: #1f1f1e;
+  --terminal-header-bg: #191918;
+  --terminal-border: #31312f;
+  --terminal-hover: #2a2928;
+  --terminal-muted: #b9b7b1;
+  --terminal-strong: #e3e2de;
+  --terminal-accent: #d97757;
+}
+
+html[data-theme="claude"] .terminal-panel[data-terminal-theme="light"] {
+  --terminal-bg: #faf9f5;
+  --terminal-header-bg: #f7f6f2;
+  --terminal-border: #e1e0dc;
+  --terminal-hover: #efeeea;
+  --terminal-muted: #45443e;
+  --terminal-strong: #141413;
+  --terminal-accent: #c15f3c;
+}
+
+/* Actions of the selected terminal tab, portaled into the file panel's
+   workspace header: same 30px icon buttons as the header's own. */
+.terminal-header-actions {
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 6px;
+  height: 100%;
 }
 
-.terminal-panel-header {
+.terminal-header-action,
+.terminal-header-status {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  min-width: 0;
-  padding: 0 10px 0 13px;
-  border-bottom: 1px solid var(--terminal-border);
-  background: var(--terminal-header-bg);
-  color: var(--terminal-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
+  justify-content: center;
+  width: 30px;
+  height: 100%;
+  padding: 0;
 }
 
-.terminal-panel-path {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 8px;
+.terminal-header-action {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--motion-fast);
 }
 
-.terminal-panel-path span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.terminal-header-action:hover { color: var(--text); }
+.terminal-header-action:disabled { cursor: default; }
 
+/* Shown only while not ready: a healthy terminal needs no indicator. */
 .terminal-status-dot {
   width: 7px;
   height: 7px;
-  flex: 0 0 7px;
   border-radius: 50%;
-  background: var(--terminal-status-connecting);
+  background: var(--warning);
 }
 
-.terminal-status-dot.is-ready { background: var(--terminal-status-ready); }
 .terminal-status-dot.is-exited,
-.terminal-status-dot.is-error { background: var(--terminal-status-error); }
-
-.terminal-panel-header button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 27px;
-  flex-shrink: 0;
-  padding: 0 8px;
-  border: 1px solid var(--terminal-button-border);
-  border-radius: var(--ui-radius-md);
-  background: transparent;
-  color: var(--terminal-muted);
-  cursor: pointer;
-  font: inherit;
-}
+.terminal-status-dot.is-error { background: var(--danger); }
 
 .terminal-panel-exit {
   padding: 7px 12px;
   color: var(--terminal-muted);
   font-family: var(--font-ui);
   font-size: 11px;
-}
-
-.terminal-panel-header button:hover {
-  background: var(--terminal-hover);
-  color: var(--terminal-strong);
 }
 
 .terminal-panel-error {
@@ -1035,7 +1026,7 @@ body {
   grid-row: -2 / -1;
   min-width: 0;
   min-height: 0;
-  padding: 10px 8px 22px 12px;
+  padding: 8px 8px 8px 12px;
   overflow: hidden;
 }
 
@@ -1051,11 +1042,11 @@ body {
 /* Termux-style keys on a portrait touch screen: the panel's last grid row, so
    xterm refits above them instead of being covered. Colors follow the header. */
 .terminal-panel.has-extra-keys {
-  grid-template-rows: 38px auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .terminal-panel.has-extra-keys .terminal-xterm {
-  grid-row: 3;
+  grid-row: 2;
   padding-bottom: 6px;
 }
 

@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { useI18n } from "@/hooks/useI18n";
+import { useTheme } from "@/hooks/useTheme";
 import { createTerminalWriter, terminalRequest } from "@/lib/terminal-client";
 import {
   applyTerminalModifiers,
@@ -21,12 +23,14 @@ import { isTerminalLight, setTerminalLight, subscribeTerminalTheme, TERMINAL_THE
 interface Props {
   tab: TerminalTab;
   active: boolean;
+  /** Workspace header slot for this tab's actions; set only while the tab is selected. */
+  actionsSlot: HTMLElement | null;
   onRestart: () => void;
   onClosed: () => void;
   onCloseError: () => void;
 }
 
-export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }: Props) {
+export function TerminalPanel({ tab, active, actionsSlot, onRestart, onClosed, onCloseError }: Props) {
   const { t } = useI18n();
   const { id, cwd, restored } = tab;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -45,6 +49,7 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
   const showExtraKeys = useTerminalExtraKeysVisible();
   const light = useSyncExternalStore(subscribeTerminalTheme, isTerminalLight, () => false);
   const theme = light ? "light" : "dark";
+  const { palette } = useTheme();
   const themeLabel = light ? "terminal.darkTheme" : "terminal.lightTheme";
 
   const consumeModifiers = useCallback(() => {
@@ -81,14 +86,19 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     setExitCode(null);
 
     const terminal = new Terminal({
+      // Neutral 2px bar (theme cursor = foreground); programs like vim still switch shapes themselves.
       cursorBlink: true,
+      cursorStyle: "bar",
+      cursorWidth: 2,
+      cursorInactiveStyle: "bar",
       fontFamily: getComputedStyle(container).getPropertyValue("--font-mono").trim() || "monospace",
       fontSize: 13,
       lineHeight: 1.25,
       scrollback: 8000,
       screenReaderMode: true,
+      // Programs can send their own colors; keep their text readable on our backgrounds.
+      minimumContrastRatio: 4.5,
       disableStdin: true,
-      theme: TERMINAL_THEMES[isTerminalLight() ? "light" : "dark"],
     });
     terminalRef.current = terminal;
     const fit = new FitAddon();
@@ -213,8 +223,9 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
   }, [id, cwd, restored, reconnectKey, consumeModifiers]);
 
   useEffect(() => {
-    if (terminalRef.current) terminalRef.current.options.theme = TERMINAL_THEMES[theme];
-  }, [theme]);
+    // Also sets the initial theme: runs right after creation, before xterm's first frame.
+    if (terminalRef.current) terminalRef.current.options.theme = TERMINAL_THEMES[palette][theme];
+  }, [palette, theme, id, cwd, restored, reconnectKey]);
 
   useEffect(() => {
     if (active) terminalRef.current?.focus();
@@ -240,13 +251,14 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
 
   return (
     <section className={`terminal-panel${showExtraKeys ? " has-extra-keys" : ""}`} data-terminal-theme={theme} aria-label={t("terminal.title")}>
-      <header className="terminal-panel-header">
-        <div className="terminal-panel-path">
-          <span className={`terminal-status-dot is-${status}`} title={t(`terminal.${status}`)} />
-          <span title={cwd}>{cwd}</span>
-        </div>
-        <div className="terminal-panel-actions">
-          <button type="button" onClick={() => setTerminalLight(!isTerminalLight())} title={t(themeLabel)} aria-label={t(themeLabel)}>
+      {actionsSlot && createPortal(
+        <>
+          {status !== "ready" && (
+            <span className="terminal-header-status" role="img" title={t(`terminal.${status}`)} aria-label={t(`terminal.${status}`)}>
+              <span className={`terminal-status-dot is-${status}`} />
+            </span>
+          )}
+          <button type="button" className="workspace-header-action terminal-header-action" onClick={() => setTerminalLight(!isTerminalLight())} title={t(themeLabel)} aria-label={t(themeLabel)}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               {light ? (
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
@@ -256,19 +268,20 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
             </svg>
           </button>
           {status === "error" && (
-            <button type="button" onClick={() => setReconnectKey((key) => key + 1)} disabled={Boolean(tab.closing)} title={t("terminal.reconnect")} aria-label={t("terminal.reconnect")}>
+            <button type="button" className="workspace-header-action terminal-header-action" onClick={() => setReconnectKey((key) => key + 1)} disabled={Boolean(tab.closing)} title={t("terminal.reconnect")} aria-label={t("terminal.reconnect")}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2" />
               </svg>
             </button>
           )}
-          <button type="button" onClick={onRestart} disabled={Boolean(tab.closing)} title={t("terminal.restart")} aria-label={t("terminal.restart")}>
+          <button type="button" className="workspace-header-action terminal-header-action" onClick={onRestart} disabled={Boolean(tab.closing)} title={t("terminal.restart")} aria-label={t("terminal.restart")}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M20 11a8 8 0 1 0-2.34 5.66" /><polyline points="20 4 20 11 13 11" />
             </svg>
           </button>
-        </div>
-      </header>
+        </>,
+        actionsSlot,
+      )}
       <div>
         {error && <div className="terminal-panel-error" role="alert">{error}</div>}
         {status === "exited" && <div className="terminal-panel-exit" role="status">{exitCode === null ? t("terminal.exited") : t("terminal.exitCode", { code: exitCode })}</div>}

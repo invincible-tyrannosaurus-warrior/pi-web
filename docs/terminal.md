@@ -61,12 +61,24 @@ A portrait touch screen (orientation from `screen.orientation`, never the viewpo
 
 ## Terminal appearance
 
-The header's sun/moon button switches only the terminal between dark (default)
-and light. It uses the same 13px icon, 27px button, radius token and hover rule
-as Restart/Reconnect, with translated action labels. Switching assigns
+The terminal has no toolbar of its own. The selected terminal tab portals its
+actions (light/dark, Reconnect on error, Restart) into the file panel's
+workspace header, next to the tab bar, as the header's 30px borderless icon
+buttons in app colors. A status dot (`--warning` connecting, `--danger`
+error/exited) appears there only while the terminal is not ready; the full cwd
+is the tab's tooltip. This holds on mobile too, where the panel is full screen.
+
+The light/dark button switches only the terminal. Switching assigns
 `terminal.options.theme` on the existing xterm; it does not recreate the terminal,
-reconnect SSE, restart the shell, or discard output/scrollback. App appearance
-is independent.
+reconnect SSE, restart the shell, or discard output/scrollback. The mode is
+independent of the app's light/dark mode, but surfaces follow the app palette
+(`default`/`claude`): `TERMINAL_THEMES[palette][mode]`. The canvas is that
+palette's `--bg` for the mode (so it joins the selected tab seamlessly when the
+modes agree) and the touch-key bar its `--bg-panel`. Each mode keeps one ANSI
+palette; Claude changes only the background. Terminal text, cursor and
+selection never take the app accent: they only need to stay readable. The
+cursor is a blinking 2px bar in the foreground color, also while unfocused;
+programs such as vim still set their own shape.
 
 `components/terminal-theme.ts` stores the boolean in `localStorage` as
 `pi-web:terminal-light`. A window event synchronizes mounted panels, including
@@ -74,7 +86,7 @@ hidden tabs; the `storage` event synchronizes browser tabs and storage clearing.
 A relevant storage event discards a failed write's stale page-local choice when
 storage is readable. Fully blocked storage retains the current page's choice.
 The terminal's
-scoped CSS variables recolor the header, padding, viewport, errors and touch keys;
+scoped CSS variables recolor the padding, viewport, errors and touch keys;
 `--terminal-bg` must match the xterm background for each palette.
 
 The light palette starts with the app's light semantic colors rather than the
@@ -93,14 +105,15 @@ by `components/terminal-theme.test.mjs`:
 | Cyan | 5.36 | 7.27 |
 | White | 6.54 | 4.74 |
 
+On the Claude light canvas `#faf9f5` the minimum drops to **4.50:1**
+(bright white) and **4.58:1** (red); the test covers both palettes.
+
 Normal foreground is **17.40:1**; all 16 light ANSI text colors are **≥4.74:1**
 (required ≥4.5 for 13px normal text, with no background-only color exceptions).
-The existing dark palette is unchanged. Terminal-scoped connection status colors
-also follow the chosen theme. Against the white light header, connecting/ready
-are **5.02:1** and error/exited **4.83:1** (required ≥3 for status dots).
-Programs that
+The dark ANSI palette is unchanged. Programs that
 send explicit truecolor values or set their own backgrounds are not recolored by
-the ANSI palette, so these contrast guarantees do not cover their output.
+the ANSI palette; xterm's `minimumContrastRatio: 4.5` adjusts such text at
+render time so it stays readable on our backgrounds.
 
 ## Verification
 

@@ -118,48 +118,61 @@ function luminance(hex) {
   });
   return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
 }
+const TERMINAL_SELECTORS = {
+  default: { dark: ".terminal-panel {", light: '.terminal-panel[data-terminal-theme="light"] {' },
+  claude: {
+    dark: 'html[data-theme="claude"] .terminal-panel[data-terminal-theme="dark"] {',
+    light: 'html[data-theme="claude"] .terminal-panel[data-terminal-theme="light"] {',
+  },
+};
+
+function cssBlock(css, palette, theme) {
+  const selector = TERMINAL_SELECTORS[palette][theme];
+  assert.ok(css.includes(selector), selector);
+  return css.slice(css.indexOf(selector)).split("}")[0];
+}
+
 function contrast(a, b) {
   const values = [luminance(a), luminance(b)].sort((a, b) => b - a);
   return (values[0] + 0.05) / (values[1] + 0.05);
 }
 
-test("light terminal foreground and all 16 ANSI text colors meet 4.5:1", (t) => {
+test("terminal foreground and all 16 light ANSI text colors meet 4.5:1 on every palette", (t) => {
   const names = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
   const ansi = [...names, ...names.map((name) => `bright${name[0].toUpperCase()}${name.slice(1)}`)];
-  for (const palette of Object.values(TERMINAL_THEMES)) {
-    for (const name of ansi) assert.match(palette[name], /^#[0-9a-f]{6}$/);
-    assert.ok(contrast(palette.foreground, palette.background) >= 4.5);
-  }
-  const light = TERMINAL_THEMES.light;
-  for (const name of ["foreground", ...ansi]) {
-    const ratio = contrast(light[name], light.background);
-    t.diagnostic(`${name}: ${ratio.toFixed(2)}:1`);
-    assert.ok(ratio >= 4.5, `${name}: ${ratio}`);
+  for (const [paletteName, modes] of Object.entries(TERMINAL_THEMES)) {
+    for (const palette of Object.values(modes)) {
+      for (const name of ansi) assert.match(palette[name], /^#[0-9a-f]{6}$/);
+      assert.ok(contrast(palette.foreground, palette.background) >= 4.5);
+    }
+    const light = modes.light;
+    for (const name of ["foreground", ...ansi]) {
+      const ratio = contrast(light[name], light.background);
+      t.diagnostic(`${paletteName} ${name}: ${ratio.toFixed(2)}:1`);
+      assert.ok(ratio >= 4.5, `${paletteName} ${name}: ${ratio}`);
+    }
   }
 });
 
-test("terminal status dots meet 3:1 against each palette's header", async (t) => {
+test("terminal actions live in the workspace header; the panel has no toolbar of its own", async () => {
+  const source = await readFile(new URL("./TerminalPanel.tsx", import.meta.url), "utf8");
+  const shell = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  for (const theme of ["dark", "light"]) {
-    const selector = theme === "dark" ? ".terminal-panel {" : '.terminal-panel[data-terminal-theme="light"] {';
-    const block = css.slice(css.indexOf(selector)).split("}")[0];
-    const header = block.match(/--terminal-header-bg: (#[0-9a-f]{6});/)[1];
-    for (const status of ["connecting", "ready", "error"]) {
-      const color = block.match(new RegExp(`--terminal-status-${status}: (#[0-9a-f]{6});`))[1];
-      const ratio = contrast(color, header);
-      t.diagnostic(`${theme} ${status}: ${ratio.toFixed(2)}:1`);
-      assert.ok(ratio >= 3, `${theme} ${status}: ${ratio}`);
-    }
-  }
-  assert.match(css, /\.terminal-status-dot \{[^}]*background: var\(--terminal-status-connecting\)/);
-  assert.match(css, /\.terminal-status-dot\.is-ready \{ background: var\(--terminal-status-ready\)/);
-  assert.match(css, /\.terminal-status-dot\.is-exited,\s*\.terminal-status-dot\.is-error \{ background: var\(--terminal-status-error\)/);
+  assert.doesNotMatch(source, /<header|terminal-panel-header/);
+  assert.match(source, /\{actionsSlot && createPortal\(/);
+  assert.match(source, /\{status !== "ready" && \(/, "a healthy terminal shows no status dot");
+  assert.match(shell, /<div ref=\{setTerminalActionsSlot\} className="terminal-header-actions" \/>/);
+  assert.match(shell, /actionsSlot=\{tab.id === activeFileTabId \? terminalActionsSlot : null\}/);
+  // Header buttons use app tokens, not the terminal's own palette.
+  assert.match(css, /\.terminal-header-action \{[^}]*border: none;[^}]*color: var\(--text-muted\)/);
+  assert.match(css, /\.terminal-status-dot \{[^}]*background: var\(--warning\)/);
+  assert.match(css, /\.terminal-status-dot\.is-error \{ background: var\(--danger\)/);
 });
 
 test("theme changes only update the live xterm; chrome backgrounds and header controls stay aligned", async () => {
   const source = await readFile(new URL("./TerminalPanel.tsx", import.meta.url), "utf8");
   assert.match(source, /useSyncExternalStore\(subscribeTerminalTheme, isTerminalLight, \(\) => false\)/);
-  assert.match(source, /useEffect\(\(\) => \{\s*if \(terminalRef.current\) terminalRef.current.options.theme = TERMINAL_THEMES\[theme\];\s*\}, \[theme\]\)/);
+  assert.match(source, /if \(terminalRef.current\) terminalRef.current.options.theme = TERMINAL_THEMES\[palette\]\[theme\];\s*\}, \[palette, theme, id, cwd, restored, reconnectKey\]\)/);
   const lifetimeEnd = "  }, [id, cwd, restored, reconnectKey, consumeModifiers]);";
   assert.ok(source.includes(lifetimeEnd), "theme must not become a terminal lifecycle dependency");
   const lifetime = source.slice(source.indexOf("    const terminal = new Terminal("), source.indexOf(lifetimeEnd));
@@ -167,13 +180,20 @@ test("theme changes only update the live xterm; chrome backgrounds and header co
   assert.doesNotMatch(lifetime, /\[theme\]|\[light\]/);
   assert.match(source, /data-terminal-theme=\{theme\}/);
   assert.match(source, /title=\{t\(themeLabel\)\} aria-label=\{t\(themeLabel\)\}/);
-  assert.doesNotMatch(source, /useTheme|document.documentElement/);
-  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  for (const [name, palette] of Object.entries(TERMINAL_THEMES)) {
-    const selector = name === "dark" ? ".terminal-panel {" : '.terminal-panel[data-terminal-theme="light"] {';
-    const block = css.slice(css.indexOf(selector)).split("}")[0];
-    assert.ok(block.includes(`--terminal-bg: ${palette.background}`));
+  assert.match(source, /const \{ palette \} = useTheme\(\);/);
+  assert.match(source, /minimumContrastRatio: 4\.5,/);
+  assert.match(source, /cursorStyle: "bar",\s*cursorWidth: 2,\s*cursorInactiveStyle: "bar",/);
+  for (const theme of Object.values(TERMINAL_THEMES.default)) assert.equal(theme.cursor, theme.foreground);
+  for (const [theme, base] of Object.entries(TERMINAL_THEMES.default)) {
+    const { background, cursorAccent, ...rest } = TERMINAL_THEMES.claude[theme];
+    const { background: _b, cursorAccent: _c, ...baseRest } = base;
+    assert.deepEqual(rest, baseRest, `claude ${theme} must change only the background`);
   }
-  assert.match(css, /\.terminal-panel-header button \{[^}]*height: 27px;[^}]*border-radius: var\(--ui-radius-md\)/);
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  for (const [palette, modes] of Object.entries(TERMINAL_THEMES)) {
+    for (const [theme, xterm] of Object.entries(modes)) {
+      assert.ok(cssBlock(css, palette, theme).includes(`--terminal-bg: ${xterm.background}`), `${palette} ${theme}`);
+    }
+  }
   assert.match(css, /\.terminal-xterm \.xterm-viewport \{\s*background-color: var\(--terminal-bg\)/);
 });
