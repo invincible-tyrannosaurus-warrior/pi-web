@@ -2598,7 +2598,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     aria-haspopup="menu"
                     aria-expanded={thinkingDropdownOpen}
                   >
-                    <span>{thinkingDisplayLabel}</span>
+                    {/* Same line box as the model name beside it, so both labels rasterize on the same baseline. */}
+                    <span style={{ lineHeight: 1.4 }}>{thinkingDisplayLabel}</span>
                   </button>
                   {thinkingDropdownOpen && (
                     <div role="menu" className="chat-input-menu menu-surface" style={{ left: 0 }} onKeyDown={closeMenuOnEscape}>
