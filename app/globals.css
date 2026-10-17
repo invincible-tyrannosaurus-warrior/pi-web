@@ -4585,39 +4585,43 @@ span.token.table {
   flex-shrink: 0;
 }
 
-/* The extra Stop sits at width 0 until a draft is ready, then widens; its spacing lives on
-   it so a collapsed button leaves no phantom gap. The demoted Stop keeps the filled Stop's 24px box, radius and glyph on a soft fill, so it
-   pairs with the filled Send by weight alone. No border: a frame around the small square
-   reads as an empty checkbox. */
+/* The extra Stop sits at width 0 until a draft is ready, then widens. Its 20px box puts the
+   square's ink ~12px from the ↵, the same space as between the last reading's ink and the
+   settings sliders below; like the 18px attach box, the narrow ink sets the width. */
 .composer-btn.is-icon.chat-input-queue-action {
   max-width: 0;
-  border-radius: var(--ui-radius-md);
-  background: var(--bg-hover);
-  color: var(--text);
+  border-radius: var(--ui-radius-sm);
+  background: none;
+  color: var(--text-muted);
   opacity: 0;
   overflow: hidden;
   pointer-events: none;
-  margin-inline-end: 0;
-  /* Collapsing: clip at once and fade fast, so it never sits beside the filled Stop that
+  /* Collapsing: clip at once and fade fast, so it never sits beside the Stop that
      replaces Send. Opening: overflow (kept visible only for the touch ring) waits for the
      width, so the glyph never spills out of a half-open box. */
-  transition: max-width var(--motion-base), opacity calc(var(--motion-fast) / 2), margin-inline-end var(--motion-base), background var(--motion-fast), color var(--motion-fast), overflow 0s;
+  transition: max-width var(--motion-base), opacity calc(var(--motion-fast) / 2), background var(--motion-fast), color var(--motion-fast), overflow 0s;
   transition-behavior: allow-discrete;
 }
 
 .chat-input-actions.is-queueing .composer-btn.is-icon.chat-input-queue-action {
-  max-width: 24px;
+  max-width: 20px;
   opacity: 1;
   overflow: visible;
   pointer-events: auto;
-  margin-inline-end: 4px;
-  transition: max-width var(--motion-base), opacity var(--motion-fast), margin-inline-end var(--motion-base), background var(--motion-fast), color var(--motion-fast), overflow 0s 0.2s;
+  transition: max-width var(--motion-base), opacity var(--motion-fast), background var(--motion-fast), color var(--motion-fast), overflow 0s 0.2s;
 }
 
 @media (hover: hover) {
   .composer-btn.is-icon.chat-input-queue-action:hover {
-    background: var(--bg-selected);
+    background: var(--bg-hover);
+    color: var(--text);
   }
+}
+
+/* Touch rings stay inside the narrow box: a stray tap beside Send must not stop the run. */
+.chat-input-actions .composer-btn.is-icon.chat-input-queue-action::before {
+  left: 0;
+  right: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4626,6 +4630,8 @@ span.token.table {
   }
 }
 
+/* Send and Stop are bare glyphs, as in Claude Desktop: the user is already typing (or
+   watching a run), so no fill or color change advertises them, not even for empty input. */
 .composer-send {
   display: inline-flex;
   align-items: center;
@@ -4634,26 +4640,23 @@ span.token.table {
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 1px solid var(--primary);
-  border-radius: var(--ui-radius-md);
-  background: var(--primary);
-  color: var(--primary-contrast);
+  border: none;
+  border-radius: var(--ui-radius-sm);
+  background: none;
+  color: var(--text-muted);
   cursor: pointer;
-  transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
+  transition: background var(--motion-fast), color var(--motion-fast);
 }
 
 @media (hover: hover) {
   .composer-send:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    background: var(--primary-hover);
+    background: var(--bg-hover);
+    color: var(--text);
   }
 }
 
 .composer-send:disabled {
-  border-color: transparent;
-  background: none;
-  color: var(--text-dim);
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .composer-send svg {

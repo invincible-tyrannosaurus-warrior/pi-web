@@ -1793,14 +1793,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     textareaRef.current?.focus();
   };
 
-  const arrowUpIcon = (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 19V5m-7 7 7-7 7 7" />
+  // Return glyph after Claude Desktop's ⏎ (tight corners, open arrowhead), drawn on the
+  // settings sliders' 13px box and 4-20 ink span so the column reads as one set.
+  const sendIcon = (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 4h4.5A1.5 1.5 0 0 1 20 5.5v7A1.5 1.5 0 0 1 18.5 14H4" />
+      <path d="m8 8.7-4 5.3 4 5.3" />
     </svg>
   );
+  // As tall as the ↵ ink (4-19.3), as in Claude Desktop where the square matches its neighbour.
   const stopIcon = (
-    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+    <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4.5" y="4.5" width="15" height="15" rx="3" fill="currentColor" />
     </svg>
   );
   // Same key rules as handleKeyDown: phones need Ctrl/Cmd, desktop may prefer Shift+Enter.
@@ -1845,7 +1849,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       onClick={handleSend}
       disabled={!canSendMessage}
     >
-      {arrowUpIcon}
+      {sendIcon}
     </button>
   ) : (
     <>
@@ -1862,7 +1866,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       <div ref={sendMenuRef} className="chat-input-popover-anchor">
       <button
         type="button"
-        className="composer-send"
+        className={`composer-send${queueStreamingActions ? "" : " is-stop"}`}
         aria-label={!queueStreamingActions ? t("chat.stop") : chooseDelivery ? t("chat.send") : onSteer ? t("chat.steer") : t("chat.followUp")}
         title={!queueStreamingActions
           ? `${t("chat.stopAgent")} (Esc)`
@@ -1879,7 +1883,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             : () => sendQueued(onSteer ? "steer" : "followup")}
         onKeyDown={chooseDelivery ? closeMenuOnEscape : undefined}
       >
-        {queueStreamingActions ? arrowUpIcon : stopIcon}
+        {queueStreamingActions ? sendIcon : stopIcon}
       </button>
       {sendMenuOpen && chooseDelivery && (
         <div role="menu" className="chat-input-menu menu-surface" style={{ right: 0, minWidth: 180 }} onKeyDown={closeMenuOnEscape}>

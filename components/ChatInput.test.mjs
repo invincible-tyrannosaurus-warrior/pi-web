@@ -149,8 +149,8 @@ test("keeps the main composer compact in idle and streaming states", () => {
     ));
     assert.match(html, /<textarea[^>]*rows="1"[^>]*min-height:24px;max-height:200px/);
     assert.match(html, /class="chat-input-composer"[\s\S]*class="chat-input-dock"/);
-    assert.equal((html.match(/class="composer-send"/g) ?? []).length, 1);
-    assert.match(html, new RegExp(`class="composer-send" aria-label="${isStreaming ? "Stop" : "Send"}"`));
+    assert.equal((html.match(/class="composer-send[" ]/g) ?? []).length, 1);
+    assert.match(html, new RegExp(`class="composer-send${isStreaming ? " is-stop" : ""}" aria-label="${isStreaming ? "Stop" : "Send"}"`));
     if (isStreaming) {
       assert.doesNotMatch(html, /chat-input-actions is-queueing/);
       assert.match(html, /chat-input-queue-action/);
@@ -174,7 +174,7 @@ test("keeps the main composer compact in idle and streaming states", () => {
     assert.match(html, /class="composer-btn is-icon chat-input-queue-action" aria-label="Stop"/);
     // Steer and follow-up share one Send button: a click opens the choice, no extra icons or segment.
     assert.doesNotMatch(html, /aria-label="Follow-up"/);
-    assert.match(html, /class="composer-send" aria-label="Send"[^>]*aria-haspopup="menu" aria-expanded="false"[^>]*><svg[^>]*><path d="M12 19V5m-7 7 7-7 7 7"/);
+    assert.match(html, /class="composer-send" aria-label="Send"[^>]*aria-haspopup="menu" aria-expanded="false"[^>]*><svg[^>]*><path d="M14 4h4.5A1.5 1.5 0 0 1 20 5.5v7A1.5 1.5 0 0 1 18.5 14H4"/);
     assert.doesNotMatch(html, /composer-btn-label/);
     assert.doesNotMatch(html, /--danger/);
 
@@ -182,7 +182,7 @@ test("keeps the main composer compact in idle and streaming states", () => {
     const busy = renderToStaticMarkup(React.createElement(I18nProvider, null,
       React.createElement(ChatInput, { onSend() {}, onAbort() {}, isStreaming: true, draftKey })));
     assert.doesNotMatch(busy, /chat-input-actions is-queueing/);
-    assert.match(busy, /class="composer-send" aria-label="Stop"/);
+    assert.match(busy, /class="composer-send is-stop" aria-label="Stop"/);
   } finally {
     clearDraft(draftKey);
   }
@@ -284,7 +284,7 @@ test("keeps effort visible but locked while streaming", () => {
   assert.doesNotMatch(html, /Compact context/);
 });
 
-test("keeps empty Send quiet and highlights text or image submissions", () => {
+test("keeps Send the same bare glyph for empty, text, and image drafts", () => {
   const draftKey = "test:composer-send-appearance";
   try {
     for (const draft of [
@@ -302,7 +302,7 @@ test("keeps empty Send quiet and highlights text or image submissions", () => {
       const empty = !draft.value && draft.images.length === 0;
       assert.equal(send.includes('disabled=""'), empty);
       assert.match(send, /class="composer-send"/);
-      assert.match(send, /<svg width="14" height="14" viewBox="0 0 24 24"[^>]*stroke-width="1.9"/);
+      assert.match(send, /<svg width="13" height="13" viewBox="0 0 24 24"[^>]*stroke-width="2"/);
       assert.doesNotMatch(send, /composer-btn-label/);
       assert.match(html, /class="chat-input-composer"[\s\S]*class="chat-input-dock"/);
       const attach = html.match(/<button[^>]*aria-label="Attach files"[\s\S]*?<\/button>/)?.[0];
