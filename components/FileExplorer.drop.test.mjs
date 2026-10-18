@@ -83,7 +83,7 @@ test("pending conflicts disable the upload button signal, picker and hidden inpu
   let clicks = 0;
   const disabledSignals = [];
   const scope = {
-    React, ref: {}, uploadBusy: false, pendingConflict: null,
+    React, ref: {}, cwd: "/project", uploadBusy: false, pendingConflict: null,
     uploadInputRef: { current: { click: () => { clicks++; } } },
     handleUploadInput() {},
     onUploadBusyChange: (blocked) => disabledSignals.push(blocked),

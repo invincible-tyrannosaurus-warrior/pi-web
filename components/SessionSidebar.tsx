@@ -399,6 +399,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   }, []);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
+  const [explorerCanCollapse, setExplorerCanCollapse] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchQuery, setSessionSearchQuery] = useState("");
@@ -2423,6 +2424,17 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
               <span>{t("files.explorer")}</span>
             </button>
             <div className="sidebar-header-actions">
+            {explorerOpen && explorerCanCollapse && (
+              <ToolbarIconButton
+                onClick={() => fileExplorerRef.current?.collapseAll()}
+                title={t("sidebar.collapseAll")}
+                color="var(--text-muted)"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="7 20 12 15 17 20" /><polyline points="7 4 12 9 17 4" />
+                </svg>
+              </ToolbarIconButton>
+            )}
             {onOpenTerminal && (
               <ToolbarIconButton
                 onClick={() => onOpenTerminal(selectedCwd ?? selectedCwdProp!)}
@@ -2504,6 +2516,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                 onAtMention={onAtMention}
                 onAtMentions={onAtMentions}
                 onUploadBusyChange={setExplorerUploadBusy}
+                onCanCollapseChange={setExplorerCanCollapse}
                 changesCollapsed={changesCollapsed}
                 onChangesCountChange={setChangesCount}
                 fileSearchOpen={fileSearchOpen}

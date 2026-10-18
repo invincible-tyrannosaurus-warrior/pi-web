@@ -43,6 +43,8 @@ interface Props {
   onAtMention?: (relativePath: string, isDir: boolean, sourceCwd?: string) => void;
   onAtMentions?: (relativePaths: string[], sourceCwd?: string) => void;
   onUploadBusyChange?: (busy: boolean) => void;
+  /** Whether the visible tree has an open folder, i.e. collapseAll() would change anything. */
+  onCanCollapseChange?: (canCollapse: boolean) => void;
   changesCollapsed: boolean;
   onChangesCountChange?: (count: number) => void;
   fileSearchOpen?: boolean;
@@ -53,6 +55,7 @@ interface Props {
 
 export interface FileExplorerHandle {
   openUploadPicker: () => void;
+  collapseAll: () => void;
 }
 
 type UploadPhase = "idle" | "checking" | "uploading";
@@ -547,6 +550,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   onAtMention,
   onAtMentions,
   onUploadBusyChange,
+  onCanCollapseChange,
   changesCollapsed,
   onChangesCountChange,
   fileSearchOpen = false,
@@ -727,7 +731,15 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
   const handleToggleExpanded = useCallback((fullPath: string, open: boolean) => {
     const next = new Set(expandedPaths);
-    if (open) next.add(fullPath); else next.delete(fullPath);
+    if (open) {
+      next.add(fullPath);
+    } else {
+      // Folding a folder also forgets its open descendants, so reopening it shows one level.
+      const prefix = `${normalizeFilePathSlashes(fullPath).replace(/\/$/, "")}/`;
+      for (const path of next) {
+        if (path === fullPath || normalizeFilePathSlashes(path).startsWith(prefix)) next.delete(path);
+      }
+    }
     setExpandedPaths(next);
     rememberExpandedPaths(cwd, [...next]);
   }, [cwd, expandedPaths]);
@@ -850,11 +862,21 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     openUploadPicker() {
       if (!uploadBlocked) uploadInputRef.current?.click();
     },
-  }), [uploadBlocked]);
+    collapseAll() {
+      setExpandedPaths(new Set());
+      rememberExpandedPaths(cwd, []);
+    },
+  }), [cwd, uploadBlocked]);
 
   useEffect(() => {
     onUploadBusyChange?.(uploadBlocked);
   }, [onUploadBusyChange, uploadBlocked]);
+
+  const treeVisible = (changesCollapsed || gitStatusCwd !== cwd || gitFiles.length === 0) && (!fileSearchOpen || !hasSearchQuery);
+  const canCollapse = treeVisible && expandedPaths.size > 0;
+  useEffect(() => {
+    onCanCollapseChange?.(canCollapse);
+  }, [onCanCollapseChange, canCollapse]);
 
   useEffect(() => () => onUploadBusyChange?.(false), [onUploadBusyChange]);
 
@@ -1296,7 +1318,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         </div>
       )}
 
-      {(changesCollapsed || gitStatusCwd !== cwd || gitFiles.length === 0) && (!fileSearchOpen || !hasSearchQuery) && (
+      {treeVisible && (
         <div style={{ padding: "2px 4px" }}>
           {loading ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
