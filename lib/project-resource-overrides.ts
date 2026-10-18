@@ -72,7 +72,9 @@ const isLocal = (source: string) => !/^(npm|git|github|http|https|ssh):/.test(so
 const resolveFrom = (base: string, input: string) =>
   resolve(base, input.trim().replace(/^~(?=$|[/\\])/, homedir()));
 
-function baseDirFor(ctx: Ctx, scope: SettingsScope): string {
+type Location = Pick<Ctx, "cwd" | "agentDir">;
+
+function baseDirFor(ctx: Location, scope: SettingsScope): string {
   return scope === "project" ? join(ctx.cwd, CONFIG_DIR_NAME) : ctx.agentDir;
 }
 
@@ -80,10 +82,14 @@ function isInherited(ctx: Ctx, item: Item): boolean {
   return scopeOf(item) === "user" || ctx.inherited.has(keyOf(item.type, item.path));
 }
 
-function sourcesMatch(ctx: Ctx, left: string, leftScope: SettingsScope, right: string, rightScope: SettingsScope): boolean {
+function sourcesMatch(ctx: Location, left: string, leftScope: SettingsScope, right: string, rightScope: SettingsScope): boolean {
   if (left === right) return true;
-  if (!isLocal(left) || !isLocal(right)) return false;
-  return resolveFrom(baseDirFor(ctx, leftScope), left) === resolveFrom(baseDirFor(ctx, rightScope), right);
+  if (isLocal(left) && isLocal(right)) {
+    return resolveFrom(baseDirFor(ctx, leftScope), left) === resolveFrom(baseDirFor(ctx, rightScope), right);
+  }
+  // pi's identity (npm name, git repo without version/ref): a delta written for npm:x@1 still
+  // overrides the global npm:x@2, so a second entry would replace it and drop its overrides.
+  return packageManager(ctx.cwd, ctx.agentDir, SettingsManager.inMemory({ packages: [right] })).removeSourceFromSettings(left);
 }
 
 function projectPackages(ctx: Ctx): PackageSource[] {
@@ -115,8 +121,9 @@ function stateFromEntries(entries: string[], patterns: Set<string>, emptyArrayIs
   return state;
 }
 
+// pi lets the last of several same-identity project entries win; read and edit that one.
 function findProjectPackage(ctx: Ctx, item: Item): PackageSource | undefined {
-  return projectPackages(ctx).find((entry) =>
+  return projectPackages(ctx).findLast((entry) =>
     sourcesMatch(ctx, item.metadata.source, scopeOf(item), sourceOf(entry), "project"));
 }
 
@@ -172,7 +179,7 @@ function setTopLevelOverride(ctx: Ctx, item: Item, state: OverrideState): void {
 
 function setPackageOverride(ctx: Ctx, item: Item, state: OverrideState): void {
   const packages = projectPackages(ctx);
-  let index = packages.findIndex((entry) =>
+  let index = packages.findLastIndex((entry) =>
     sourcesMatch(ctx, item.metadata.source, scopeOf(item), sourceOf(entry), "project"));
   if (index === -1) {
     if (state === "inherit") return;
@@ -279,6 +286,31 @@ export async function setGlobalResourceEnabled(
   await sm.flush();
   const writeError = sm.drainErrors()[0];
   if (writeError) throw new Error(`Cannot write ${writeError.path ?? "global settings"}: ${writeError.error.message}`);
+}
+
+/**
+ * Drop the project deltas over a global package that was just removed: pi would
+ * otherwise resolve each as a project package and install a copy into `.pi/npm|git`.
+ * Only safe right after the removal. Any other `autoload: false` entry without a
+ * global base may be a deliberate project package, and project copies may be
+ * shared, so neither is touched. Returns whether the project settings changed.
+ */
+export async function dropRemovedPackageDeltas(cwd: string, agentDir: string, removedSource: string): Promise<boolean> {
+  const sm = SettingsManager.create(cwd, agentDir);
+  // An unreadable file loads as {}: writing on top of it would replace the user's file.
+  if (sm.drainErrors().length > 0) return false;
+  const location = { cwd, agentDir };
+  const globalPackages = sm.getGlobalSettings().packages ?? [];
+  const project = sm.getProjectSettings().packages ?? [];
+  const kept = project.filter((entry) => typeof entry !== "object" || entry.autoload !== false
+    || !sourcesMatch(location, removedSource, "user", entry.source, "project")
+    || globalPackages.some((pkg) => sourcesMatch(location, sourceOf(pkg), "user", entry.source, "project")));
+  if (kept.length === project.length) return false;
+  sm.setProjectPackages(kept);
+  await sm.flush();
+  const writeError = sm.drainErrors()[0];
+  if (writeError) throw new Error(`Cannot write ${writeError.path ?? "project settings"}: ${writeError.error.message}`);
+  return true;
 }
 
 export class ProjectNotTrustedError extends Error {}

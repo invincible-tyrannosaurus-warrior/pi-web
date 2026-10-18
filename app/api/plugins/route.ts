@@ -7,7 +7,8 @@ import {
   SettingsManager,
   type PackageSource,
 } from "@earendil-works/pi-coding-agent";
-import { resolveScopedResources, setGlobalResourceEnabled, type ResourceType, type ScopedResource } from "@/lib/project-resource-overrides";
+import { dropRemovedPackageDeltas, resolveScopedResources, setGlobalResourceEnabled, type ResourceType, type ScopedResource } from "@/lib/project-resource-overrides";
+import { getOverrideSyncTargets } from "@/lib/project-override-sync";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { getProjectTrustStatus } from "@/lib/project-trust";
@@ -294,6 +295,19 @@ async function readPlugins(cwd: string): Promise<PluginsResponse> {
   };
 }
 
+/** Project overrides of a removed global package would make pi install a project copy. */
+async function dropProjectDeltas(cwd: string, agentDir: string, removedSource: string): Promise<void> {
+  const dirs = new Set<string>();
+  for (const root of [cwd, ...await getAllowedFileRoots()]) {
+    // Overrides are replayed into every worktree, including ones without sessions.
+    for (const dir of (await getOverrideSyncTargets(root).catch(() => ({ dirs: [root] }))).dirs) dirs.add(dir);
+  }
+  for (const dir of dirs) {
+    await dropRemovedPackageDeltas(dir, agentDir, removedSource).catch((error) =>
+      console.warn(`[pi-web] cannot drop project overrides of ${removedSource} in ${dir}:`, error));
+  }
+}
+
 function readScope(scope: unknown): PluginScope {
   return scope === "project" ? "project" : "global";
 }
@@ -364,7 +378,8 @@ export async function POST(req: Request) {
       await packageManager.installAndPersist(source, { local });
     } else if (body.action === "remove") {
       if (!source) return NextResponse.json({ error: "source required" }, { status: 400 });
-      await packageManager.removeAndPersist(source, { local });
+      const removed = await packageManager.removeAndPersist(source, { local });
+      if (removed && !local) await dropProjectDeltas(body.cwd, agentDir, source);
     } else if (body.action === "update") {
       if (!source && !projectTrust.trusted && packageManager.listConfiguredPackages().some((pkg) => pkg.scope === "project")) {
         return NextResponse.json(

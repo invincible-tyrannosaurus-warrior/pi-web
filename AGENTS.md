@@ -110,6 +110,8 @@ Full notes: `docs/settings.md`. Traps:
 - pi reads only `<cwd>/.pi/settings.json`, so `lib/project-override-sync.ts` replays overrides into every worktree checkout (not a file copy: local sources are relative).
 - Skill `disable-model-invocation` edits only that frontmatter key (keep user formatting). Package skills are refused with 409.
 - Writes into project `.pi/` (overrides, `mcp.json`, `.pi/agents`) are project-trust gated.
+- `SettingsManager.create()` defaults to `projectTrusted: true`, and the resource loader resolves (installs) project packages even with every `no*` flag set: pass the real trust status whenever no trust callback is given.
+- A project `autoload: false` entry without a global base is a project package to pi (installed). Only drop such entries right after removing the global package (`dropRemovedPackageDeltas()`).
 
 ### Built-in subagents
 Full notes: `docs/subagents.md`, `docs/adr/0003-built-in-subagent-toggle.md`. Traps:
