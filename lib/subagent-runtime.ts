@@ -44,7 +44,7 @@ import {
 import type { SessionEntry } from "./types";
 import { buildSubagentPromptPlan } from "./subagent-prompt";
 import { appendSubagentInputFiles, loadSubagentInputFiles, subagentInputByteLimit } from "./subagent-input";
-import { projectTrustReloadOptions } from "./project-trust";
+import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { resolveShellTools } from "./powershell-settings";
 import { createProjectCommandBashOperations } from "./project-command-env";
 import { isSubagentsEnabledForProject, readSubagentSettings } from "./subagent-settings";
@@ -1053,7 +1053,9 @@ export function createSubagentController(
           // overrides, trust); only the tools work in childCwd. An isolated worktree in
           // tmpdir has neither the untracked .pi/settings.json nor a trust decision.
           const configCwd = parent.cwd;
-          const settingsManager = SettingsManager.create(configCwd, agentDir);
+          const settingsManager = SettingsManager.create(configCwd, agentDir, {
+            projectTrusted: getProjectTrustStatus(configCwd, agentDir).trusted,
+          });
           if (!chatOnly) initTheme();
           const services = await createAgentSessionServices({
             cwd: configCwd,

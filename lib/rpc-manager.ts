@@ -2440,7 +2440,11 @@ export async function startRpcSession(
       : chatOnly
         ? undefined
         : projectTrustReloadOptions(sessionCwd, agentDir);
-    const settingsManager = SettingsManager.create(configCwd, agentDir);
+    // Chat only and resource-less subagents pass no trust callback, yet the loader still
+    // resolves (and installs) project packages: never default an untrusted project to trusted.
+    const settingsManager = SettingsManager.create(configCwd, agentDir, {
+      projectTrusted: getProjectTrustStatus(configCwd, agentDir).trusted,
+    });
     const services = await createAgentSessionServices({
       cwd: configCwd,
       agentDir,
