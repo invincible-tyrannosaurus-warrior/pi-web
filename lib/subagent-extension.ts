@@ -83,6 +83,7 @@ function agentTypeDescription(profiles: readonly SubagentProfile[]): string {
     const details = [`Tools: ${profile.tools.length > 0 ? profile.tools.join(", ") : "none"}`];
     if (profile.model) details.push(`Default model: ${profile.model}`);
     if (profile.thinking) details.push(`Default thinking: ${profile.thinking}`);
+    details.push(`Parent context: ${profile.inheritContext ? "chat text" : "none"}`);
     return `- ${profile.name}: ${profile.description} (${details.join("; ")})`;
   }).join("\n");
 }
