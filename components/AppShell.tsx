@@ -864,12 +864,12 @@ export function AppShell() {
         const panelWidth = Math.min(wantedWidth, (typeof window !== "undefined" ? window.innerWidth : 800) - 16);
         if (anchor) {
           const rect = anchor.getBoundingClientRect();
-          // A trigger in the lower half (the composer pill) opens upward, docked to the composer box:
-          // right edges aligned, and never wider than the box (chat content width varies with panes/settings).
+          // A trigger in the lower half (the composer pill) opens upward from the pill itself (a tall draft must
+          // not push it to the top), right-aligned to the composer box and never wider than it.
           if (rect.top > window.innerHeight / 2) {
             const box = (anchor.closest(".chat-input-composer") ?? anchor).getBoundingClientRect();
             const width = Math.min(panelWidth, box.width);
-            setTopPanelPos({ bottom: window.innerHeight - box.top + 4, left: box.right - width, width });
+            setTopPanelPos({ bottom: window.innerHeight - rect.top + 4, left: box.right - width, width });
             return;
           }
           const left = Math.max(8, Math.min(rect.right - panelWidth, window.innerWidth - panelWidth - 8));
