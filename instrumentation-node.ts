@@ -1,5 +1,6 @@
 import { closeAllAgentEventStreams } from "@/lib/agent-event-stream";
 import { configureHttpDispatcher, readHttpIdleTimeoutMs } from "@/lib/http-dispatcher";
+import { startPreviewProxy, stopPreviewProxy } from "@/lib/preview-proxy";
 
 /**
  * Node-only startup work.
@@ -26,11 +27,13 @@ export async function registerNodeRuntime(): Promise<void> {
   const host = globalThis as unknown as Record<symbol, boolean | undefined>;
   if (host[SHUTDOWN_HOOK_KEY]) return;
   host[SHUTDOWN_HOOK_KEY] = true;
+  startPreviewProxy();
 
   // `once` + a synchronous close: Next's own handlers still run, and a second
   // signal is left to the default behavior so the process can always be killed.
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => {
+      stopPreviewProxy();
       const closed = closeAllAgentEventStreams();
       if (closed > 0) {
         console.log(`[pi-web] closed ${closed} live agent event stream(s) for ${signal}`);

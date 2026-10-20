@@ -965,6 +965,73 @@ html[data-theme="claude"] .terminal-panel[data-terminal-theme="light"] {
   --terminal-accent: #c15f3c;
 }
 
+/* Browser tab: a local service of the Pi Web machine (components/BrowserPanel.tsx). */
+.browser-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.browser-toolbar input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-field-bg);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.3;
+}
+
+.browser-toolbar input:focus-visible {
+  box-shadow: var(--ui-field-ring);
+}
+
+/* iOS zooms the page into inputs under 16px. */
+@media (pointer: coarse) {
+  .browser-toolbar input {
+    font-size: 16px;
+  }
+}
+
+.browser-hint,
+.browser-message {
+  padding: 8px 12px;
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.browser-message {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Pages assume a browser's white canvas; transparent ones would sit on the dark theme. */
+.browser-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
 /* Actions of the selected terminal tab, portaled into the file panel's
    workspace header: same 30px icon buttons as the header's own. */
 .terminal-header-actions {
@@ -4299,6 +4366,21 @@ span.token.table {
     width: 100%;
     min-width: 0;
   }
+}
+
+/* Browser tab "Fill the Pi Web page": the panel covers the app; only CSS changes, so the frame keeps its page. */
+.right-panel-container.right-panel-maximized {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  width: auto !important;
+  min-width: 0 !important;
+  transform: none;
+  transition: none;
+}
+.right-panel-container.right-panel-maximized > * {
+  width: 100% !important;
+  min-width: 0 !important;
 }
 
 /* Composer: the field and its status line share one box. The status line keeps the tool's

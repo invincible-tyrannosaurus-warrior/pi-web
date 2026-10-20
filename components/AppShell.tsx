@@ -113,6 +113,21 @@ import { prefetchSettings } from "@/lib/settings-cache";
 import { formatTokensK } from "@/lib/token-display";
 import { iconStroke } from "./iconStroke";
 import { isModalDialogOpen } from "./ModalDialog";
+import { BrowserPanel, BROWSER_TAB_ID, type BrowserState } from "./BrowserPanel";
+import { parsePreviewTarget, PREVIEW_OPEN_EVENT } from "@/lib/preview-target";
+
+const BROWSER_TAB_KEY = "pi-web:browser-tab";
+
+function restoreBrowserTab(raw: string | null): { url: string; active: boolean; open: boolean } | null {
+  try {
+    const saved: unknown = JSON.parse(raw ?? "null");
+    if (!saved || typeof saved !== "object" || typeof (saved as { url?: unknown }).url !== "string") return null;
+    const { url, active, open } = saved as { url: string; active?: unknown; open?: unknown };
+    return { url, active: active === true, open: open === true };
+  } catch {
+    return null;
+  }
+}
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
 
@@ -927,6 +942,8 @@ export function AppShell() {
   const filePersistenceRef = useRef({ tabs: fileTabs, activeTabId: activeFileTabId, open: rightPanelOpen });
   filePersistenceRef.current = { tabs: fileTabs, activeTabId: activeFileTabId, open: rightPanelOpen };
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
+  const [browserPage, setBrowserPage] = useState<BrowserState | null>(null);
+  const [browserMaximized, setBrowserMaximized] = useState(false);
   const [terminalActionsSlot, setTerminalActionsSlot] = useState<HTMLDivElement | null>(null);
   const [panelTabsRestored, setPanelTabsRestored] = useState(false);
   const [panelTabOrder, setPanelTabOrder] = useState<string[]>([]);
@@ -939,7 +956,13 @@ export function AppShell() {
       kind: "terminal" as const,
       closing: Boolean(tab.closing),
     })),
-  ], panelTabOrder), [fileTabs, terminalTabs, panelTabOrder]);
+    ...(browserPage ? [{
+      id: BROWSER_TAB_ID,
+      label: parsePreviewTarget(browserPage.url)?.host ?? translate("browser.title"),
+      filePath: browserPage.url,
+      kind: "browser" as const,
+    }] : []),
+  ], panelTabOrder), [fileTabs, terminalTabs, browserPage, panelTabOrder, translate]);
 
   useEffect(() => {
     try {
@@ -947,12 +970,21 @@ export function AppShell() {
       const files = restoreFileTabs(window.sessionStorage.getItem(FILE_TABS_KEY));
       setTerminalTabs(saved.tabs);
       setFileTabs(files.tabs);
+      const browser = restoreBrowserTab(window.sessionStorage.getItem(BROWSER_TAB_KEY));
       setPanelTabOrder(restorePanelTabOrder(window.sessionStorage.getItem(PANEL_TAB_ORDER_KEY)));
       // An active terminal keeps the panel; otherwise the active file tab does.
       const active = saved.activeId ? saved : { activeId: files.activeTabId, open: files.open };
       if (active.activeId) {
         setActiveFileTabId(active.activeId);
         setRightPanelOpen(active.open);
+      }
+      if (browser) {
+        setBrowserPage({ url: browser.url, id: 0 });
+        // File and terminal restore drop ids they do not know, so the browser tab restores its own focus.
+        if (browser.active) {
+          setActiveFileTabId(BROWSER_TAB_ID);
+          setRightPanelOpen(browser.open);
+        }
       }
     } catch { /* storage is optional */ }
     setPanelTabsRestored(true);
@@ -968,6 +1000,19 @@ export function AppShell() {
       }));
     } catch { /* storage is optional */ }
   }, [terminalTabs, activeFileTabId, rightPanelOpen, panelTabsRestored]);
+
+  useEffect(() => {
+    if (!panelTabsRestored) return;
+    try {
+      if (browserPage) {
+        window.sessionStorage.setItem(BROWSER_TAB_KEY, JSON.stringify({
+          url: browserPage.url,
+          active: activeFileTabId === BROWSER_TAB_ID,
+          open: rightPanelOpen,
+        }));
+      } else window.sessionStorage.removeItem(BROWSER_TAB_KEY);
+    } catch { /* storage is optional */ }
+  }, [browserPage, activeFileTabId, rightPanelOpen, panelTabsRestored]);
 
   // Keep the order complete: new tabs land at the end, closed ones drop out (a reopened file appends again).
   useEffect(() => {
@@ -1998,6 +2043,35 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
   }, [terminalTabs, isMobile, openRightPanelAfterRender]);
 
+  // No `url`: show the tab as it is. A `url` (even the current one) loads it again.
+  const handleOpenBrowser = useCallback((url?: string) => {
+    setBrowserPage((page) => url === undefined ? page ?? { url: "", id: 0 } : { url, id: (page?.id ?? 0) + 1 });
+    setActiveFileTabId(BROWSER_TAB_ID);
+    openRightPanelAfterRender();
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile, openRightPanelAfterRender]);
+
+  // Local addresses in chat (MarkdownBody) open here.
+  useEffect(() => {
+    const open = (event: CustomEvent<string>) => {
+      event.preventDefault();
+      handleOpenBrowser(event.detail);
+    };
+    window.addEventListener(PREVIEW_OPEN_EVENT, open);
+    return () => window.removeEventListener(PREVIEW_OPEN_EVENT, open);
+  }, [handleOpenBrowser]);
+
+  // Covers only while the browser tab shows; switching tabs keeps the choice for coming back.
+  const browserCoversPage = browserMaximized && !isMobile && rightPanelOpen && activeFileTabId === BROWSER_TAB_ID;
+  useEffect(() => {
+    if (!browserCoversPage) return;
+    const restore = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isModalDialogOpen()) setBrowserMaximized(false);
+    };
+    document.addEventListener("keydown", restore);
+    return () => document.removeEventListener("keydown", restore);
+  }, [browserCoversPage]);
+
   const handleTerminalClosed = (tab: TerminalTab) => {
     const replacement = tab.closing === "restart" ? newTerminalTab(tab.cwd) : null;
     const remaining = terminalTabs.filter((item) => item.id !== tab.id);
@@ -2005,7 +2079,7 @@ export function AppShell() {
     if (replacement) setPanelTabOrder((order) => replacePanelTabId(order, tab.id, replacement.id));
     setTerminalTabs((tabs) => tabs.flatMap((item) => item.id !== tab.id ? [item] : replacement ? [replacement] : []));
     setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? adjacentTabId);
-    if (!replacement && !remaining.length && !fileTabs.length) setRightPanelOpen(false);
+    if (!replacement && !remaining.length && !fileTabs.length && !browserPage) setRightPanelOpen(false);
   };
 
   const handleCloseFileTab = useCallback((tabId: string) => {
@@ -2014,22 +2088,24 @@ export function AppShell() {
       return;
     }
     const adjacentTabId = getAdjacentTabId(panelTabs, tabId);
+    if (tabId === BROWSER_TAB_ID) setBrowserPage(null);
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0 && terminalTabs.length === 0) setRightPanelOpen(false);
+      if (next.length === 0 && terminalTabs.length === 0 && (!browserPage || tabId === BROWSER_TAB_ID)) setRightPanelOpen(false);
       return next;
     });
     setActiveFileTabId((cur) => {
       if (cur !== tabId) return cur;
       return adjacentTabId;
     });
-  }, [panelTabs, terminalTabs]);
+  }, [browserPage, panelTabs, terminalTabs]);
 
   // `keepId` stays open, so the panel never empties here. Terminals close through their own flow.
   const handleCloseFileTabs = useCallback((tabIds: string[], keepId: string) => {
     const closing = new Set(tabIds);
     setTerminalTabs((tabs) => tabs.map((tab) => closing.has(tab.id) && !tab.closing ? { ...tab, closing: "close" } : tab));
     setFileTabs((tabs) => tabs.filter((tab) => !closing.has(tab.id)));
+    if (closing.has(BROWSER_TAB_ID)) setBrowserPage(null);
     setActiveFileTabId((current) => current && closing.has(current) ? keepId : current);
   }, []);
 
@@ -2370,6 +2446,7 @@ export function AppShell() {
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
         onOpenTerminal={handleOpenTerminal}
+        onOpenBrowser={() => handleOpenBrowser()}
         explorerRefreshKey={explorerRefreshKey}
         onExplorerRefresh={handleExplorerRefresh}
         onAtMention={handleAtMention}
@@ -3478,7 +3555,7 @@ export function AppShell() {
         id="file-panel"
         aria-hidden={!rightPanelOpen}
         inert={!rightPanelOpen ? true : undefined}
-        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
+        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${browserCoversPage ? " right-panel-maximized" : ""}`}
         style={{
           "--right-panel-width": `${rightPanelResizer.width}px`,
           "--panel-transition": `${getPanelTransitionMs(rightPanelResizer.width)}ms`,
@@ -3563,7 +3640,7 @@ export function AppShell() {
               </div>
             );
           })}
-          {!activeFileTab?.filePath && !terminalTabs.some((tab) => tab.id === activeFileTabId) ? (
+          {!activeFileTab?.filePath && !terminalTabs.some((tab) => tab.id === activeFileTabId) && !(browserPage && activeFileTabId === BROWSER_TAB_ID) ? (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
                {translate("files.noneOpen")}
             </div>
@@ -3580,6 +3657,16 @@ export function AppShell() {
               />
             </div>
           ))}
+          {browserPage && (
+            <div hidden={activeFileTabId !== BROWSER_TAB_ID} style={{ width: "100%", height: "100%" }}>
+              <BrowserPanel
+                page={browserPage}
+                onNavigate={handleOpenBrowser}
+                maximized={browserCoversPage}
+                onToggleMaximize={isMobile ? undefined : () => setBrowserMaximized(!browserCoversPage)}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

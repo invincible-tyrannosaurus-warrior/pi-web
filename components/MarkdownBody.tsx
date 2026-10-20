@@ -8,6 +8,7 @@ import { CopyGlyph } from "./CopyGlyph";
 import { ExportImageIcon, useExportImage } from "./ExportImage";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { pdfPageFromHref, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
+import { parsePreviewTarget, requestPreview } from "@/lib/preview-target";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownAppUrlTransform, markdownRehypePlugins, markdownRemarkPlugins, markdownUserRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { splitMarkdownBlocks } from "@/lib/markdown-blocks";
@@ -78,6 +79,15 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         }
         return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} isStreaming={isStreaming} />;
       }
+      // Agents often quote the dev-server address as code: `http://localhost:5173`.
+      const localUrl = /^https?:\/\/\S+$/i.test(raw) ? parsePreviewTarget(raw) : null;
+      if (localUrl) {
+        return (
+          <a href={localUrl.href} target="_blank" rel="noopener noreferrer" onClick={(event) => openLocalUrl(event, localUrl.href)}>
+            <code className="markdown-inline-code" {...props}>{children}</code>
+          </a>
+        );
+      }
       return (
         <code
           className="markdown-inline-code"
@@ -96,8 +106,9 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
       const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
       const openFile = onOpenFile;
       if (!filePath || !openFile) {
+        const localUrl = href && /^https?:\/\//i.test(href) ? parsePreviewTarget(href) : null;
         return (
-          <a href={href} {...props} target="_blank" rel="noopener noreferrer">
+          <a href={href} {...props} target="_blank" rel="noopener noreferrer" onClick={localUrl ? (event) => openLocalUrl(event, localUrl.href) : undefined}>
             {children}
           </a>
         );
@@ -162,6 +173,11 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
     </div>
   );
 });
+
+/** A plain click on a Pi Web machine address opens Pi Web's browser tab; modified clicks stay normal links. */
+function openLocalUrl(event: MouseEvent<HTMLAnchorElement>, url: string): void {
+  if (shouldOpenLocalFileInApp(event) && !event.metaKey && !event.ctrlKey && requestPreview(url)) event.preventDefault();
+}
 
 /** A table's Markdown, without the quote or list prefix it carries when nested. */
 export function tableSource(markdown: string, start: number, end: number): string {

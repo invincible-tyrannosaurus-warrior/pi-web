@@ -15,7 +15,7 @@ export interface Tab {
   label: string;
   filePath: string;
   cwd?: string;
-  kind?: "terminal";
+  kind?: "terminal" | "browser";
   closing?: boolean;
   sourceSessionId?: string | null;
   initialDisplayMode?: FileViewerDisplayMode;
@@ -227,7 +227,11 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab, o
               />
             )}
             <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center" }}>
-              {tab.kind === "terminal" ? (
+              {tab.kind === "browser" ? (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }} aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18" />
+                </svg>
+              ) : tab.kind === "terminal" ? (
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }} aria-hidden="true">
                   <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
                 </svg>
@@ -272,8 +276,8 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab, o
                 flexShrink: 0,
                 transition: "background var(--motion-fast), color var(--motion-fast)",
               }}
-               title={t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")}
-               aria-label={`${t(tab.kind === "terminal" ? "terminal.close" : "i18n.close")} ${displayLabel}`}
+               title={t(tab.kind === "terminal" ? "terminal.close" : tab.kind === "browser" ? "browser.close" : "i18n.close")}
+               aria-label={`${t(tab.kind === "terminal" ? "terminal.close" : tab.kind === "browser" ? "browser.close" : "i18n.close")} ${displayLabel}`}
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
                 <line x1="2" y1="2" x2="8" y2="8" />
@@ -290,7 +294,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onPinTab, onCloseTab, o
           setContextMenu(null);
           action();
         };
-        const isFile = menuTab.kind !== "terminal";
+        const isFile = !menuTab.kind;
         const relativePath = getRelativeFilePath(menuTab.filePath, menuTab.cwd);
         const insideCwd = relativePath !== menuTab.filePath;
         const otherIds = tabs.filter((tab) => tab.id !== menuTab.id).map((tab) => tab.id);

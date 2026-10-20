@@ -47,6 +47,8 @@ Environment:
   PI_WEB_APP_NAME            PWA manifest name (trimmed; default Pi Web)
   PI_WEB_PASSWORD            Enable browser password login and API Basic Auth
   PI_WEB_ALLOWED_HOSTS       Extra exact proxy/custom hostnames, comma-separated
+  PI_WEB_PREVIEW_PORT        Loopback port of the local-service preview proxy
+  PI_WEB_PREVIEW_URL         External URL of that port (see docs/preview.md)
 `;
 }
 

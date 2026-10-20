@@ -231,3 +231,10 @@ test("a streaming reply rendered block by block matches its whole-message render
   const normalize = (html) => html.replace(/>\s+</g, "><");
   assert.equal(normalize(renderMarkdown(markdown, { isStreaming: true })), normalize(renderMarkdown(markdown)));
 });
+
+test("local addresses in replies stay links, including inline code", () => {
+  const html = renderMarkdown("Open http://localhost:5173/ or `http://127.0.0.1:3000/app`, not `localhost:5173`.");
+  assert.match(html, /<a href="http:\/\/localhost:5173\/"[^>]*>http:\/\/localhost:5173\/<\/a>/);
+  assert.match(html, /<a href="http:\/\/127\.0\.0\.1:3000\/app"[^>]*><code class="markdown-inline-code"[^>]*>http:\/\/127\.0\.0\.1:3000\/app<\/code><\/a>/);
+  assert.match(html, /<code class="markdown-inline-code"[^>]*>localhost:5173<\/code>/);
+});

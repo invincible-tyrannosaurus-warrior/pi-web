@@ -91,7 +91,13 @@ export function isApiRequestHostAllowed(
   request: Request,
   configuredHostnames = configuredHostnamesFromEnvironment(),
 ): boolean {
-  const host = request.headers.get("host");
+  return isHostHeaderAllowed(request.headers.get("host"), configuredHostnames);
+}
+
+export function isHostHeaderAllowed(
+  host: string | null | undefined,
+  configuredHostnames = configuredHostnamesFromEnvironment(),
+): boolean {
   const hostname = host ? hostnameFromAuthority(host) : null;
   if (!hostname) return false;
   if (isLoopbackHostname(hostname) || isIP(hostname)) return true;
@@ -132,7 +138,8 @@ function isProxyRewrittenSameOrigin(request: Request, origin: string): boolean {
 export function isApiRequestOriginAllowed(request: Request): boolean {
   const origin = request.headers.get("origin");
   const fetchSite = request.headers.get("sec-fetch-site");
-  if (fetchSite === "cross-site") return false;
+  // Same-site is another port of this host, e.g. the local-service preview proxy.
+  if (fetchSite === "cross-site" || fetchSite === "same-site") return false;
   if (!origin) return true;
 
   const requestOrigin = getRequestOrigin(request);

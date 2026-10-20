@@ -84,6 +84,14 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // Pages on other ports of this host (e.g. the local-service preview) are same-site
+        // and would get the login cookie inside a frame: no clickjacking Pi Web.
+        source: "/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
+      {
         source: "/",
         headers: [
           { key: "Cache-Control", value: "private, no-cache, max-age=0, must-revalidate" },

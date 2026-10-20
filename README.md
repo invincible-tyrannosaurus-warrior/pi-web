@@ -61,6 +61,7 @@ Git 安装用 `npm start --`，npm 全局安装把前面换成 `pi-web` 即可�
 - **局域网访问**：`npm start -- -H 0.0.0.0`
 - **访问密码**（局域网建议设置，用户名固定为 `pi`）：`PI_WEB_PASSWORD='your-password' npm start`
 - **后台常驻 / 不自动弹浏览器**：`npm start -- --no-open`
+- **远程打开本机服务（浏览器标签页）**：设置 `PI_WEB_PREVIEW_PORT` 和 `PI_WEB_PREVIEW_URL`，见 [docs/preview.md](./docs/preview.md)
 
 ## 对话生图
 
