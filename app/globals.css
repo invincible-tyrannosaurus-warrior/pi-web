@@ -1000,13 +1000,6 @@ html[data-theme="claude"] .terminal-panel[data-terminal-theme="light"] {
   box-shadow: var(--ui-field-ring);
 }
 
-/* iOS zooms the page into inputs under 16px. */
-@media (pointer: coarse) {
-  .browser-toolbar input {
-    font-size: 16px;
-  }
-}
-
 .browser-hint,
 .browser-message {
   padding: 8px 12px;
