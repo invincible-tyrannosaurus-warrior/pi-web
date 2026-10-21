@@ -150,7 +150,7 @@ export function UsageStats() {
   } else if (tab === "overview") {
     content = <Overview key={range} records={scoped} range={range} today={today} format={format} t={t} />;
   } else if (tab === "models") {
-    content = <UsageTable groups={groupRecords(scoped, (r) => r.model)} nameLabel={t("usage.model")} limit={10} format={format} t={t} />;
+    content = <UsageTable groups={groupRecords(scoped, (r) => r.model)} nameLabel={t("usage.model")} timing limit={10} format={format} t={t} />;
   } else if (tab === "projects") {
     content = (
       <UsageTable
@@ -290,13 +290,13 @@ function Overview({ records, range, today, format, t }: { records: UsageRecord[]
           <button type="button" className="usage-link" onClick={() => setSelected(null)}>{t("usage.clearSelection")}</button>
         )}
       >
-        <UsageTable key={selected ?? ""} groups={groupRecords(detail, (r) => r.model)} nameLabel={t("usage.model")} limit={5} format={format} t={t} />
+        <UsageTable key={selected ?? ""} groups={groupRecords(detail, (r) => r.model)} nameLabel={t("usage.model")} timing limit={5} format={format} t={t} />
       </SettingsGroup>
     </>
   );
 }
 
-type SortKey = "name" | "input" | "output" | "cacheRead" | "cacheWrite" | "cacheRatio" | "tokens" | "cost" | "costPerMillion";
+type SortKey = "name" | "input" | "output" | "cacheRead" | "cacheWrite" | "cacheRatio" | "tokens" | "cost" | "costPerMillion" | "ttft" | "tps";
 interface Sort { key: SortKey; desc: boolean }
 
 /**
@@ -310,6 +310,9 @@ const cacheRatio = (g: UsageGroup) => {
   return fresh > 0 ? g.cacheRead / fresh : null;
 };
 const costPerMillion = (g: UsageGroup) => (g.tokens > 0 ? (g.cost / g.tokens) * 1e6 : null);
+/** Same math as the session panel (lib/model-timing.ts), over the calls pi-web recorded. */
+const ttft = (g: UsageGroup) => (g.timedCalls > 0 ? g.ttftMs / g.timedCalls : null);
+const tps = (g: UsageGroup) => (g.genMs > 0 ? g.genTokens / (g.genMs / 1000) : null);
 const METRICS: Record<Exclude<SortKey, "name">, (g: UsageGroup) => number | null> = {
   input: (g) => g.input,
   output: (g) => g.output,
@@ -319,6 +322,8 @@ const METRICS: Record<Exclude<SortKey, "name">, (g: UsageGroup) => number | null
   tokens: (g) => g.tokens,
   cost: (g) => g.cost,
   costPerMillion,
+  ttft,
+  tps,
 };
 
 interface Column {
@@ -338,9 +343,11 @@ interface Column {
  * One table for every breakdown (models, projects, periods): the same fixed-width
  * columns, sorted by clicking a header, long tail folded. `detail` makes rows expandable.
  */
-function UsageTable({ groups, nameLabel, name = (key) => key || "—", limit = Infinity, defaultSort = { key: "cost", desc: true }, detail, format, t }: {
+function UsageTable({ groups, nameLabel, name = (key) => key || "—", limit = Infinity, defaultSort = { key: "cost", desc: true }, detail, timing, format, t }: {
   groups: readonly UsageGroup[];
   nameLabel: string;
+  /** TTFT / TPS columns: only per-model tables, where comparing them means something. */
+  timing?: boolean;
   name?: (key: string) => string;
   limit?: number;
   defaultSort?: Sort;
@@ -356,8 +363,10 @@ function UsageTable({ groups, nameLabel, name = (key) => key || "—", limit = I
   // The row bars follow the sorted metric (tokens, else cost), scaled to the largest row so they compare at a glance.
   const barOf = (g: UsageGroup) => (sort.key === "tokens" ? g.tokens : g.cost);
   const barMax = Math.max(...groups.map(barOf), 0);
-  // Mobile hides the token-share column; its one share column follows the sort, token % only while sorted by tokens.
-  const tokenShareOnly = useIsMobile() && sort.key === "tokens";
+  // Phones (CSS) and per-model tables (room for TTFT / TPS) drop the token-share column; the one
+  // share column left follows the sort, token % only while sorted by tokens.
+  const isMobile = useIsMobile();
+  const tokenShareOnly = (isMobile || Boolean(timing)) && sort.key === "tokens";
   const sorted = [...groups].sort((a, b) => {
     const order = sort.key === "name"
       ? a.key.localeCompare(b.key, undefined, { numeric: true })
@@ -393,10 +402,20 @@ function UsageTable({ groups, nameLabel, name = (key) => key || "—", limit = I
       sort: "costPerMillion", label: t("usage.costPerMillion"), hint: t("usage.costPerMillionHint"), width: 56, secondary: true,
       cell: (g) => { const unit = costPerMillion(g); return unit === null ? "—" : format.unitCost(unit); },
     },
-    {
+    ...(timing ? [
+      {
+        sort: "ttft", label: "TTFT", hint: t("usage.ttftHint"), width: 36, secondary: true,
+        cell: (g) => { const ms = ttft(g); return ms === null ? "—" : `${(ms / 1000).toFixed(1)}s`; },
+      },
+      {
+        sort: "tps", label: "TPS", hint: t("usage.tpsHint"), width: 30, secondary: true,
+        cell: (g) => { const speed = tps(g); return speed === null ? "—" : String(Math.round(speed)); },
+      },
+    ] satisfies Column[] : []),
+    ...(timing ? [] : [{
       label: t("usage.tokenShare"), width: 64, secondary: true,
-      cell: (g) => (totalTokens > 0 ? format.share(g.tokens / totalTokens) : "—"),
-    },
+      cell: (g: UsageGroup) => (totalTokens > 0 ? format.share(g.tokens / totalTokens) : "—"),
+    } satisfies Column]),
     {
       label: tokenShareOnly ? t("usage.tokenShare") : t("usage.costShare"),
       width: 56,
@@ -507,7 +526,7 @@ function Timeline({ records, format, t }: { records: UsageRecord[]; format: Form
         name={(key) => periodLabel(key, grain, format, t)}
         defaultSort={{ key: "name", desc: true }}
         detail={(period) => (
-          <UsageTable groups={groupRecords(period.records, (r) => r.model)} nameLabel={t("usage.model")} limit={8} format={format} t={t} />
+          <UsageTable groups={groupRecords(period.records, (r) => r.model)} nameLabel={t("usage.model")} timing limit={8} format={format} t={t} />
         )}
         format={format}
         t={t}
@@ -615,7 +634,7 @@ function Activity({ records, today, scanning, format, t }: { records: UsageRecor
           title={format.day(selectedDay.key)}
           action={<button type="button" className="usage-link" onClick={() => setSelected(null)}>{t("usage.clearSelection")}</button>}
         >
-          <UsageTable key={selectedDay.key} groups={groupRecords(selectedDay.records, (r) => r.model)} nameLabel={t("usage.model")} limit={8} format={format} t={t} />
+          <UsageTable key={selectedDay.key} groups={groupRecords(selectedDay.records, (r) => r.model)} nameLabel={t("usage.model")} timing limit={8} format={format} t={t} />
         </SettingsGroup>
       )}
 

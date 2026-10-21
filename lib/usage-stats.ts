@@ -4,6 +4,7 @@ import { join } from "path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { sessionPathKey } from "./session-path";
+import { MODEL_TIMING_TYPE, parseTimingCalls, type TimingCall } from "./model-timing";
 import { dayKey } from "./usage-view";
 
 /** Token usage of one local day × hour × provider × model within one session file. */
@@ -20,6 +21,17 @@ export interface UsageRow {
   cacheWrite: number;
   /** Cost pi recorded at write time; only a fallback when no current price is known. */
   recordedCost: number;
+  /** pi-web `model-timing` sums (lib/model-timing.ts); absent on rows without recorded calls. */
+  timing?: UsageTiming;
+}
+
+/** Additive TTFT / TPS sums: avg TTFT = ttftMs / calls, TPS = genTokens / genMs. */
+export interface UsageTiming {
+  calls: number;
+  ttftMs: number;
+  /** Decode time of the calls whose output tokens are known. */
+  genMs: number;
+  genTokens: number;
 }
 
 export interface SessionUsage {
@@ -49,6 +61,10 @@ export interface UsageRecord {
   cost: number;
   /** Messages with neither a current price nor a recorded cost. */
   unpriced: number;
+  timedCalls: number;
+  ttftMs: number;
+  genMs: number;
+  genTokens: number;
 }
 
 export interface UsageResponse {
@@ -75,7 +91,19 @@ export function summarizeSessionUsage(text: string): SessionUsage {
   if (!Number.isFinite(start)) return { cwd, rows: [] };
 
   const rows = new Map<string, UsageRow>();
+  // Timing entries follow their messages: join them by `message.timestamp` after the pass.
+  const messagesByAt = new Map<number, { row: UsageRow; output: number | undefined }>();
+  const calls: TimingCall[] = [];
   for (const line of lines) {
+    if (line.includes(`"${MODEL_TIMING_TYPE}"`)) {
+      try {
+        const entry = JSON.parse(line) as { type?: string; customType?: string; data?: unknown };
+        if (entry.type === "custom" && entry.customType === MODEL_TIMING_TYPE) calls.push(...parseTimingCalls(entry.data));
+      } catch {
+        // skip a torn line
+      }
+      continue;
+    }
     if (!line.includes('"usage"')) continue;
     let entry: { timestamp?: string; message?: Record<string, unknown> };
     try {
@@ -106,6 +134,21 @@ export function summarizeSessionUsage(text: string): SessionUsage {
     row.cacheRead += usage.cacheRead ?? 0;
     row.cacheWrite += usage.cacheWrite ?? 0;
     row.recordedCost += usage.cost?.total ?? 0;
+    if (typeof message.timestamp === "number") {
+      messagesByAt.set(message.timestamp, { row, output: Number.isFinite(usage.output) ? usage.output : undefined });
+    }
+  }
+  // A fork's copied calls match no counted message (those predate the header) and drop out.
+  for (const call of calls) {
+    const message = messagesByAt.get(call.at);
+    if (!message) continue;
+    const timing = message.row.timing ??= { calls: 0, ttftMs: 0, genMs: 0, genTokens: 0 };
+    timing.calls += 1;
+    timing.ttftMs += call.ttft;
+    if (message.output !== undefined) {
+      timing.genMs += call.gen;
+      timing.genTokens += message.output;
+    }
   }
   return { cwd, rows: [...rows.values()] };
 }
@@ -137,7 +180,10 @@ export function buildUsageRecords(
       const key = `${row.day}\0${hour}\0${model}\0${project}`;
       let record = records.get(key);
       if (!record) {
-        record = { day: row.day, hour, model, project, messages: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, unpriced: 0 };
+        record = {
+          day: row.day, hour, model, project, messages: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, unpriced: 0,
+          timedCalls: 0, ttftMs: 0, genMs: 0, genTokens: 0,
+        };
         records.set(key, record);
       }
       record.messages += row.messages;
@@ -149,6 +195,12 @@ export function buildUsageRecords(
         ? (row.input * price.input + row.output * price.output + row.cacheRead * price.cacheRead + row.cacheWrite * price.cacheWrite) / 1e6
         : row.recordedCost;
       if (!price && row.recordedCost === 0) record.unpriced += row.messages;
+      if (row.timing) {
+        record.timedCalls += row.timing.calls;
+        record.ttftMs += row.timing.ttftMs;
+        record.genMs += row.timing.genMs;
+        record.genTokens += row.timing.genTokens;
+      }
     }
   }
   return [...records.values()];
@@ -159,8 +211,12 @@ export function buildUsageRecords(
 
 const CACHE_VERSION = 2;
 
-/** `cwd` is absent on entries carried over from the v1 cache; those files get rescanned. */
-interface CacheEntry { size: number; mtimeMs: number; cwd?: string; rows: UsageRow[] }
+/**
+ * `cwd` is absent on entries carried over from the v1 cache, `timed` on entries summarized before
+ * model timing was read; files with either missing get rescanned. No version bump for `timed`: the
+ * installed service shares this file and drops a cache of a newer version, deleted sessions included.
+ */
+interface CacheEntry { size: number; mtimeMs: number; cwd?: string; timed?: true; rows: UsageRow[] }
 
 interface ScanState {
   done: number;
@@ -205,7 +261,7 @@ function persistCache(cache: Map<string, CacheEntry>): void {
 }
 
 const isFresh = (entry: CacheEntry | undefined, size: number, mtimeMs: number) =>
-  entry !== undefined && entry.cwd !== undefined && entry.size === size && entry.mtimeMs === mtimeMs;
+  entry !== undefined && entry.cwd !== undefined && entry.timed === true && entry.size === size && entry.mtimeMs === mtimeMs;
 
 /** Every session file, including runs that extensions nest below a session's directory. */
 async function listSessionFiles(): Promise<string[]> {
@@ -232,7 +288,7 @@ async function scanUsage(state: ScanState, markPlanned: () => void): Promise<voi
   markPlanned();
   for (const file of stale) {
     try {
-      cache.set(file.key, { size: file.size, mtimeMs: file.mtimeMs, ...summarizeSessionUsage(await readFile(file.path, "utf8")) });
+      cache.set(file.key, { size: file.size, mtimeMs: file.mtimeMs, timed: true, ...summarizeSessionUsage(await readFile(file.path, "utf8")) });
     } catch {
       // vanished mid-scan
     }
@@ -267,7 +323,7 @@ export function recordUsageBeforeDelete(paths: readonly string[]): void {
     const key = sessionPathKey(path);
     const { size, mtimeMs } = statSync(path);
     if (isFresh(cache.get(key), size, mtimeMs)) continue;
-    cache.set(key, { size, mtimeMs, ...summarizeSessionUsage(readFileSync(path, "utf8")) });
+    cache.set(key, { size, mtimeMs, timed: true, ...summarizeSessionUsage(readFileSync(path, "utf8")) });
     changed = true;
   }
   if (changed) persistCache(cache);

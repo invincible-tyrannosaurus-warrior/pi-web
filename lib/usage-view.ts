@@ -12,6 +12,10 @@ export interface UsageTotals {
   cacheWrite: number;
   messages: number;
   unpriced: number;
+  timedCalls: number;
+  ttftMs: number;
+  genMs: number;
+  genTokens: number;
 }
 
 export interface UsageGroup extends UsageTotals {
@@ -28,7 +32,7 @@ export const parseDay = (key: string) => {
 export const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
 function emptyTotals(): UsageTotals {
-  return { cost: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, messages: 0, unpriced: 0 };
+  return { cost: 0, tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, messages: 0, unpriced: 0, timedCalls: 0, ttftMs: 0, genMs: 0, genTokens: 0 };
 }
 
 function add(totals: UsageTotals, r: UsageRecord): void {
@@ -40,6 +44,10 @@ function add(totals: UsageTotals, r: UsageRecord): void {
   totals.cacheWrite += r.cacheWrite;
   totals.messages += r.messages;
   totals.unpriced += r.unpriced;
+  totals.timedCalls += r.timedCalls;
+  totals.ttftMs += r.ttftMs;
+  totals.genMs += r.genMs;
+  totals.genTokens += r.genTokens;
 }
 
 export function sumRecords(records: readonly UsageRecord[]): UsageTotals {

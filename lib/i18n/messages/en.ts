@@ -248,6 +248,8 @@ export const enLocale: LocalePlugin = {
     "usage.cacheRatioHint": "Cache reads ÷ (input + cache writes)",
     "usage.costPerMillion": "$/1M",
     "usage.costPerMillionHint": "Effective cost per million tokens",
+    "usage.ttftHint": "Average time to first token over the calls Pi Web recorded (Pi Web runs since TTFT tracking; not subagents)",
+    "usage.tpsHint": "Output tokens per second of generation time, over the same calls",
     "usage.showMore": "{count} more",
     "usage.showFewer": "Show fewer",
     "usage.unpriced": "Unpriced",

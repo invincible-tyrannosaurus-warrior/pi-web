@@ -86,14 +86,18 @@ function isTimingCall(value: unknown): value is TimingCall {
     && [call.at, call.ttft, call.gen].every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0);
 }
 
+/** The valid calls of one `pi-web:model-timing` entry's data. */
+export function parseTimingCalls(data: unknown): TimingCall[] {
+  const { v, calls } = (data ?? {}) as { v?: unknown; calls?: unknown };
+  return v === 1 && Array.isArray(calls) ? calls.filter(isTimingCall) : [];
+}
+
 /** Recorded calls keyed by their assistant `message.timestamp`. */
 export function timingCallsByAt(entries: readonly SessionEntry[]): Map<number, TimingCall> {
   const calls = new Map<number, TimingCall>();
   for (const entry of entries) {
     if (entry.type !== "custom" || entry.customType !== MODEL_TIMING_TYPE) continue;
-    const data = entry.data as { v?: unknown; calls?: unknown } | undefined;
-    if (data?.v !== 1 || !Array.isArray(data.calls)) continue;
-    for (const call of data.calls) if (isTimingCall(call)) calls.set(call.at, call);
+    for (const call of parseTimingCalls(entry.data)) calls.set(call.at, call);
   }
   return calls;
 }

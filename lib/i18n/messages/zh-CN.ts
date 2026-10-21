@@ -248,6 +248,8 @@ export const zhCNLocale: LocalePlugin = {
     "usage.cacheRatioHint": "缓存读取 ÷（输入 + 缓存写入）",
     "usage.costPerMillion": "$/1M",
     "usage.costPerMillionHint": "每百万 Token 的实际成本",
+    "usage.ttftHint": "Pi Web 记录的调用的平均首 token 时间（仅含启用记录后由 Pi Web 运行的调用，不含子代理）",
+    "usage.tpsHint": "同一批调用的输出速度：输出 token 数 ÷ 生成时间（tok/s）",
     "usage.showMore": "其余 {count} 项",
     "usage.showFewer": "收起",
     "usage.unpriced": "未定价",
