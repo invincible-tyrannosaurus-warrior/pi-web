@@ -10,6 +10,7 @@ const jiti = createJiti(import.meta.url, { tsconfigPaths: true });
 const display = await jiti.import("../lib/message-display.ts");
 const lazy = await jiti.import("../lib/chat-lazy-load.ts");
 const outline = await jiti.import("../lib/chat-outline-jump.ts");
+const modelTiming = await jiti.import("../lib/model-timing.ts");
 const file = ts.createSourceFile("ChatWindow.tsx", readFileSync(new URL("./ChatWindow.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 function find(node, predicate) {
   if (predicate(node)) return node;
@@ -30,7 +31,7 @@ function render(messages, locate = null, overrides = {}) {
   const entryIds = messages.map((_, index) => `entry-${index}`);
   const mountedRangeRef = { current: null };
   const scope = {
-    React, ...display, ...lazy, ...outline, messages, entryIds, messageKeys: entryIds, mountedRangeRef,
+    React, ...display, ...lazy, ...outline, ...modelTiming, messages, entryIds, messageKeys: entryIds, mountedRangeRef,
     // Leaf presentation is intentionally simple; grouping and slicing are real.
     MessageView: ({ message }) => React.createElement("p", null, typeof message.content === "string" ? message.content : message.content.map((block) => block.text ?? "").join("")),
     ProcessDetailsGroup: ({ children }) => React.createElement("section", null, children),

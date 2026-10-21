@@ -39,6 +39,7 @@ import { CONFIGURED_TOOL_PRESET, type ToolPreset } from "@/lib/tool-presets";
 import { formatTokensK } from "@/lib/token-display";
 import { isShiftEnterToSend } from "@/lib/shift-enter-to-send-preference";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
+import { formatModelTiming, type ModelTiming } from "@/lib/model-timing";
 
 
 interface Props {
@@ -74,6 +75,7 @@ interface Props {
   cacheHitRate?: number | null;
   /** Session spend; shown beside context when the window has stats. */
   sessionCost?: number | null;
+  modelTiming?: ModelTiming | null;
   onOpenSessionStats?: () => void;
   /** The usage panel this pill opens is showing. */
   statsOpen?: boolean;
@@ -605,7 +607,7 @@ export function ModelScopeWarningBanner({ warnings }: { warnings?: string[] }) {
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   isEditing = false, onSend, onOpenImageGeneration, onAbort, onSteer, onFollowUp, isStreaming, disabled = false, model, isAutoModelSelection, modelNames, modelList, modelError, modelScopeWarnings, onModelChange, modelSwitching,
   onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
-  contextUsage, cacheHitRate, sessionCost, onOpenSessionStats, statsOpen,
+  contextUsage, cacheHitRate, sessionCost, modelTiming, onOpenSessionStats, statsOpen,
   thinkingLevel, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
@@ -678,6 +680,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     : {};
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+  const [dockFitsTtft, setDockFitsTtft] = useState(true);
   const thinkingDropdownRef = useRef<HTMLDivElement>(null);
   const imageMenuRef = useRef<HTMLDivElement>(null);
   const controlsMenuRef = useRef<HTMLDivElement>(null);
@@ -1051,6 +1055,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     observer.observe(ta);
     return () => observer.disconnect();
   }, [resizeTextarea]);
+
+  // Narrow docks (split panes) keep TPS only. Not a CSS container query: containment makes the
+  // dock the containing block of the model picker's position:fixed panel in Safari/Firefox.
+  useEffect(() => {
+    const dock = dockRef.current;
+    if (!dock) return;
+    const observer = new ResizeObserver(([entry]) => setDockFitsTtft(entry.contentRect.width > 600));
+    observer.observe(dock);
+    return () => observer.disconnect();
+  }, [compact]);
 
   useEffect(() => {
     const ta = textareaRef.current;
@@ -1729,12 +1743,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const costLabel = sessionCost == null
       ? null
       : sessionCost >= 0.01 ? `$${sessionCost.toFixed(2)}` : sessionCost > 0 ? `<$0.01` : "$0.00";
+    const timing = formatModelTiming(modelTiming);
     const tooltip = [
       `${t("chat.contextUsage")}: ${tokens !== null ? formatTokensK(tokens) : "?"} / ${formatTokensK(windowTokens)} (${contextPercent !== null ? `${contextPercent.toFixed(1)}%` : "?"})`,
       remaining !== null ? `${t("chat.contextRemaining")}: ${formatTokensK(remaining)}` : null,
       cacheHitRate !== null && cacheHitRate !== undefined
         ? `${t("session.cacheHitRate")}: ${cacheHitRate.toFixed(1)}%`
         : null,
+      timing && `${t("session.performance")}: ${timing.text}`,
       costLabel && `cost: ${costLabel}`,
       isHigh ? t("chat.contextHighWarning") : null,
     ].filter(Boolean).join("\n");
@@ -1763,6 +1779,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <path d="M3 8a5 1.8 0 0 0 10 0" />
             </svg>
             {cacheHitRate.toFixed(0)}%
+          </span>
+        )}
+        {timing && (
+          <span className="chat-input-context-cache">
+            {/* Lucide "gauge" drawn 2 units higher so its flat bottom sits on the digit baseline. */}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m12 12 4-4" />
+              <path d="M3.34 17a10 10 0 1 1 17.32 0" />
+            </svg>
+            {dockFitsTtft || !timing.tps ? `TTFT ${timing.text}` : timing.tps}
           </span>
         )}
         {costLabel && (
@@ -2550,7 +2576,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           </div>
 
           {!compact && (
-            <div className="chat-input-dock">
+            <div ref={dockRef} className="chat-input-dock">
               <div ref={imageMenuRef} className="chat-input-popover-anchor">
                 <button
                   type="button"

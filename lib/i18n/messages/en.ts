@@ -443,6 +443,7 @@ export const enLocale: LocalePlugin = {
     "session.infoSection": "Session Info",
     "session.messages": "Messages",
     "session.branch": "Branch",
+    "session.performance": "TTFT / TPS",
     "session.activeTime": "Active time",
     "session.copyFile": "Copy file path",
     "session.copyId": "Copy session ID",

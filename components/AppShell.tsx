@@ -104,6 +104,7 @@ import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@
 import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { formatModelTiming } from "@/lib/model-timing";
 import type { FileViewerState } from "@/lib/file-viewer-state";
 import { PRESET_READ_ONLY, type ToolEntry } from "@/lib/tool-presets";
 import { getSessionFamily } from "@/lib/session-family";
@@ -3311,6 +3312,7 @@ export function AppShell() {
                     );
 
                     // 3. Session
+                    const timing = formatModelTiming(sessionStats.timing);
                     const displayWorkspacePath = selectedSession
                       ? homeDir && selectedSession.cwd.startsWith(homeDir)
                         ? `~${selectedSession.cwd.slice(homeDir.length)}`
@@ -3363,6 +3365,13 @@ export function AppShell() {
                         <div style={{ color: "var(--text-muted)" }}>
                           {sessionStats.userMessages} {translate("session.user").toLowerCase()} · {sessionStats.assistantMessages} {translate("session.assistant").toLowerCase()} · <span style={{ whiteSpace: "nowrap" }}>{sessionStats.toolCalls} {translate("session.toolCalls").toLowerCase()}</span>
                         </div>
+                        {/* Calls recorded by lib/model-timing.ts; same math as DeepSeek Harness. */}
+                        {timing && (
+                          <>
+                            {label(translate("session.performance"))}
+                            <div style={{ color: "var(--text-muted)" }}>{timing.text}</div>
+                          </>
+                        )}
                       </div>,
                     );
 

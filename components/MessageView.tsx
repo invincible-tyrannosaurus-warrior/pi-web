@@ -173,6 +173,8 @@ interface Props {
   writtenFiles?: WrittenFile[];
   /** User send to final answer; shown in the turn-end footer. */
   turnDurationSeconds?: number;
+  /** Formatted "TTFT · TPS" for the reply group (lib/model-timing.ts). */
+  turnTiming?: string;
   isProcess?: boolean;
   /** Tool calls still executing (from `tool_execution_start/end`); their cards tick live. */
   runningToolIds?: ReadonlySet<string>;
@@ -258,12 +260,12 @@ function haveSameRelevantToolResults(
 
 export { MessageNoticeContext } from "./ExportImage";
 
-export const MessageView = memo(function MessageView({ message, modelName, isStreaming, toolResults, cwd, onOpenFile, onOpenSession, entryId, searchBlock, onFork, forking, prevAssistantEntryId, onEditContent, onCancelEdit, isEditing, isTurnEnd, expandOutput, sessionId, writtenFiles, turnDurationSeconds, isProcess, runningToolIds, continuePrompt, onContinue, onCompact, isCompacting, compactError }: Props) {
+export const MessageView = memo(function MessageView({ message, modelName, isStreaming, toolResults, cwd, onOpenFile, onOpenSession, entryId, searchBlock, onFork, forking, prevAssistantEntryId, onEditContent, onCancelEdit, isEditing, isTurnEnd, expandOutput, sessionId, writtenFiles, turnDurationSeconds, turnTiming, isProcess, runningToolIds, continuePrompt, onContinue, onCompact, isCompacting, compactError }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} onCancelEdit={onCancelEdit} isEditing={isEditing} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} modelName={modelName} isStreaming={isStreaming} toolResults={toolResults} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} isTurnEnd={isTurnEnd} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationSeconds={turnDurationSeconds} isProcess={isProcess} runningToolIds={runningToolIds} continuePrompt={continuePrompt} onContinue={onContinue} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
+    return <AssistantMessageView message={message as AssistantMessage} modelName={modelName} isStreaming={isStreaming} toolResults={toolResults} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} isTurnEnd={isTurnEnd} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} turnDurationSeconds={turnDurationSeconds} turnTiming={turnTiming} isProcess={isProcess} runningToolIds={runningToolIds} continuePrompt={continuePrompt} onContinue={onContinue} onCompact={onCompact} isCompacting={isCompacting} compactError={compactError} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -303,6 +305,7 @@ export const MessageView = memo(function MessageView({ message, modelName, isStr
     && prev.modelName === next.modelName
     && prev.writtenFiles === next.writtenFiles
     && prev.turnDurationSeconds === next.turnDurationSeconds
+    && prev.turnTiming === next.turnTiming
     && prev.sessionId === next.sessionId
     && prev.isProcess === next.isProcess
     && prev.continuePrompt === next.continuePrompt
@@ -606,6 +609,7 @@ function AssistantMessageView({
   searchBlock,
   writtenFiles,
   turnDurationSeconds,
+  turnTiming,
   isProcess,
   runningToolIds,
   continuePrompt,
@@ -627,6 +631,8 @@ function AssistantMessageView({
   searchBlock?: AssistantContentBlock;
   writtenFiles?: WrittenFile[];
   turnDurationSeconds?: number;
+  /** Formatted "TTFT · TPS" for the reply group (lib/model-timing.ts). */
+  turnTiming?: string;
   isProcess?: boolean;
   runningToolIds?: ReadonlySet<string>;
   continuePrompt?: string;
@@ -672,6 +678,7 @@ function AssistantMessageView({
   const time = isTurnEnd && !isStreaming ? formatTime(message.timestamp, locale) : null;
   const modelLabel = isTurnEnd && !isStreaming ? (modelName || message.model || null) : null;
   const duration = isTurnEnd && !isStreaming && turnDurationSeconds ? formatDuration(turnDurationSeconds, t) : null;
+  const timing = isTurnEnd && !isStreaming ? turnTiming ?? null : null;
   const showFooter = isTurnEnd && !isStreaming && Boolean(modelLabel || duration || time || textContent);
   const copyContent = () => {
     copyText(textContent).then(() => {
@@ -806,6 +813,17 @@ function AssistantMessageView({
                 <path d="M7 2v4.17a2 2 0 0 0 .59 1.42L12 12l4.41-4.41A2 2 0 0 0 17 6.17V2" />
               </svg>
               {duration}
+            </span>
+          )}
+          {timing && (
+            <span data-answer-timing title={t("session.performance")} style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0, whiteSpace: "nowrap", userSelect: "none" }}>
+              {/* Same raised Lucide gauge as the composer readout. */}
+              <svg className="meta-row-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={iconStroke(12)} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m12 12 4-4" />
+                <path d="M3.34 17a10 10 0 1 1 17.32 0" />
+              </svg>
+              {/* Spelled out: a bare "6.7s" beside the turn duration reads as another span. */}
+              TTFT {timing}
             </span>
           )}
           {time && (

@@ -14,6 +14,7 @@ import { skillExpansionToCommand } from "./slash-display";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
 import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
+import { timingCallsByAt, type TimingCall } from "./model-timing";
 import { checkSessionMembership, listSessionsIncremental, type ScannedSessionInfo } from "./session-list-scanner";
 
 export { getAgentDir };
@@ -657,8 +658,10 @@ export function buildSessionContext(
   // Convert messages and their IDs together to keep fork/navigation targets aligned.
   const messages: AgentMessage[] = [];
   const entryIds: string[] = [];
+  // Whole file: a page's last reply may have its timing entry in the newer page.
+  const timingByAt = timingCallsByAt(entries);
   for (const entry of sliced) {
-    const m = entryToUiMessage(entry, options);
+    const m = entryToUiMessage(entry, options, timingByAt);
     if (m) {
       messages.push(m);
       entryIds.push(entry.id);
@@ -858,6 +861,7 @@ function deferHistoryBase64Images(
 function entryToUiMessage(
   entry: SessionEntry,
   options: BuildSessionContextOptions,
+  timingByAt: ReadonlyMap<number, TimingCall>,
 ): AgentMessage | null {
   // Supported message roles: user, assistant, toolResult, bashExecution.
   // bashExecution messages enter the case "message" branch (entry.type === "message").
@@ -881,6 +885,8 @@ function entryToUiMessage(
       if (completedAt !== undefined) {
         message = { ...message, completedAt };
       }
+      const modelTiming = typeof message.timestamp === "number" ? timingByAt.get(message.timestamp) : undefined;
+      if (modelTiming) message = { ...message, modelTiming };
       if (!options.deferThinking) return message;
       return {
         ...message,

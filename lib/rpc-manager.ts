@@ -21,6 +21,7 @@ import { cacheSessionPath, getLatestModelChange, invalidateSessionListCache, res
 import { forkSessionBranch, getForkLeafId } from "./session-fork";
 import { getSessionFirstMessagePreview } from "./session-display-title";
 import { computeSessionStats } from "./session-stats";
+import { TimingRecorder } from "./model-timing";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import { notifySessionComplete } from "./web-push";
@@ -303,6 +304,7 @@ export function withConfiguredBuiltInTools(
 export class AgentSessionWrapper {
   private subscriptions: EventSubscription[] = [];
   private activeToolEvents = new Map<string, AgentEvent>();
+  private readonly timing = new TimingRecorder();
   private closeListeners = new Set<() => void>();
   private pendingUiResponses = new Map<string, PendingUiResponse>();
   private pendingUiRequests = new Map<string, AgentEvent>();
@@ -475,6 +477,16 @@ export class AgentSessionWrapper {
         }
       }
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
+      this.timing.observe(event);
+      // turn_end: the call and its tool results are persisted, so the entry lands before the next
+      // call and branch copies keep it. Before emit: the client reloads stats on agent_end.
+      if (event.type === "turn_end" || event.type === "agent_end") {
+        try {
+          this.timing.flush(this.inner.sessionManager);
+        } catch (error) {
+          console.error("[pi-web] failed to persist model timing:", error instanceof Error ? error.message : error);
+        }
+      }
       this.emit(event);
       if (event.type === "agent_settled") this.notifyAgentRunCompleteIfIdle();
     });
@@ -1107,9 +1119,11 @@ export class AgentSessionWrapper {
       }
 
       case "get_session_stats": {
+        const fileStats = computeSessionStats(this.inner.sessionManager.getEntries() as never);
         return {
           ...this.inner.getSessionStats(),
-          costs: computeSessionStats(this.inner.sessionManager.getEntries() as never).costs,
+          costs: fileStats.costs,
+          timing: fileStats.timing,
           sessionName: this.inner.sessionManager.getSessionName(),
         };
       }

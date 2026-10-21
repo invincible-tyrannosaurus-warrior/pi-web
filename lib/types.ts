@@ -1,4 +1,5 @@
 // Types mirrored from pi-mono coding-agent session-manager
+import type { TimingCall } from "./model-timing";
 
 export interface SessionHeader {
   type: "session";
@@ -95,6 +96,8 @@ export interface AssistantMessage {
   usage?: AgentUsage;
   /** Client-only generation end. From jsonl entry.timestamp or message_end. Not persisted. */
   completedAt?: number;
+  /** Client-only: this call's `pi-web:model-timing` record, attached by the session reader. */
+  modelTiming?: TimingCall;
 }
 
 export interface ToolResultMessage {

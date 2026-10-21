@@ -49,6 +49,7 @@ import { AppUpdateNotice } from "./AppUpdateNotice";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { placeSelectionToolbar, prefersToolbarBelow, selectionAnchor, visibleBounds, type SelectionAnchor, type ToolbarSide } from "@/lib/selection-toolbar";
+import { formatModelTiming, turnModelTiming } from "@/lib/model-timing";
 import {
   captureScrollDistance,
   getMountedRange,
@@ -1844,6 +1845,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       contextUsage={isSessionLoading ? null : contextUsage}
       cacheHitRate={isSessionLoading ? null : cacheHitRate}
       sessionCost={isSessionLoading ? null : sessionStats?.cost}
+      modelTiming={isSessionLoading ? null : sessionStats?.timing}
       onOpenSessionStats={onSessionStatsPanelOpen}
       statsOpen={sessionStatsOpen}
       toolPreset={toolPreset}
@@ -2026,7 +2028,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 messageRefs.current[refIndex] = el;
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; isTurnEnd?: boolean; writtenFiles?: WrittenFile[]; turnDurationSeconds?: number; isProcess?: boolean } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; isTurnEnd?: boolean; writtenFiles?: WrittenFile[]; turnDurationSeconds?: number; turnTiming?: string; isProcess?: boolean } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 if (isHiddenCustomMessage(msg)) return null;
                 const prevAssistantEntryId =
@@ -2075,6 +2077,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
                     writtenFiles={options.writtenFiles}
                     turnDurationSeconds={options.turnDurationSeconds}
+                    turnTiming={options.turnTiming}
                     isProcess={options.isProcess}
                     // A provider error is kept on one side of a split message, but a truncation shows on both:
                     // offer Continue once, under the answer.
@@ -2351,6 +2354,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   }));
                 }
                 if (finalAnswerMessage) {
+                  const timing = formatModelTiming(turnModelTiming(
+                    messages.slice(processStartIdx, processEndIdx + 1).filter((m): m is AssistantMessage => m.role === "assistant"),
+                  ));
                   markOutlineTarget([entryIds[finalAssistantIdx]]);
                   rendered.push(renderMessage(finalAssistantIdx, {
                     isTurnEnd: true,
@@ -2360,6 +2366,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                       turnStartTime ?? processStartTime,
                       (messages[finalAssistantIdx] as AssistantMessage).completedAt ?? messages[finalAssistantIdx].timestamp,
                     ),
+                    turnTiming: timing?.text,
                   }));
                 }
                 if (finalAssistantIdx >= 0) {

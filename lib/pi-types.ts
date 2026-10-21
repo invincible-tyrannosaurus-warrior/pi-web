@@ -6,6 +6,7 @@ import type {
   SlashCommandInfo,
   Theme,
 } from "@earendil-works/pi-coding-agent";
+import type { ModelTiming } from "./model-timing";
 import type {
   AgentMessage as PiAgentMessage,
   AgentTurnContext,
@@ -58,6 +59,8 @@ export interface SessionStatsInfo {
   cost: number;
   /** Per-token-class cost; the SDK stats omit it, pi-web adds it. */
   costs?: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  /** pi-web's locally measured model latency (`lib/model-timing.ts`). */
+  timing?: ModelTiming;
   contextUsage?: ContextUsage;
   /** Estimated active time across all entries in the session file. */
   totalActiveMs?: number;

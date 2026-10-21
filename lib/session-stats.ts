@@ -1,3 +1,4 @@
+import { emptyModelTiming, foldModelTiming, type ModelTiming } from "./model-timing";
 import type { AgentMessage, AgentUsage, SessionEntry } from "./types";
 
 export interface SessionFileStats {
@@ -16,6 +17,8 @@ export interface SessionFileStats {
   cost: number;
   /** Cost split by token class; may sum below `cost` when a provider reports only a total. */
   costs: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  /** Persisted `pi-web:model-timing` calls; live messages carry none, so it only changes on reload. */
+  timing: ModelTiming;
 }
 
 function emptyStats(): SessionFileStats {
@@ -28,6 +31,7 @@ function emptyStats(): SessionFileStats {
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     cost: 0,
     costs: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    timing: emptyModelTiming(),
   };
 }
 
@@ -107,6 +111,7 @@ export function mergeSessionStats(
       cacheRead: fileStats.costs.cacheRead + delta(current.costs.cacheRead, loaded.costs.cacheRead),
       cacheWrite: fileStats.costs.cacheWrite + delta(current.costs.cacheWrite, loaded.costs.cacheWrite),
     },
+    timing: fileStats.timing ?? current.timing,
   };
 }
 
@@ -134,6 +139,7 @@ export function computeSessionStats(entries: SessionEntry[]): SessionFileStats {
     if (entry.type !== "message") continue;
     addMessage(stats, entry.message);
   }
+  stats.timing = foldModelTiming(entries);
 
   return finishStats(stats);
 }

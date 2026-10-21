@@ -5258,6 +5258,12 @@ span.token.table {
     display: none;
   }
 
+  /* Phones keep the reply footer to model, duration and time; TTFT / TPS stays in the session panel.
+     !important: the footer items set display inline. */
+  [data-answer-timing] {
+    display: none !important;
+  }
+
   .composer-btn,
   .composer-send {
     height: 32px;

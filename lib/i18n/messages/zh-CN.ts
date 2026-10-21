@@ -443,6 +443,7 @@ export const zhCNLocale: LocalePlugin = {
     "session.infoSection": "会话信息",
     "session.messages": "消息",
     "session.branch": "分支",
+    "session.performance": "TTFT / TPS",
     "session.activeTime": "活跃时长",
     "session.copyFile": "复制文件路径",
     "session.copyId": "复制会话 ID",
