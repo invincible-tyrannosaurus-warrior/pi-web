@@ -437,9 +437,9 @@ function UsageTable({ groups, nameLabel, name = (key) => key || "—", limit = I
     </button>
   );
   const ariaSort = (key?: SortKey) => (key && sort.key === key ? (sort.desc ? "descending" : "ascending") : undefined);
-  // The accent bar marks a sort the user chose, not the table's natural order. Never on the
-  // name column: its rows already carry usage bars, so a bar in that header reads as a legend.
-  const userSorted = (key?: SortKey) => (key && sort.key === key && (key !== defaultSort.key || sort.desc !== defaultSort.desc) ? "" : undefined);
+  // The accent bar marks the sorted column, the default sort included. Never on the name
+  // column: its rows already carry usage bars, so a bar in that header reads as a legend.
+  const sortedMark = (key?: SortKey) => (key && sort.key === key ? "" : undefined);
 
   return (
     <div className="usage-table-scroll">
@@ -454,7 +454,7 @@ function UsageTable({ groups, nameLabel, name = (key) => key || "—", limit = I
                 style={{ width: column.width }}
                 title={column.hint}
                 aria-sort={ariaSort(column.sort)}
-                data-sorted={userSorted(column.sort)}
+                data-sorted={sortedMark(column.sort)}
               >
                 {column.sort ? sortButton(column.sort, column.label) : column.label}
               </th>
