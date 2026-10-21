@@ -385,6 +385,21 @@ export function shouldCompressImageFile(file: Pick<File, "size" | "type">): bool
   return file.size > CLIENT_IMAGE_COMPRESSION_THRESHOLD_BYTES && file.type !== "image/gif";
 }
 
+// Browsers derive File.type from the extension; providers reject a type that contradicts the bytes.
+function sniffImageMimeType(data: string): string | undefined {
+  let head: string;
+  try {
+    head = atob(data.slice(0, 16));
+  } catch {
+    return undefined;
+  }
+  if (head.startsWith("\x89PNG\r\n\x1a\n")) return "image/png";
+  if (head.startsWith("\xff\xd8\xff")) return "image/jpeg";
+  if (head.startsWith("GIF8")) return "image/gif";
+  if (head.startsWith("RIFF") && head.slice(8, 12) === "WEBP") return "image/webp";
+  return undefined;
+}
+
 function readImageFile(file: Blob, mimeType: string): Promise<{ data: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -394,7 +409,7 @@ function readImageFile(file: Blob, mimeType: string): Promise<{ data: string; mi
         reject(new Error("Failed to read image"));
         return;
       }
-      resolve({ data, mimeType });
+      resolve({ data, mimeType: sniffImageMimeType(data) ?? mimeType });
     };
     reader.onerror = reject;
     reader.readAsDataURL(file);

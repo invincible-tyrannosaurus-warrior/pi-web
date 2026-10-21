@@ -628,9 +628,10 @@ test("compresses large images while preserving small images and GIFs", async () 
     toDataURL: () => "data:image/jpeg;base64,COMPRESSED",
   };
 
+  let readerData = "ORIGINAL";
   globalThis.FileReader = class {
     readAsDataURL() {
-      this.result = "data:image/png;base64,ORIGINAL";
+      this.result = `data:image/png;base64,${readerData}`;
       this.onload();
     }
   };
@@ -650,6 +651,13 @@ test("compresses large images while preserving small images and GIFs", async () 
       mimeType: "image/jpeg",
     });
     assert.equal(bitmapCalls, 1);
+    // A PNG saved as .jpg must be sent with its real type.
+    readerData = "iVBORw0KGgoAAAANSUhEUg==";
+    assert.equal((await compressImageFile({ size: 1024, type: "image/jpeg" })).mimeType, "image/png");
+    readerData = "/9j/4AAQSkZJRg==";
+    assert.equal((await compressImageFile({ size: 1024, type: "image/png" })).mimeType, "image/jpeg");
+    readerData = "UklGRiQAAABXRUJQVlA4";
+    assert.equal((await compressImageFile({ size: 1024, type: "image/png" })).mimeType, "image/webp");
     assert.equal(canvas.width, 2000);
     assert.equal(canvas.height, 1000);
     assert.equal(closed, true);
