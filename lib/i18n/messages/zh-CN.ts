@@ -29,6 +29,7 @@ export const zhCNLocale: LocalePlugin = {
     "settings.fontSchemeSarasa": "黑体",
     "settings.fontSchemeClaude": "宋体",
     "settings.fontSchemeWenkai": "楷体",
+    "settings.fontSchemeSystem": "系统",
     "settings.exportImageFooter": "导出图片时包含回答信息",
     "settings.exportImageFooterDescription": "在导出的图片底部保留模型、耗时和时间。",
     "settings.thinkingExpandedDefault": "默认展开思考块",

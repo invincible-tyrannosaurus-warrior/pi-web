@@ -29,6 +29,7 @@ export const enLocale: LocalePlugin = {
     "settings.fontSchemeSarasa": "Sans",
     "settings.fontSchemeClaude": "Serif",
     "settings.fontSchemeWenkai": "Kai",
+    "settings.fontSchemeSystem": "System",
     "settings.exportImageFooter": "Include answer details in exported images",
     "settings.exportImageFooterDescription": "Keep the model, duration, and time at the bottom of exported images.",
     "settings.thinkingExpandedDefault": "Expand thinking blocks by default",

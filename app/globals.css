@@ -212,7 +212,7 @@ html {
   --workspace-header-height: 30px;
   /* Font schemes only redefine the three role variables (UI, prose, code).
      Faces are always the bundled web fonts, never local installs, so every
-     machine renders the same cut and version. The system tail only shows
+     machine renders the same cut and version (except the opt-in system scheme). The system tail only shows
      while the font loads (swap) or if the download fails.
      Default scheme: Sarasa UI SC for UI and prose, Term SC for code. */
   --font-ui-fallback: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif;
@@ -233,6 +233,13 @@ html[data-font="claude"] {
 html[data-font="wenkai"] {
   --font-chat: "LXGW WenKai Web", 'Kaiti SC', 'KaiTi', serif;
   font-synthesis: weight;
+}
+
+/* System scheme: prose uses the OS fonts (Segoe UI + Microsoft YaHei,
+   PingFang, Noto CJK), deliberately per machine and with no download.
+   UI and code are unchanged. */
+html[data-font="system"] {
+  --font-chat: var(--font-ui-fallback);
 }
 
 html.dark {

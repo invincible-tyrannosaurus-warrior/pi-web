@@ -142,6 +142,7 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     { id: "sarasa", label: t("settings.fontSchemeSarasa") },
     { id: "claude", label: t("settings.fontSchemeClaude") },
     { id: "wenkai", label: t("settings.fontSchemeWenkai") },
+    { id: "system", label: t("settings.fontSchemeSystem") },
   ];
 
   useEffect(() => {
