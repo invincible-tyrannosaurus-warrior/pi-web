@@ -11,7 +11,7 @@ import { writePrivateFileAtomicSync } from "./atomic-file";
 import { removeSidebarSessions, SESSION_ID_PATTERN } from "./sidebar-state";
 
 class DeleteRefusal extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
+  constructor(readonly status: number, message: string, readonly code?: "session_running" | "child_running") { super(message); }
 }
 
 /** Cached/runtime paths and every mutation must stay inside the real sessions root. */
@@ -32,7 +32,7 @@ export async function deleteSessionById(id: string) {
   }
   try {
     const runtime = getRpcSession(id);
-    if (runtime?.isRunning?.()) throw new DeleteRefusal(409, "Session is running");
+    if (runtime?.isRunning?.()) throw new DeleteRefusal(409, "Session is running", "session_running");
     const filePath = await resolveSessionPath(id) || runtime?.sessionFile;
     if (!filePath || !existsSync(filePath)) {
       if (!runtime) {
@@ -88,7 +88,10 @@ export async function deleteSessionById(id: string) {
     }
     const deleted = [target, ...cascadeDeletes.values()];
     const affected = [...deleted, ...reparents];
-    if (affected.some((record) => getRpcSession(record.id)?.isRunning?.())) throw new DeleteRefusal(409, "Session is running");
+    const running = (record: SessionFileRecord) => getRpcSession(record.id)?.isRunning?.();
+    if (deleted.some(running)) throw new DeleteRefusal(409, "Session is running", "session_running");
+    // Reparenting rewrites the child's file, which its live runtime is appending to.
+    if (reparents.some(running)) throw new DeleteRefusal(409, "A child session that must be updated is running", "child_running");
     const release = await reserveRpcSessionFileMutation(affected.map((record) => record.id));
     if (!release) throw new DeleteRefusal(409, "Session is busy");
     try {
@@ -116,7 +119,10 @@ export async function deleteSessionById(id: string) {
       return await finishDeletion(deleted.map((record) => record.id));
     } finally { release(); }
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: error instanceof DeleteRefusal ? error.status : 500 });
+    if (error instanceof DeleteRefusal) {
+      return NextResponse.json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, { status: error.status });
+    }
+    return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
 

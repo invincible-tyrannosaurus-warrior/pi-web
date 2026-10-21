@@ -51,6 +51,13 @@ declare global {
   }
 }
 
+/** Known delete refusals get a localized reason; others show the server text. */
+function deleteRefusalText(t: ReturnType<typeof useI18n>["t"], data: { code?: string; error?: string }): string {
+  if (data.code === "child_running") return t("sidebar.deleteChildRunning");
+  if (data.code === "session_running") return t("sidebar.deleteSessionRunning");
+  return data.error ?? t("sidebar.deleteFailed");
+}
+
 function ToolbarIconButton({
   onClick,
   title,
@@ -488,6 +495,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     | { kind: "archiveProject"; key: string; x: number; y: number }
     | { kind: "session"; id: string; x: number; y: number }
     | { kind: "selection"; x: number; y: number }
+    | { kind: "deleteFailed"; title: string; detail: string; x: number; y: number }
     | null
   >(null);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
@@ -1364,48 +1372,63 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
       await updateSessionSidebarState(selectionSummary.ids, { archived: !archiveView });
     } finally { setSelectionBusy(false); setSelection(null); }
   };
-  const deleteSelection = async (ids: string[]) => {
+  const deleteSelection = async (ids: string[], at: { x: number; y: number }) => {
     if (selectionBusy || !ids.length) return;
     setDeleteConfirm(null);
     setSelectionBusy(true);
-    const failures: string[] = [];
+    const failures: { id?: string; reason: string }[] = [];
+    const warnings: string[] = [];
     try {
       for (let start = 0; start < ids.length; start += 500) {
         const response = await fetch("/api/sessions", {
           method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: ids.slice(start, start + 500) }),
         });
-        const data = await response.json() as { error?: string; results?: { id: string; ok: boolean; error?: string; warning?: string }[] };
+        const data = await response.json() as { error?: string; results?: { id: string; ok: boolean; error?: string; code?: string; warning?: string }[] };
         if (!response.ok || !data.results) throw new Error(data.error ?? `HTTP ${response.status}`);
         for (const result of data.results) {
           if (result.ok) onSessionDeleted?.(result.id);
-          if (!result.ok || result.warning) failures.push(`${result.id}: ${result.error ?? result.warning ?? t("sidebar.deleteFailed")}`);
+          if (!result.ok) failures.push({ id: result.id, reason: deleteRefusalText(t, result) });
+          else if (result.warning) warnings.push(result.warning);
         }
       }
-    } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
+    } catch (error) { failures.push({ reason: error instanceof Error ? error.message : String(error) }); }
     finally {
       setSelectionBusy(false);
       setSelection(null);
       await loadSessions();
-      if (failures.length) setError(t("sidebar.deleteProjectSessionsFailed", { error: failures.join("; ") }));
+      if (warnings.length) setError(warnings.join("; "));
+      if (failures.length) {
+        const counted = failures.filter((failure) => failure.id).length;
+        const lines = failures.map(({ id, reason }) => {
+          const session = id ? allSessions.find((item) => item.id === id) : undefined;
+          return id ? `${session ? getSessionDisplayTitle(session) : id}: ${reason}` : reason;
+        });
+        setDeleteConfirm({
+          kind: "deleteFailed", x: at.x, y: at.y,
+          title: counted ? t("sidebar.deleteSessionsFailed", { count: counted }) : t("sidebar.deleteFailed"),
+          detail: [...lines.slice(0, 3), ...(lines.length > 3 ? ["…"] : [])].join("\n"),
+        });
+      }
     }
   };
 
-  const deleteSession = useCallback(async (sessionId: string) => {
+  const deleteSession = useCallback(async ({ id: sessionId, x, y }: { id: string; x: number; y: number }) => {
     setDeleteConfirm(null);
     setDeletingSessionId(sessionId);
     try {
       const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
-      const data = await response.json().catch(() => ({})) as { deletedSessionIds?: string[]; error?: string; warning?: string };
-      if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+      const data = await response.json().catch(() => ({})) as { deletedSessionIds?: string[]; error?: string; code?: string; warning?: string };
+      if (!response.ok) throw new Error(data.error ? deleteRefusalText(t, data) : `HTTP ${response.status}`);
       for (const id of data.deletedSessionIds ?? [sessionId]) onSessionDeleted?.(id);
       await loadSessions();
       if (data.warning) setError(data.warning);
     } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
+      // Failures reopen the delete popover in place, next to the row the user acted on.
+      setDeleteConfirm({ kind: "deleteFailed", title: t("sidebar.deleteFailed"), detail: error instanceof Error ? error.message : String(error), x, y });
     } finally {
       setDeletingSessionId(null);
     }
-  }, [loadSessions, onSessionDeleted]);
+  }, [loadSessions, onSessionDeleted, t]);
 
   const showWorktreeSwitcher = Boolean(
     worktreeState?.isGit
@@ -2184,7 +2207,25 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         </div>
       )}
 
-      {deleteConfirm && (() => {
+      {deleteConfirm?.kind === "deleteFailed" && (
+        <div
+          className="project-context-menu menu-surface"
+          style={{
+            left: Math.min(deleteConfirm.x + 2, window.innerWidth - 232),
+            top: Math.min(deleteConfirm.y + 2, window.innerHeight - 148),
+          }}
+        >
+          <div role="alertdialog" aria-labelledby="delete-project-title" aria-describedby="delete-project-detail" className="project-confirm">
+            <div id="delete-project-title">{deleteConfirm.title}</div>
+            <div id="delete-project-detail">{deleteConfirm.detail}</div>
+            <div className="project-confirm-actions">
+              <button type="button" autoFocus onClick={() => setDeleteConfirm(null)}>{t("common.ok")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirm && deleteConfirm.kind !== "deleteFailed" && (() => {
         const archiving = deleteConfirm.kind === "archiveProject";
         const project = deleteConfirm.kind === "archiveProject"
           ? workspaceProjects.find((item) => item.key === deleteConfirm.key)
@@ -2226,8 +2267,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                   if (archiving) {
                     setDeleteConfirm(null);
                     void updateSessionSidebarState(olderFamilies.map((family) => family.root.id), { archived: true });
-                  } else if (selecting) void deleteSelection(selectionSummary.ids);
-                  else if (session) void deleteSession(session.id);
+                  } else if (selecting) void deleteSelection(selectionSummary.ids, { x: deleteConfirm.x, y: deleteConfirm.y });
+                  else if (session) void deleteSession({ id: session.id, x: deleteConfirm.x, y: deleteConfirm.y });
                 }}>{t(archiving ? "sidebar.archive" : "sidebar.delete")}</button>
               </div>
             </div>

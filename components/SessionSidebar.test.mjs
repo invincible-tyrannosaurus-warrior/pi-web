@@ -144,9 +144,10 @@ test("list reloads never force a rescan: the server invalidates before the brows
 
 test("keeps a session visible when the delete request fails", () => {
   assert.match(source, /const response = await fetch\(`\/api\/sessions\/\$\{encodeURIComponent\(sessionId\)\}`/);
-  assert.match(source, /if \(!response\.ok\) throw new Error\(data\.error \?\? `HTTP \$\{response\.status\}`\)/);
+  assert.match(source, /if \(!response\.ok\) throw new Error\(data\.error \? deleteRefusalText\(t, data\) : `HTTP \$\{response\.status\}`\)/);
   assert.match(source, /for \(const id of data\.deletedSessionIds \?\? \[sessionId\]\) onSessionDeleted\?\.\(id\)/);
   assert.match(source, /setDeletingSessionId\(null\)/);
+  assert.match(source, /setDeleteConfirm\(\{ kind: "deleteFailed", title: t\("sidebar\.deleteFailed"\)/);
 });
 
 test("does not expose disk-backed actions for transient sessions", () => {

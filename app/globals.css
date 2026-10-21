@@ -4058,6 +4058,8 @@ span.token.table {
   font-size: 11px;
   font-weight: 400;
   line-height: 1.45;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .project-confirm-actions button {

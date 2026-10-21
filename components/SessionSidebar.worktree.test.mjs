@@ -87,7 +87,7 @@ test("project-wide deletes are replaced by selection, confirmed in the sidebar's
   assert.match(source, /beginSelection\(projectMenu\.key\)/);
   assert.match(source, /setDeleteConfirm\(\{ kind: "selection"/);
   assert.match(source, /selecting \? t\("sidebar\.deleteProjectSessionsConfirm", \{ count: selectionSummary\.ids\.length \}\)/);
-  assert.match(source, /else if \(selecting\) void deleteSelection\(selectionSummary\.ids\)/);
+  assert.match(source, /else if \(selecting\) void deleteSelection\(selectionSummary\.ids, \{ x: deleteConfirm\.x, y: deleteConfirm\.y \}\)/);
 });
 
 test("single-project switcher navigates without destructive shortcuts", () => {

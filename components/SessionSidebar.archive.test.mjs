@@ -305,24 +305,28 @@ test("selection toolbar exposes tri-state select-all, disables empty actions, an
   }
 });
 
-test("bulk delete closes only successful ids, exits selection, reloads once, then surfaces per-id failures", async () => {
+test("bulk delete closes only successful ids, exits selection, reloads once, then shows failures in the delete popover", async () => {
   const declaration = find(ast, (node) => ts.isVariableDeclaration(node) && node.name.getText(ast) === "deleteSelection");
   const events = [];
   const operation = execute(declaration.initializer, {
-    selectionBusy: false, setDeleteConfirm: noop, setSelectionBusy: noop,
+    selectionBusy: false, setSelectionBusy: noop,
     fetch: async (url, options) => {
       assert.equal(url, "/api/sessions");
       assert.equal(options.method, "DELETE");
       assert.deepEqual(JSON.parse(options.body), { ids: ["a", "b"] });
-      return { ok: true, json: async () => ({ results: [{ id: "a", ok: true }, { id: "b", ok: false, error: "Session is running" }] }) };
+      return { ok: true, json: async () => ({ results: [{ id: "a", ok: true }, { id: "b", ok: false, error: "A child session that must be updated is running", code: "child_running" }] }) };
     },
     onSessionDeleted: (id) => events.push(`closed:${id}`),
     setSelection: (value) => { assert.equal(value, null); events.push("exit"); },
     loadSessions: async () => events.push("reload"),
-    setError: (error) => events.push(error), t: (_key, values) => values?.error ?? _key,
+    allSessions: [{ id: "b", name: "Parent" }], getSessionDisplayTitle: (session) => session.name,
+    deleteRefusalText: (_t, result) => result.code,
+    setDeleteConfirm: (value) => value && events.push(value),
+    setError: (error) => events.push(`error:${error}`), t: (key, values) => `${key}:${values?.count}`,
   });
-  await operation(["a", "b"]);
-  assert.deepEqual(events, ["closed:a", "exit", "reload", "b: Session is running"]);
+  await operation(["a", "b"], { x: 10, y: 20 });
+  assert.deepEqual(JSON.parse(JSON.stringify(events)), ["closed:a", "exit", "reload",
+    { kind: "deleteFailed", x: 10, y: 20, title: "sidebar.deleteSessionsFailed:1", detail: "Parent: child_running" }]);
 });
 
 test("eligibility changes reconcile the stored selection rather than only masking its summary", () => {
