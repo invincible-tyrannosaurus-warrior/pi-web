@@ -2807,7 +2807,7 @@ function ExtensionDialog({
         role="dialog"
         aria-label={request.title}
         className="models-dialog extension-dialog"
-        style={{ pointerEvents: "auto", width: "min(560px, 100%)", maxHeight: "min(760px, 100%)" }}
+        style={{ pointerEvents: "auto", width: request.method === "select" ? "min(440px, 100%)" : "min(560px, 100%)", maxHeight: "min(760px, 100%)" }}
       >
         <div className="extension-dialog-header">
           <div className="extension-dialog-heading">
