@@ -11,7 +11,9 @@ import { realPathOrSelf as canonical } from "@/lib/worktree";
  * skill that is switched off (globally or in this project) so it can be switched on again.
  * The loader discovers file/package skills without binding a session; extension
  * resources_discover handlers only run after session_start, not during this listing.
- * Switched-off skills are parsed from their paths with the owner's source info.
+ * Every skill carries its owner's source info: a project entry that re-enables an inherited
+ * skill (a package `autoload: false` delta or a top-level `+path`) makes pi report project
+ * scope and the project-relative source, which would split one package into two groups.
  */
 export async function loadSkillsWithInstallInfo(cwd: string): Promise<SkillsResponse> {
   const agentDir = getAgentDir();
@@ -27,14 +29,13 @@ export async function loadSkillsWithInstallInfo(cwd: string): Promise<SkillsResp
     agentDir,
     skillPaths: off.map((r) => r.path),
     includeDefaults: false,
-  }).skills.map((skill) => {
-    const owner = byPath.get(canonical(skill.filePath))?.owner;
-    return owner ? { ...skill, sourceInfo: { ...skill.sourceInfo, ...owner, path: skill.filePath } } : skill;
-  });
+  }).skills;
   const skills: SkillInfo[] = [...loaded, ...unloaded].map((skill) => {
     const scopedSkill = byPath.get(canonical(skill.filePath));
+    const owner = scopedSkill?.owner;
     return {
       ...skill,
+      ...(owner && { sourceInfo: { ...skill.sourceInfo, ...owner, path: skill.filePath } }),
       enabled: loadedPaths.has(canonical(skill.filePath)),
       globalEnabled: scopedSkill ? scopedSkill.globalEnabled : null,
       removable: getRemovableSkillEntry(skill.filePath, cwd, agentDir) !== null,

@@ -160,3 +160,35 @@ test("GET /api/skills?filePath= returns a loaded skill's text and refuses any ot
   const denied = await GET(new Request(url(outsider)));
   assert.equal(denied.status, 404);
 });
+
+test("a package skill re-enabled by a project delta stays in its package's group", async (t) => {
+  const { trustProject } = await jiti.import("../../../lib/project-trust.ts");
+  const cwd = await mkdtemp(join(tmpdir(), "pi-web-skills-route-cwd-"));
+  allowFileRoot(cwd);
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const pkgDir = await mkdtemp(join(tmpdir(), "pi-web-skills-route-pkg-"));
+  t.after(() => rm(pkgDir, { recursive: true, force: true }));
+  for (const name of ["kept-off", "turned-on"]) {
+    await mkdir(join(pkgDir, "skills", name), { recursive: true });
+    await writeFile(join(pkgDir, "skills", name, "SKILL.md"), `---\nname: ${name}\ndescription: d\n---\n`);
+  }
+  await mkdir(join(cwd, ".pi", "skills", "own-skill"), { recursive: true });
+  await writeFile(join(cwd, ".pi", "skills", "own-skill", "SKILL.md"), "---\nname: own-skill\ndescription: d\n---\n");
+  await writeFile(join(testAgentDir, "settings.json"), JSON.stringify({ packages: [{ source: pkgDir, skills: [] }] }));
+  t.after(() => rm(join(testAgentDir, "settings.json"), { force: true }));
+  t.after(() => rm(join(testAgentDir, "trust.json"), { force: true }));
+  await writeFile(join(cwd, ".pi", "settings.json"), JSON.stringify({
+    packages: [{ source: pkgDir, autoload: false, skills: ["+skills/turned-on/SKILL.md"] }],
+  }));
+  trustProject(cwd, testAgentDir);
+
+  const skills = (await (await GET(new Request(`http://localhost/api/skills?cwd=${encodeURIComponent(cwd)}`))).json()).skills;
+  const byName = Object.fromEntries(skills.map((skill) => [skill.name, skill]));
+  assert.equal(byName["turned-on"].enabled, true);
+  assert.equal(byName["kept-off"].enabled, false);
+  // One package, one source: the project delta must not split it into a second group.
+  assert.equal(byName["turned-on"].sourceInfo.source, byName["kept-off"].sourceInfo.source);
+  assert.equal(byName["turned-on"].sourceInfo.scope, "user");
+  // A skill that exists only in this project keeps its project scope.
+  assert.equal(byName["own-skill"].sourceInfo.scope, "project");
+});
