@@ -76,7 +76,7 @@ test("projects section owns workspace sessions and new-session actions", () => {
 test("single-project mode lists only the current project and switches via the dropdown", () => {
   assert.match(source, /isSidebarSingleProject\(\)/);
   assert.match(source, /workspaceProjects\.filter\(\(project\) => project\.key === \(selectedProject \?\? workspaceProjects\[0\]\)\?\.key\)/);
-  assert.match(source, /families, selecting \|\| singleProject \|\| archiveView \? Infinity : WORKSPACE_SESSION_PREVIEW_LIMIT/);
+  assert.match(source, /families, selecting \|\| singleProject \? Infinity : WORKSPACE_SESSION_PREVIEW_LIMIT/);
   assert.match(source, /singleProject \? "sidebar\.switchProject" : "sidebar\.addProject"/);
   assert.match(source, /onClick=\{\(\) => \{ setSelectedCwd\(project\.root\); setDropdownOpen\(false\); \}\}/);
   assert.match(source, /otherProjectActivity\.running > 0/);

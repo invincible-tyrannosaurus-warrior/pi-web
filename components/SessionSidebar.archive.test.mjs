@@ -82,7 +82,7 @@ test("the actual virtual row model hides archived families, keeps cross-project 
     workspaceProjects: [{ key: "/p", root: "/p" }, { key: "/other", root: "/other" }],
     selectedProject: { key: "/p", root: "/p" }, selectedSessionId: "8", singleProject: false,
     expandedWorkspaceKeys: new Set(["/p", "/other"]), defaultExpandedWorkspaceKeys: new Set(),
-    workspaceSessionLimits: {}, archiveView: false, collapsedArchiveProjectKeys: new Set(),
+    workspaceSessionLimits: {}, archiveView: false, expandedArchiveProjectKeys: new Set(),
     archivedSessionIds: { "0": "2026-02-01T00:00:00.000Z", other: "2026-02-01T00:00:00.000Z" },
     runningSessionIds: new Set(["child"]), unreadSessionIds: new Set(["7"]), pinnedSessionIds: ["1"],
   };
@@ -92,13 +92,21 @@ test("the actual virtual row model hides archived families, keeps cross-project 
   const normal = workspaceRows(scope);
   assert.deepEqual(Array.from(normal.filter((r) => r.kind === "session"), (r) => r.family.root.id), ["2", "3", "4", "5", "6", "7", "8", "9"]);
   assert.equal(normal.find((r) => r.kind === "session" && r.family.root.id === "9").family.subagents[0].id, "child");
-  const archived = workspaceRows({ ...scope, archiveView: true });
+  assert.deepEqual(Array.from(workspaceRows({ ...scope, archiveView: true }), (r) => r.kind), ["workspace", "workspace"], "archive projects start folded");
+  const archived = workspaceRows({ ...scope, archiveView: true, expandedArchiveProjectKeys: new Set(["/p", "/other"]) });
   assert.deepEqual(Array.from(archived.filter((r) => r.kind === "session"), (r) => r.family.root.id), ["0", "other"]);
   const single = workspaceRows({ ...scope, archiveView: true, singleProject: true });
   assert.deepEqual(Array.from(single.filter((r) => r.kind === "session"), (r) => r.family.root.id), ["0"]);
   const expanded = workspaceRows({ ...scope, archivedSessionIds: {}, pinnedSessionIds: [], selectedSessionId: null, runningSessionIds: new Set(), unreadSessionIds: new Set(), workspaceSessionLimits: { "/p": 26 } });
   assert.ok(expanded.some((r) => r.kind === "showLess"));
   assert.ok(!workspaceRows({ ...scope, archivedSessionIds: {} }).some((r) => r.kind === "showLess"));
+  const allArchived = Object.fromEntries(sessions.map((s) => [s.id, "2026-02-01T00:00:00.000Z"]));
+  const archivePage = { ...scope, archiveView: true, expandedArchiveProjectKeys: new Set(["/p"]), archivedSessionIds: allArchived, selectedSessionId: null, runningSessionIds: new Set(), unreadSessionIds: new Set() };
+  const paged = workspaceRows(archivePage);
+  assert.equal(paged.filter((r) => r.kind === "session").length, 6, "archive pages like the main list");
+  assert.equal(paged.find((r) => r.kind === "showMore").limitKey, "archive:/p");
+  assert.equal(workspaceRows({ ...archivePage, workspaceSessionLimits: { "/p": 26 } }).filter((r) => r.kind === "session").length, 6, "main-list window does not leak into the archive");
+  assert.equal(workspaceRows({ ...archivePage, workspaceSessionLimits: { "archive:/p": 26 } }).filter((r) => r.kind === "session").length, 10);
 });
 
 test("archive entry, shared non-danger confirm, pane protection, and subtle search tag use existing UI", () => {
@@ -221,7 +229,7 @@ test("selection expands the entire scoped project including pins without changin
     allFamilies: familyHelpers.listSessionFamilies(sessions), workspaceProjects: [{ key: "/p", root: "/p" }],
     selectedProject: { key: "/p", root: "/p" }, selectedSessionId: null, singleProject: false,
     expandedWorkspaceKeys: new Set(), defaultExpandedWorkspaceKeys: new Set(), workspaceSessionLimits: {},
-    archiveView: false, collapsedArchiveProjectKeys: new Set(), archivedSessionIds: {},
+    archiveView: false, expandedArchiveProjectKeys: new Set(), archivedSessionIds: {},
     runningSessionIds: new Set(), unreadSessionIds: new Set(), pinnedSessionIds: ["24"], selectionProjectKey: "/p",
   };
   const rows = workspaceRows(scope);

@@ -239,8 +239,8 @@ interface ValidatedProject {
 type WorkspaceRow =
   | { kind: "workspace"; project: ProjectSelection; cwd: string }
   | { kind: "session"; family: ReturnType<typeof listSessionFamilies>[number] }
-  | { kind: "showMore"; projectKey: string; remaining: number; nextLimit: number }
-  | { kind: "showLess"; projectKey: string };
+  | { kind: "showMore"; limitKey: string; remaining: number; nextLimit: number }
+  | { kind: "showLess"; limitKey: string };
 
 const UNREAD_SESSIONS_STORAGE_KEY = "pi-web:unread-session-ids";
 const LAST_CUSTOM_CWD_STORAGE_KEY = "pi-web:last-custom-cwd";
@@ -363,7 +363,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
   const projectWriteQueue = useRef<Promise<void>>(Promise.resolve());
   const projectAddAttempt = useRef(new Set<string>());
   const [draggedProjectKey, setDraggedProjectKey] = useState<string | null>(null);
-  const [collapsedArchiveProjectKeys, setCollapsedArchiveProjectKeys] = useState<Set<string>>(() => new Set());
+  // Archive projects start folded, like the main list's unexpanded projects.
+  const [expandedArchiveProjectKeys, setExpandedArchiveProjectKeys] = useState<Set<string>>(() => new Set());
   const [sessionListVersion, setSessionListVersion] = useState<number | null>(null);
   const sessionListVersionRef = useRef<number | null>(null);
   const sessionLoadIdRef = useRef(0);
@@ -1456,23 +1457,25 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         project,
         cwd: families[0]?.root.cwd ?? project.root,
       });
-      const open = archiveView ? !collapsedArchiveProjectKeys.has(project.key) : expanded.has(project.key);
+      const open = archiveView ? expandedArchiveProjectKeys.has(project.key) : expanded.has(project.key);
       if ((selecting || singleProject || open) && project.key !== draggedProjectKey) {
-        const limit = workspaceSessionLimits[project.key] ?? WORKSPACE_SESSION_PREVIEW_LIMIT;
+        // The archive pages each project separately from the main list.
+        const limitKey = archiveView ? `archive:${project.key}` : project.key;
+        const limit = workspaceSessionLimits[limitKey] ?? WORKSPACE_SESSION_PREVIEW_LIMIT;
         const forcedIds = new Set([...runningSessionIds, ...unreadSessionIds]);
         if (selectedSessionId) forcedIds.add(selectedSessionId);
         const { visible: visibleFamilies, revealed, nextShown } = previewSessionFamilies(
-          families, selecting || singleProject || archiveView ? Infinity : WORKSPACE_SESSION_PREVIEW_LIMIT,
+          families, selecting || singleProject ? Infinity : WORKSPACE_SESSION_PREVIEW_LIMIT,
           Math.max(0, limit - WORKSPACE_SESSION_PREVIEW_LIMIT), forcedIds, WORKSPACE_SESSION_PAGE_SIZE,
         );
         rows.push(...visibleFamilies.map((family) => ({ kind: "session" as const, family })));
         const remaining = families.length - visibleFamilies.length;
-        if (remaining > 0) rows.push({ kind: "showMore", projectKey: project.key, remaining, nextLimit: WORKSPACE_SESSION_PREVIEW_LIMIT + nextShown });
-        if (revealed > 0) rows.push({ kind: "showLess", projectKey: project.key });
+        if (remaining > 0) rows.push({ kind: "showMore", limitKey, remaining, nextLimit: WORKSPACE_SESSION_PREVIEW_LIMIT + nextShown });
+        if (revealed > 0) rows.push({ kind: "showLess", limitKey });
       }
     }
     return rows;
-  }, [selectionProjectKey, allFamilies, archiveView, archivedSessionIds, collapsedArchiveProjectKeys, defaultExpandedWorkspaceKeys, draggedProjectKey, expandedWorkspaceKeys, pinnedSessionIds, runningSessionIds, unreadSessionIds, selectedProject, selectedSessionId, singleProject, workspaceProjects, workspaceSessionLimits]);
+  }, [selectionProjectKey, allFamilies, archiveView, archivedSessionIds, expandedArchiveProjectKeys, defaultExpandedWorkspaceKeys, draggedProjectKey, expandedWorkspaceKeys, pinnedSessionIds, runningSessionIds, unreadSessionIds, selectedProject, selectedSessionId, singleProject, workspaceProjects, workspaceSessionLimits]);
 
   useLayoutEffect(() => {
     if (!selectionProjectKey || !listScrollRef.current) return;
@@ -2015,12 +2018,13 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         </button>
         <div className="sidebar-header-actions">
           {projectsOpen && !singleProject && (archiveView
-            ? archiveProjectKeys.filter((key) => !collapsedArchiveProjectKeys.has(key)).length
+            ? archiveProjectKeys.filter((key) => expandedArchiveProjectKeys.has(key)).length
             : workspaceProjects.filter((p) => (expandedWorkspaceKeys ?? defaultExpandedWorkspaceKeys).has(p.key)).length) >= 2 && (
             <ToolbarIconButton
               onClick={() => {
                 if (archiveView) {
-                  setCollapsedArchiveProjectKeys(new Set(archiveProjectKeys));
+                  setExpandedArchiveProjectKeys(new Set());
+                  setWorkspaceSessionLimits((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith("archive:"))));
                   return;
                 }
                 setExpandedWorkspaceKeys(new Set());
@@ -2298,7 +2302,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
             {virtualIndices.map((index) => {
               const row = workspaceRows[index];
               if (row.kind === "workspace") {
-                const expanded = selectionProjectKey === row.project.key || (row.project.key !== draggedProjectKey && (archiveView ? !collapsedArchiveProjectKeys.has(row.project.key) : (expandedWorkspaceKeys ?? defaultExpandedWorkspaceKeys).has(row.project.key)));
+                const expanded = selectionProjectKey === row.project.key || (row.project.key !== draggedProjectKey && (archiveView ? expandedArchiveProjectKeys.has(row.project.key) : (expandedWorkspaceKeys ?? defaultExpandedWorkspaceKeys).has(row.project.key)));
                 const active = row.project.key === selectedProject?.key;
                 const activity = projectActivity.get(row.project.key);
                 const workspaceCwd = active && selectedCwd ? selectedCwd : row.cwd;
@@ -2334,7 +2338,8 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                       onClick={() => {
                         if (selectionProjectKey === row.project.key) return;
                         if (archiveView && !singleProject) {
-                          setCollapsedArchiveProjectKeys((current) => {
+                          if (expanded) forgetWorkspaceWindow(`archive:${row.project.key}`);
+                          setExpandedArchiveProjectKeys((current) => {
                             const next = new Set(current);
                             if (next.has(row.project.key)) next.delete(row.project.key);
                             else next.add(row.project.key);
@@ -2404,11 +2409,11 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
               if (row.kind === "showMore") {
                 return (
                   <button
-                    key={`more:${row.projectKey}`}
+                    key={`more:${row.limitKey}`}
                     type="button"
                     className={`workspace-show-more-button${projectDrag.view ? " project-drag-row" : ""}`}
                     aria-label={t("sidebar.showMoreSessionsLabel", { count: row.remaining })}
-                    onClick={() => setWorkspaceSessionLimits((current) => ({ ...current, [row.projectKey]: row.nextLimit }))}
+                    onClick={() => setWorkspaceSessionLimits((current) => ({ ...current, [row.limitKey]: row.nextLimit }))}
                     style={{
                       position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT,
                       left: 4, right: 4, height: SESSION_LIST_ITEM_HEIGHT,
@@ -2422,10 +2427,10 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
               }
               if (row.kind === "showLess") {
                 return <button
-                  key={`less:${row.projectKey}`}
+                  key={`less:${row.limitKey}`}
                   type="button"
                   className={`workspace-show-more-button${projectDrag.view ? " project-drag-row" : ""}`}
-                  onClick={() => setWorkspaceSessionLimits((current) => ({ ...current, [row.projectKey]: WORKSPACE_SESSION_PREVIEW_LIMIT }))}
+                  onClick={() => setWorkspaceSessionLimits((current) => ({ ...current, [row.limitKey]: WORKSPACE_SESSION_PREVIEW_LIMIT }))}
                   style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 4, right: 4, height: SESSION_LIST_ITEM_HEIGHT, ...projectDrag.rowStyle(index * SESSION_LIST_ITEM_HEIGHT) }}
                 >{t("sidebar.showLessSessions")}</button>;
               }
