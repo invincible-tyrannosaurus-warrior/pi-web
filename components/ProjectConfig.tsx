@@ -54,10 +54,12 @@ type FeatureId = (typeof FEATURES)[number]["id"];
  * resource with one switch showing its effective state here. Flipping a switch
  * back to the global state drops the project override.
  */
-export function ProjectConfig({ cwd, sessionId, onReloaded, onChanged }: {
+export function ProjectConfig({ cwd, sessionId, onReloaded, onChanged, onOpenSkill }: {
   cwd: string;
   sessionId: string | null;
   onReloaded?: () => void;
+  /** Opens a skill's detail page, where its auto-invocation is edited. */
+  onOpenSkill?: (path: string) => void;
   /** A project override or trust changed what the Plugins/Skills pages show. */
   onChanged?: () => void;
 }) {
@@ -302,7 +304,12 @@ export function ProjectConfig({ cwd, sessionId, onReloaded, onChanged }: {
     return (
       <div key={`${item.type}:${item.path}`} className={`settings-row${nested ? " is-nested" : ""}`} title={item.path}>
         <div className="settings-row-copy">
-          <span className={`settings-row-label${item.enabled ? "" : " is-dim"}`}>{item.name}</span>
+          <span className={`settings-row-label${item.enabled ? "" : " is-dim"}`}>
+            {item.name}
+            {item.manualOnly && (onOpenSkill ? (
+              <button type="button" className="settings-row-tag is-link" onClick={() => onOpenSkill(item.path)}>{t("skills.tag.manual")}</button>
+            ) : <span className="settings-row-tag">{t("skills.tag.manual")}</span>)}
+          </span>
           <span className="settings-row-description">{typeLabel(item)}{state && <> · {state}</>}</span>
         </div>
         <div className="settings-row-control">

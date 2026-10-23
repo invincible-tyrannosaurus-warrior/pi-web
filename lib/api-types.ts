@@ -222,6 +222,8 @@ export interface ProjectResourceItem {
   overridden: boolean;
   /** false: a hand-written project entry pi-web cannot change. */
   editable: boolean;
+  /** Skills only: `disable-model-invocation`, so only `/skill:` can run it. */
+  manualOnly?: boolean;
 }
 
 export interface ProjectResourceGroup {

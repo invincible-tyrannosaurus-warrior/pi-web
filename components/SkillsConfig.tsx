@@ -121,7 +121,6 @@ function SkillDetail({
   const { t } = useI18n();
   const group = sourceGroup(skill);
   const autoInvoke = !skill.disableModelInvocation;
-  const on = isOn(skill);
 
   function displayPath(p: string): string {
     if (isProjectFile(skill) && p.startsWith(cwd)) {
@@ -188,17 +187,16 @@ function SkillDetail({
             />
           )}
         </SettingsRow>
-        {/* A property of the skill file, so it applies everywhere and only once the skill is on. */}
+        {/* A property of the skill file: it applies wherever the skill is loaded, so a skill off globally but on in a project stays editable. */}
         <SettingsRow
           label={t("skills.modelInvocation")}
           description={isPackageSkill(skill)
             ? t("skills.packageManaged")
-            : !on ? t("skills.autoInvokeNeedsEnabled")
-              : autoInvoke ? t("skills.modelInvocationOn") : t("i18n.hiddenButInvocable")}
+            : autoInvoke ? t("skills.modelInvocationOn") : t("i18n.hiddenButInvocable")}
         >
           <ConfigSwitch
             checked={autoInvoke}
-            disabled={isPackageSkill(skill) || !on}
+            disabled={isPackageSkill(skill)}
             loading={toggling}
             label={t("skills.modelInvocation")}
             onChange={() => onToggleAutoInvoke(skill)}
@@ -456,6 +454,8 @@ export function SkillsConfig({
   onReloaded,
   onChanged,
   embedded = false,
+  openSkill = null,
+  onOpenSkillHandled,
 }: {
   cwd: string;
   sessionId?: string | null;
@@ -464,6 +464,9 @@ export function SkillsConfig({
   /** A global switch changed what the Plugins/Project pages show. */
   onChanged?: () => void;
   embedded?: boolean;
+  /** A skill file another page asked to show; cleared through onOpenSkillHandled. */
+  openSkill?: string | null;
+  onOpenSkillHandled?: () => void;
 }) {
   const { t } = useI18n();
   const confirm = useConfirm();
@@ -480,6 +483,12 @@ export function SkillsConfig({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "detail" | "add">("list");
   const [filter, setFilter] = useState("");
+  useEffect(() => {
+    if (!openSkill) return;
+    setSelected(openSkill);
+    setView("detail");
+    onOpenSkillHandled?.();
+  }, [openSkill, onOpenSkillHandled]);
   const [updateStatuses, setUpdateStatuses] = useState<Record<string, SkillUpdateResult>>({});
   const [checkingUpdates, setCheckingUpdates] = useState<Set<string>>(new Set());
   const [checkingAll, setCheckingAll] = useState(false);

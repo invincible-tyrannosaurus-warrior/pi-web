@@ -61,7 +61,6 @@ export const enLocale: LocalePlugin = {
     "skills.enabled": "Enabled globally",
     "skills.enabledDescription": "Applies to every project. A single project can set it differently in This project.",
     "skills.noGlobalSwitch": "This skill exists only in this project; switch it in This project.",
-    "skills.autoInvokeNeedsEnabled": "Enable the skill first.",
     "skills.tag.manual": "manual only",
     "skills.group.mine": "My skills",
     "skills.group.projectFiles": "Project files",

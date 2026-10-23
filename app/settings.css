@@ -1339,6 +1339,26 @@
   font-size: 12px;
 }
 
+.settings-row-tag.is-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.settings-row-tag.is-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.settings-row-tag.is-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--ui-radius-sm);
+}
+
 .settings-toolbar-spacer {
   flex: 1;
 }

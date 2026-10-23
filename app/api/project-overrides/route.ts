@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { basename, dirname, extname } from "path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, loadSkills } from "@earendil-works/pi-coding-agent";
 import type { ProjectOverridesWriteResponse, ProjectResourceGroup, ProjectResourcesResponse } from "@/lib/api-types";
 import { getOverrideSyncTargets } from "@/lib/project-override-sync";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
@@ -42,6 +42,11 @@ export async function GET(req: Request) {
       resolveScopedResources(cwd, getAgentDir()),
       getOverrideSyncTargets(cwd),
     ]);
+    const skillPaths = resources.filter((r) => r.type === "skills").map((r) => r.path);
+    // Read-only here: auto-invocation is a property of the skill file, edited on the Skills page.
+    const manualOnly = new Set(skillPaths.length === 0 ? [] : loadSkills({
+      cwd, agentDir: getAgentDir(), skillPaths, includeDefaults: false,
+    }).skills.filter((skill) => skill.disableModelInvocation).map((skill) => skill.filePath));
     const groups = new Map<string, ProjectResourceGroup>();
     for (const resource of resources) {
       const { origin, scope, source } = resource.owner;
@@ -60,6 +65,7 @@ export async function GET(req: Request) {
         globalEnabled: resource.globalEnabled,
         overridden: resource.override !== "inherit",
         editable: resource.editable,
+        ...(manualOnly.has(resource.path) && { manualOnly: true }),
       });
     }
     return NextResponse.json({

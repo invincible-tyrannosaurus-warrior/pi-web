@@ -61,7 +61,6 @@ export const zhCNLocale: LocalePlugin = {
     "skills.enabled": "全局启用",
     "skills.enabledDescription": "对所有项目生效。单个项目可以在「本项目」中另行设置。",
     "skills.noGlobalSwitch": "这个技能只存在于本项目，请在「本项目」中开关。",
-    "skills.autoInvokeNeedsEnabled": "先启用技能才能设置。",
     "skills.tag.manual": "仅手动",
     "skills.group.mine": "我的技能",
     "skills.group.projectFiles": "项目文件",

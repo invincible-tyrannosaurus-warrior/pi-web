@@ -413,6 +413,9 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
   const handlePluginsChanged = useCallback(() => bump("plugins"), [bump]);
   const handleMcpChanged = useCallback(() => bump("mcp"), [bump]);
   const handleProjectResourcesChanged = useCallback(() => bump("project"), [bump]);
+  // The Project page links a manual-only skill to its Skills detail page.
+  const [skillToOpen, setSkillToOpen] = useState<string | null>(null);
+  const clearSkillToOpen = useCallback(() => setSkillToOpen(null), []);
   const keyWithout = (page: keyof typeof versions) =>
     `${cwd}:${Object.entries(versions).filter(([name]) => name !== page).map(([, v]) => v).join(":")}`;
   // Narrow screens show one page at a time: the section list, then the section.
@@ -532,10 +535,10 @@ export function SettingsPanel({ cwd, sessionId, initialSection, onClose, onSessi
             {sectionHost("models", <ModelsConfig embedded onClose={requestClose} cwd={cwd} onModelsChanged={onModelsChanged} onDirtyChange={handleModelsDirty} />)}
             {cwd && sectionHost("agents", <AgentsConfig embedded key={keyWithout("agents")} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} onChanged={handleAgentsChanged} />)}
             {sectionHost("images", <ImagesConfig key={keyWithout("images")} cwd={cwd} sessionId={sessionId} onReloaded={onSessionReloaded} onChanged={handleImagesChanged} />)}
-            {cwd && sectionHost("skills", <SkillsConfig embedded key={keyWithout("skills")} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} onChanged={handleSkillsChanged} />)}
+            {cwd && sectionHost("skills", <SkillsConfig embedded key={keyWithout("skills")} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} onChanged={handleSkillsChanged} openSkill={skillToOpen} onOpenSkillHandled={clearSkillToOpen} />)}
             {cwd && sectionHost("plugins", <PluginsConfig embedded key={keyWithout("plugins")} cwd={cwd} sessionId={sessionId} onClose={onClose} onReloaded={onSessionReloaded} onChanged={handlePluginsChanged} />)}
             {sectionHost("mcp", <McpConfig key={keyWithout("mcp")} cwd={cwd} sessionId={sessionId} onReloaded={onSessionReloaded} onChanged={handleMcpChanged} />)}
-            {cwd && sectionHost("project", <ProjectConfig key={keyWithout("project")} cwd={cwd} sessionId={sessionId} onReloaded={onSessionReloaded} onChanged={handleProjectResourcesChanged} />)}
+            {cwd && sectionHost("project", <ProjectConfig key={keyWithout("project")} cwd={cwd} sessionId={sessionId} onReloaded={onSessionReloaded} onChanged={handleProjectResourcesChanged} onOpenSkill={(path) => { setSkillToOpen(path); activateSection("skills"); }} />)}
             {sectionHost("usage", <UsageStats />)}
           </main>
         </div>

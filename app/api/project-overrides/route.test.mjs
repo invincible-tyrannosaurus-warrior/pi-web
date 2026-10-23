@@ -17,6 +17,9 @@ const pkg = join(root, "pkg");
 const skill = join(pkg, "skills", "pkg-a", "SKILL.md");
 mkdirSync(join(pkg, "skills", "pkg-a"), { recursive: true });
 writeFileSync(skill, "---\nname: pkg-a\ndescription: a\n---\n");
+const manualSkill = join(pkg, "skills", "pkg-m", "SKILL.md");
+mkdirSync(join(pkg, "skills", "pkg-m"), { recursive: true });
+writeFileSync(manualSkill, "---\nname: pkg-m\ndescription: m\ndisable-model-invocation: true\n---\n");
 writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "pkg", pi: { skills: ["./skills"] } }));
 mkdirSync(agentDir, { recursive: true });
 writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [pkg] }));
@@ -39,6 +42,13 @@ after(() => {
   if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
   else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
   rmSync(root, { recursive: true, force: true });
+});
+
+test("skills marked disable-model-invocation are flagged manualOnly", async () => {
+  const res = await GET(new Request(`http://localhost/api/project-overrides?cwd=${encodeURIComponent(repo)}`));
+  const items = (await res.json()).groups.flatMap((group) => group.items);
+  assert.equal(items.find((item) => item.path === manualSkill)?.manualOnly, true);
+  assert.equal(items.find((item) => item.path === skill)?.manualOnly, undefined);
 });
 
 const settings = (dir) => JSON.parse(readFileSync(join(dir, ".pi", "settings.json"), "utf8"));
