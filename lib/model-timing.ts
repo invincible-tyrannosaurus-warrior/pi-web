@@ -25,6 +25,19 @@ export interface ModelTiming {
 
 export const emptyModelTiming = (): ModelTiming => ({ calls: 0, ttftMs: 0, genMs: 0, genTokens: 0 });
 
+/** Shorter decodes arrived in one burst (unstreamed tool args, hidden reasoning, buffering): no measurable speed. */
+export const MIN_DECODE_MS = 300;
+
+/** Every call counts toward TTFT; only measurable decodes with known output count toward speed. */
+function addCall(timing: ModelTiming, call: TimingCall, output: number | undefined): void {
+  timing.calls += 1;
+  timing.ttftMs += call.ttft;
+  if (output !== undefined && call.gen >= MIN_DECODE_MS) {
+    timing.genMs += call.gen;
+    timing.genTokens += output;
+  }
+}
+
 /** Display strings shared by the composer readout and the session panel. */
 /** Display parts; `text` is "TTFT · TPS", e.g. "2.0s · 41 tok/s". Null without recorded calls. */
 export function formatModelTiming(timing: ModelTiming | null | undefined): { ttft: string; tps: string | null; text: string } | null {
@@ -116,15 +129,7 @@ export function foldModelTiming(entries: readonly SessionEntry[]): ModelTiming {
     if (typeof entry.message.timestamp === "number" && output !== undefined) outputByTimestamp.set(entry.message.timestamp, output);
   }
   const timing = emptyModelTiming();
-  for (const call of timingCallsByAt(entries).values()) {
-    timing.calls += 1;
-    timing.ttftMs += call.ttft;
-    const output = outputByTimestamp.get(call.at);
-    if (output !== undefined) {
-      timing.genMs += call.gen;
-      timing.genTokens += output;
-    }
-  }
+  for (const call of timingCallsByAt(entries).values()) addCall(timing, call, outputByTimestamp.get(call.at));
   return timing;
 }
 
@@ -135,13 +140,7 @@ export function turnModelTiming(messages: readonly { modelTiming?: TimingCall; u
     const call = message.modelTiming;
     if (!call) continue;
     timing ??= emptyModelTiming();
-    timing.calls += 1;
-    timing.ttftMs += call.ttft;
-    const output = outputTokens(message);
-    if (output !== undefined) {
-      timing.genMs += call.gen;
-      timing.genTokens += output;
-    }
+    addCall(timing, call, outputTokens(message));
   }
   return timing;
 }
