@@ -944,7 +944,7 @@ export function AppShell() {
   filePersistenceRef.current = { tabs: fileTabs, activeTabId: activeFileTabId, open: rightPanelOpen };
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
   const [browserPage, setBrowserPage] = useState<BrowserState | null>(null);
-  const [browserMaximized, setBrowserMaximized] = useState(false);
+  const [panelMaximized, setPanelMaximized] = useState(false);
   const [terminalActionsSlot, setTerminalActionsSlot] = useState<HTMLDivElement | null>(null);
   const [panelTabsRestored, setPanelTabsRestored] = useState(false);
   const [panelTabOrder, setPanelTabOrder] = useState<string[]>([]);
@@ -1078,6 +1078,7 @@ export function AppShell() {
   const handleAtMention = useCallback((relativePath: string, isDir: boolean, sourceCwd?: string) => {
     const path = pathForChatMention(relativePath, sourceCwd, getFocusedChatCwd());
     chatInputRef.current?.insertText(buildAtMentionText(path, isDir));
+    setPanelMaximized(false);
     if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
   }, [getFocusedChatCwd, isMobile]);
 
@@ -1087,6 +1088,7 @@ export function AppShell() {
       relativePaths.map((path) => pathForChatMention(path, sourceCwd, targetCwd)),
     );
     if (mentions) chatInputRef.current?.insertText(mentions);
+    setPanelMaximized(false);
     if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
   }, [getFocusedChatCwd, isMobile]);
 
@@ -1097,6 +1099,8 @@ export function AppShell() {
       file: pathForChatMention(relativePath, sourceCwd, getFocusedChatCwd()),
       ...(startLine ? { lines: startLine === endLine ? `${startLine}` : `${startLine}-${endLine}` } : {}),
     });
+    // Show the composer that just received the quote.
+    setPanelMaximized(false);
     if (isMobile) { setRightPanelOpen(false); setSidebarOpen(false); }
   }, [getFocusedChatCwd, isMobile]);
 
@@ -2062,16 +2066,19 @@ export function AppShell() {
     return () => window.removeEventListener(PREVIEW_OPEN_EVENT, open);
   }, [handleOpenBrowser]);
 
-  // Covers only while the browser tab shows; switching tabs keeps the choice for coming back.
-  const browserCoversPage = browserMaximized && !isMobile && rightPanelOpen && activeFileTabId === BROWSER_TAB_ID;
+  // The whole panel (any tab) covers the page; phones already show it full screen.
+  const panelCoversPage = panelMaximized && !isMobile && rightPanelOpen;
   useEffect(() => {
-    if (!browserCoversPage) return;
+    if (!panelCoversPage) return;
     const restore = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isModalDialogOpen()) setBrowserMaximized(false);
+      if (event.key !== "Escape" || event.defaultPrevented || isModalDialogOpen()) return;
+      // Esc belongs to the shell (vim, less) and to text fields.
+      if (event.target instanceof Element && event.target.closest(".xterm, input, textarea, select, [contenteditable]")) return;
+      setPanelMaximized(false);
     };
     document.addEventListener("keydown", restore);
     return () => document.removeEventListener("keydown", restore);
-  }, [browserCoversPage]);
+  }, [panelCoversPage]);
 
   const handleTerminalClosed = (tab: TerminalTab) => {
     const replacement = tab.closing === "restart" ? newTerminalTab(tab.cwd) : null;
@@ -2903,7 +2910,7 @@ export function AppShell() {
         role="navigation"
         aria-label="Pi Web"
         aria-hidden={isMobile && !sidebarOpen ? true : undefined}
-        inert={isMobile && !sidebarOpen ? true : undefined}
+        inert={(isMobile && !sidebarOpen) || panelCoversPage ? true : undefined}
         className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
         style={{
           "--sidebar-width": `${sidebarResizer.width}px`,
@@ -2924,6 +2931,7 @@ export function AppShell() {
         <div
           {...sidebarResizer.separatorProps}
           aria-controls="session-sidebar"
+          inert={panelCoversPage || undefined}
           className="panel-resize-handle sidebar-resize-handle"
           data-resize-handle="sidebar"
           title={`${translate("layout.resizeSidebar")}: ${translate("layout.resizeHint")}`}
@@ -2931,7 +2939,7 @@ export function AppShell() {
       )}
 
       {/* Center: chat */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+      <div inert={panelCoversPage || undefined} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
         <div className="workspace-header" style={{ position: "relative" }}>
@@ -3552,6 +3560,7 @@ export function AppShell() {
         <div
           {...rightPanelResizer.separatorProps}
           aria-controls="file-panel"
+          inert={panelCoversPage || undefined}
           className="panel-resize-handle right-panel-resize-handle"
           data-resize-handle="right-panel"
           title={`${translate("layout.resizeFilePanel")}: ${translate("layout.resizeHint")}`}
@@ -3564,7 +3573,7 @@ export function AppShell() {
         id="file-panel"
         aria-hidden={!rightPanelOpen}
         inert={!rightPanelOpen ? true : undefined}
-        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${browserCoversPage ? " right-panel-maximized" : ""}`}
+        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${panelCoversPage ? " right-panel-maximized" : ""}`}
         style={{
           "--right-panel-width": `${rightPanelResizer.width}px`,
           "--panel-transition": `${getPanelTransitionMs(rightPanelResizer.width)}ms`,
@@ -3591,6 +3600,22 @@ export function AppShell() {
           </div>
           {/* The selected terminal portals its actions here: one header row, no inner toolbar. */}
           <div ref={setTerminalActionsSlot} className="terminal-header-actions" />
+          {!isMobile && (
+            <button
+              type="button"
+              onClick={() => setPanelMaximized(!panelCoversPage)}
+              className="workspace-header-action right-panel-maximize"
+              aria-controls="file-panel"
+              title={translate(panelCoversPage ? "files.restorePanel" : "files.maximizePanel")}
+              aria-label={translate(panelCoversPage ? "files.restorePanel" : "files.maximizePanel")}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {panelCoversPage
+                  ? <path d="M8 3v5H3M16 3v5h5M8 21v-5H3M16 21v-5h5" />
+                  : <path d="M3 8V3h5M21 8V3h-5M3 16v5h5M21 16v5h-5" />}
+              </svg>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => closeRightPanel(true)}
@@ -3671,8 +3696,6 @@ export function AppShell() {
               <BrowserPanel
                 page={browserPage}
                 onNavigate={handleOpenBrowser}
-                maximized={browserCoversPage}
-                onToggleMaximize={isMobile ? undefined : () => setBrowserMaximized(!browserCoversPage)}
               />
             </div>
           )}

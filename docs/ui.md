@@ -69,4 +69,5 @@ Design notes moved out of AGENTS.md. Typography rules are enforced by `component
 - The active viewer and two recently viewed ones stay mounted, hidden with `content-visibility: hidden` (keeps their scroll position); hidden viewers pause the file watch and skip git diff refreshes until shown again.
 - Find (`components/FileFindBar.tsx`): Cmd/Ctrl+F once the viewer was clicked or holds focus, or the toolbar button. Searches the rendered text of the loaded part via the CSS Custom Highlight API; `:N` jumps to line N in Source. Not available in the CSV table or HTML preview.
 - Multi-chunk loads (refresh, Load all) publish once (`lib/text-chunk-reader.ts`); a failed refresh keeps the content and shows a retry bar.
+- Maximize (panel header, not on phones) makes the whole panel cover the Pi Web page via CSS only, so viewers, terminals and the browser frame keep their state; the rest of the app is `inert`. Esc restores, except inside a terminal or text field (Esc belongs there); sending a selection or `@` mention to the chat also restores.
 - Images in a markdown preview and image files open in the shared zoom viewer; linked images keep their link.

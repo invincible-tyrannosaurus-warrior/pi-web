@@ -13,12 +13,9 @@ export interface BrowserState {
 export const BROWSER_TAB_ID = "browser";
 
 /** Shows a service of the Pi Web machine (`localhost:<port>`), directly or through the preview proxy. */
-export function BrowserPanel({ page, onNavigate, maximized, onToggleMaximize }: {
+export function BrowserPanel({ page, onNavigate }: {
   page: BrowserState;
   onNavigate: (url: string) => void;
-  maximized: boolean;
-  /** Absent where the panel is already full screen (phones). */
-  onToggleMaximize?: () => void;
 }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(page.url);
@@ -74,15 +71,6 @@ export function BrowserPanel({ page, onNavigate, maximized, onToggleMaximize }: 
         <button type="button" className="file-viewer-icon-button" onClick={() => onNavigate(page.url)} disabled={!frameUrl} title={t("browser.reload")} aria-label={t("browser.reload")}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></svg>
         </button>
-        {onToggleMaximize && (
-          <button type="button" className="file-viewer-icon-button" onClick={onToggleMaximize} aria-pressed={maximized} title={t(maximized ? "browser.restore" : "browser.maximize")} aria-label={t(maximized ? "browser.restore" : "browser.maximize")}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              {maximized
-                ? <path d="M8 3v5H3M16 3v5h5M8 21v-5H3M16 21v-5h5" />
-                : <path d="M3 8V3h5M21 8V3h-5M3 16v5h5M21 16v5h-5" />}
-            </svg>
-          </button>
-        )}
         <button type="button" className="file-viewer-icon-button" onClick={() => { if (windowUrl) window.open(windowUrl, "_blank", "noopener"); }} disabled={!frameUrl} title={t("browser.openInNewWindow")} aria-label={t("browser.openInNewWindow")}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
         </button>

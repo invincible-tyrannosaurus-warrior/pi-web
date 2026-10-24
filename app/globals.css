@@ -4389,7 +4389,7 @@ span.token.table {
   }
 }
 
-/* Browser tab "Fill the Pi Web page": the panel covers the app; only CSS changes, so the frame keeps its page. */
+/* "Fill the Pi Web page": the panel covers the app; only CSS changes, so frames, terminals and scroll positions stay. */
 .right-panel-container.right-panel-maximized {
   position: fixed;
   inset: 0;
@@ -4402,6 +4402,23 @@ span.token.table {
 .right-panel-container.right-panel-maximized > * {
   width: 100% !important;
   min-width: 0 !important;
+}
+.right-panel-maximize {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--motion-fast);
+}
+.right-panel-maximize:hover {
+  color: var(--text);
 }
 
 /* Composer: the field and its status line share one box. The status line keeps the tool's

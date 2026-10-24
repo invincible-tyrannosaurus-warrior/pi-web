@@ -23,7 +23,7 @@ test("closes the mobile overlay on load even before a chat destination exists", 
 
 test("removes the closed mobile sidebar from the accessibility tree", () => {
   assert.match(source, /aria-hidden=\{isMobile && !sidebarOpen \? true : undefined\}/);
-  assert.match(source, /inert=\{isMobile && !sidebarOpen \? true : undefined\}/);
+  assert.match(source, /inert=\{\(isMobile && !sidebarOpen\) \|\| panelCoversPage \? true : undefined\}/);
   assert.match(source, /if \(!isMobile \|\| !sidebarOpen \|\| !mobileSidebarReady\) return/);
   assert.match(source, /panel\?\.querySelector<HTMLElement>\('\[aria-current="page"\], button:not\(:disabled\)'\)\?\.focus\(\)/);
   assert.match(source, /event\.key !== "Escape"[\s\S]*?dismissMobileSidebar\(\)/);

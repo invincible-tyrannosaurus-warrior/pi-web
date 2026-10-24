@@ -64,10 +64,7 @@ be allowed (`PI_WEB_ALLOWED_HOSTS`). Run one proxy port per Pi Web instance.
 
 ## Fill the page
 
-On wider screens the toolbar's maximize button lets the panel cover the whole
-Pi Web page (Esc or the button restores it). Only CSS changes, so the frame keeps
-its page, form input, and scroll position. It applies while the browser tab is the
-active panel tab.
+The file panel's maximize button covers the whole Pi Web page (see `docs/ui.md`, File panel); the browser tab keeps its page because only CSS changes.
 
 ## Mobile
 
