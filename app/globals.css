@@ -4410,6 +4410,8 @@ span.token.table {
   flex-shrink: 0;
   width: 30px;
   height: 100%;
+  /* Icon centre 20px from the edge, in line with toolbar buttons below (8px padding + 24px / 2). */
+  margin-right: 5px;
   padding: 0;
   background: none;
   border: none;
