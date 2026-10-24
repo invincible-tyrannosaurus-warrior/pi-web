@@ -152,7 +152,7 @@ const BUILTIN_PROFILES: SubagentProfile[] = [
   {
     name: "general-purpose",
     displayName: "General purpose",
-    description: "Handle a focused implementation or investigation task",
+    description: "Tasks that need a shell or file edits: implement, run checks, review diffs, research",
     systemPrompt: "Work autonomously on the delegated task. Keep the final answer concise and include important files, decisions, and remaining risks.",
     tools: DEFAULT_TOOLS,
     loadSkills: false,
@@ -165,7 +165,7 @@ const BUILTIN_PROFILES: SubagentProfile[] = [
   {
     name: "explore",
     displayName: "Explore",
-    description: "Quickly inspect a codebase without modifying it",
+    description: "Read-only: locate files or code, or explain how existing code works",
     systemPrompt: "Explore the codebase to answer the delegated question. Do not modify files. Report concrete findings with file paths and relevant symbols.",
     tools: [...PRESET_READ_ONLY],
     loadSkills: false,
