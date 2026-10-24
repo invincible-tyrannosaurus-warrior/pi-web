@@ -117,7 +117,7 @@ Full notes: `docs/settings.md`. Traps:
 ### Built-in subagents
 Full notes: `docs/subagents.md`, `docs/adr/0003-built-in-subagent-toggle.md`. Traps:
 - `builtInEnabled` in `~/.pi/agent/agents/settings.json` defaults to true; malformed settings fail closed. A per-project override wins over the global default. The factory is always present but registers no tools while disabled; users must reload the session after a change, and `Agent` dispatch re-checks the setting.
-- `Agent`, `get_subagent_result`, `steer_subagent` are reserved; `generate_image` is reserved for Pi Web.
+- `Agent`, `get_subagent_result`, `steer_subagent`, `abort_subagent` are reserved; `generate_image` is reserved for Pi Web.
 - Agent profile files may be shared with other runtimes: saves must round-trip frontmatter keys this app does not manage. Imports byte-copy files, never through the form.
 
 ### Auth

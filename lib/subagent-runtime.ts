@@ -82,6 +82,8 @@ export interface SubagentRuntimeDependencies {
   invalidateSessionList(): void;
   /** Global switch and the per-project switch for this cwd. */
   isSubagentsEnabled?(cwd: string): boolean | Promise<boolean>;
+  /** Test seam: how long abort_subagent waits for a stopped run to settle. */
+  abortSettleWaitMs?: number;
 }
 
 export interface SubagentController {
@@ -121,6 +123,7 @@ declare global {
   var __piSubagentResumeClaims: Set<string> | undefined;
 }
 const SUBAGENT_CONTEXT_LIMIT = 50_000;
+const ABORT_SETTLE_WAIT_MS = 5_000;
 const THINKING_LEVELS = new Set<ThinkingLevel>(VALID_THINKING_LEVELS);
 
 interface SubagentOutcome {
@@ -1382,6 +1385,39 @@ export function createSubagentController(
     await wrapper.inner.abort();
   }
 
+  async function abortForParent(parentSessionId: string, sessionId: string): Promise<{ run: SubagentRunInfo; alreadySettled: boolean }> {
+    const isActive = (run: SubagentRunInfo) => run.status === "starting" || run.status === "queued" || run.status === "running";
+    const run = await getForParent(parentSessionId, sessionId);
+    if (!run) {
+      const entries = dependencies.getSession(parentSessionId)?.inner.sessionManager.getEntries() ?? [];
+      throw new Error(subagentNotFoundMessage(entries as unknown as SessionEntry[], sessionId));
+    }
+    if (!isActive(run)) return { run, alreadySettled: true };
+    const completion = getSubagentRuns().get(sessionId)?.completion;
+    // The SDK's abort() waits for the child to go idle, so the deadline covers the stop itself too.
+    const stop = (async () => {
+      await abort(sessionId);
+      return completion ? await completion.catch(() => undefined) : undefined;
+    })();
+    stop.catch(() => undefined); // a rejection after the deadline has nobody waiting for it
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const settled = await Promise.race([
+        stop,
+        new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), dependencies.abortSettleWaitMs ?? ABORT_SETTLE_WAIT_MS); }),
+      ]);
+      if (settled) return { run: settled, alreadySettled: false };
+    } catch (error) {
+      // It may have settled between the read and the stop; only a still-active run is a failure.
+      const current = await get(sessionId);
+      if (current && !isActive(current)) return { run: current, alreadySettled: false };
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+    return { run: await get(sessionId) ?? run, alreadySettled: false };
+  }
+
   async function sendUiMessage(sessionId: string, message: string): Promise<{
     action: "steered" | "resumed";
     run: SubagentRunInfo;
@@ -1422,6 +1458,7 @@ export function createSubagentController(
       resume,
       get: getForParent,
       steer: steerForParent,
+      abort: abortForParent,
       consume: consumePendingSubagentResult,
     },
     get,

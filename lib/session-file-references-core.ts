@@ -3,7 +3,7 @@ import type { SessionEntry, ToolResultMessage } from "./types";
 
 // Type-only SDK-heavy import: keep this module independently importable.
 const SUBAGENT_TOOL_NAMES: ReadonlyArray<typeof SUBAGENT_CONTROL_TOOL_NAMES[number]> = [
-  "Agent", "get_subagent_result", "steer_subagent",
+  "Agent", "get_subagent_result", "steer_subagent", "abort_subagent",
 ];
 // Keep aligned with pi's coding tools in rpc-manager.ts.
 const CODING_TOOL_NAMES = new Set<string>(["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]);

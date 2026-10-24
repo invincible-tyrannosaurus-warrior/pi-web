@@ -70,6 +70,8 @@ export interface SubagentExtensionRuntime {
   resume(request: ResumeSubagentRequest): Promise<SubagentExecution>;
   get(parentSessionId: string, sessionId: string): Promise<SubagentRunInfo | null>;
   steer(parentSessionId: string, sessionId: string, message: string): Promise<void>;
+  /** Stops a run and resolves with its settled (or, past the wait, current) state. */
+  abort(parentSessionId: string, sessionId: string): Promise<{ run: SubagentRunInfo; alreadySettled: boolean }>;
   consume(parentSessionId: string, run: SubagentRunInfo): boolean;
 }
 
@@ -374,6 +376,29 @@ export function createSubagentExtension(
           const parentSessionId = ctx.sessionManager.getSessionId();
           await runtime.steer(parentSessionId, params.agent_id, params.message);
           return { content: [{ type: "text", text: `Steering message sent to ${params.agent_id}.` }], details: undefined };
+        },
+      }));
+
+      pi.registerTool(defineTool({
+        name: "abort_subagent",
+        exposure: "model-only",
+        label: "Stop agent",
+        description: "Stop a queued or running subagent you delegated whose task became obsolete or is going wrong. Its transcript stays readable and resumable.",
+        parameters: Type.Object({
+          agent_id: Type.String({ description: "Subagent session ID." }),
+        }),
+        async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+          const parentSessionId = ctx.sessionManager.getSessionId();
+          const { run, alreadySettled } = await runtime.abort(parentSessionId, params.agent_id);
+          const settled = run.status !== "starting" && run.status !== "queued" && run.status !== "running";
+          // The parent asked for this stop, so it needs no completion notification as well.
+          if (settled) runtime.consume(parentSessionId, run);
+          const text = alreadySettled
+            ? `Subagent ${run.sessionId} already ${run.status}; nothing to stop.`
+            : !settled
+              ? `Stop requested for subagent ${run.sessionId}; it is still ${run.status}. Its result will be delivered after it settles.`
+              : `Subagent ${run.sessionId} stopped (${run.status}). Read its transcript with get_subagent_result or continue it with Agent resume.`;
+          return { content: [{ type: "text", text }], details: subagentToolDetails(run) };
         },
       }));
     },
