@@ -564,6 +564,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
   const [highlightedPaths, setHighlightedPaths] = useState<Set<string>>(new Set());
+  // The "newly uploaded" dot is transient; left on, it reads like a git change marker.
+  useEffect(() => {
+    if (highlightedPaths.size === 0) return;
+    const timer = setTimeout(() => setHighlightedPaths(new Set()), 5000);
+    return () => clearTimeout(timer);
+  }, [highlightedPaths]);
   const [revealed, setRevealed] = useState<{ path: string; nonce: number } | null>(null);
   const [gitFiles, setGitFiles] = useState<GitFileStatus[]>([]);
   const [gitLineStats, setGitLineStats] = useState({ additions: 0, deletions: 0 });
