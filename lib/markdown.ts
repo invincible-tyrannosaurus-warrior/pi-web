@@ -9,6 +9,7 @@ import remarkCjkFriendly from "remark-cjk-friendly";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { isProseMathText } from "./markdown-prose-math";
 
 // Link schemes of desktop apps that open a note, a file or a meeting (#1108).
 // A fixed list, not "any scheme but javascript:": the text comes from the model
@@ -435,8 +436,8 @@ function normalizeInlineLatexMath(line: string): string {
 // GFM splits table cells on `|` before inline math is parsed, so `$|x|$` in a
 // row breaks the column count and the whole table renders as a paragraph.
 // `\|` would survive the split but means `‖` in TeX; `\vert` renders as `|`.
-// Price pairs (`$811.86 | +$142`) are not math: skip them exactly as
-// remarkCurrencySafeMath will, and retry from their closing `$`.
+// Price/prose pairs are not math: skip them exactly as remarkCurrencySafeMath
+// will, and retry from their closing `$`.
 function escapeTableMathPipes(line: string): string {
   if (!/^ {0,3}\|/.test(line)) return line;
   const pair = /(?<![\\$])\$(?!\$)(\S(?:[^$\n]*?\S)?)(?<![\\$])\$(?!\$)/g;
@@ -444,7 +445,9 @@ function escapeTableMathPipes(line: string): string {
   let copied = 0;
   for (let match; (match = pair.exec(line));) {
     const end = match.index + match[0].length;
-    if (isPriceNotMath(match[1], line[end])) {
+    // Retrying from the closing `$` is safe here: the pair regex needs non-space right after
+    // an opening `$`, so a prose pair's closer can only open again when it is really `$NAME`.
+    if (isPriceNotMath(match[1], line[end]) || isProseMathText(match[1])) {
       pair.lastIndex = end - 1;
       continue;
     }
@@ -517,8 +520,11 @@ function remarkSplitAutolinkLiterals() {
   };
 }
 
-// Guard at tokenization, before ambiguous price pairs swallow emphasis/links.
+// Guard at tokenization, before ambiguous price/prose pairs swallow Markdown
+// or a later formula's opening dollar. Register remark-math only once here.
 // Keep remark-math's own tokenizer and resolver for real math, code and $$.
+const closedProseDollars = new WeakMap<object, Set<number>>();
+
 const remarkCurrencySafeMath: Plugin = function () {
   remarkMath.call(this);
   const data = this.data() as { micromarkExtensions?: Extension[] };
@@ -528,11 +534,24 @@ const remarkCurrencySafeMath: Plugin = function () {
     const tokenize = construct.tokenize;
     construct.tokenize = function (effects, ok, nok) {
       const start = this.now();
+      const closedProse = closedProseDollars.get(this.parser);
+      if (closedProse?.has(start.offset)) return nok;
       return tokenize.call(this, effects, (code) => {
-        const source = this.sliceSerialize({ start, end: this.now() });
+        const end = this.now();
+        const source = this.sliceSerialize({ start, end });
         if (source.startsWith("$") && !source.startsWith("$$")) {
           const next = code !== null && code >= 0 ? String.fromCodePoint(code) : undefined;
-          if (isPriceNotMath(source.slice(1, -1), next)) return nok(code);
+          const content = source.slice(1, -1);
+          if (isPriceNotMath(content, next)) return nok(code);
+          if (isProseMathText(content)) {
+            // A pair written tight (`$模型输出$`, `$HOME$`) closes itself: its closing `$` must not
+            // open the next formula. A trailing space means it was a stray opener (`$HOME 和 $x$`).
+            if (!/\s$/.test(content)) {
+              if (!closedProseDollars.has(this.parser)) closedProseDollars.set(this.parser, new Set());
+              closedProseDollars.get(this.parser)!.add(end.offset - 1);
+            }
+            return nok(code);
+          }
         }
         return ok(code);
       }, nok);

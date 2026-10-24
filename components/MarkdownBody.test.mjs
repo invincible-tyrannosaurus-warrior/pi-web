@@ -97,6 +97,25 @@ test("renders LaTeX parenthesis delimiters as inline math", () => {
   assert.match(html, /r_c/);
 });
 
+test("keeps single-dollar prose literal while preserving neighboring formulas", () => {
+  for (const props of [{}, { isStreaming: true }, { className: "markdown-user-message" }]) {
+    for (const prose of ["设置 $HOME 和 $PATH", "$模型输出概率分布$", "这里 $a，b$ 两个数"]) {
+      const html = renderMarkdown(prose, props);
+      assert.doesNotMatch(html, /class="katex"/, prose);
+      assert.match(html, /\$/, prose);
+    }
+    const html = renderMarkdown("见 $HOME 和 $x + 1$ 两个", props);
+    assert.match(html, /\$HOME/);
+    assert.equal(html.match(/class="katex"/g)?.length, 1);
+    assert.match(html, /<annotation encoding="application\/x-tex">x \+ 1<\/annotation>/);
+    for (const formula of ["$E=mc^2$", "$PV=nRT$", "$x + 1$", "$\\text{总损失}$"]) {
+      const html = renderMarkdown(formula, props);
+      assert.match(html, /class="katex"/, formula);
+      assert.doesNotMatch(html, /katex-error/, formula);
+    }
+  }
+});
+
 test("renders paired LaTeX bracket delimiters as display math", () => {
   const html = renderMarkdown(String.raw`\[
 P(\lambda)=o_b+\lambda r_b
