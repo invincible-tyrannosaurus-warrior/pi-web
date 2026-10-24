@@ -1684,8 +1684,17 @@ pre, code {
   opacity: 0.4;
   transition: transform var(--motion-fast), opacity var(--motion-fast);
 }
-[aria-expanded="true"] > [data-step-chevron] {
+/* The chevron sits in the trigger, or after the row's actions in .step-tail. */
+.step-head:has(> [aria-expanded="true"]) [data-step-chevron] {
   transform: rotate(180deg);
+}
+.step-tail {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  cursor: pointer;
 }
 /* An expanded section under the header. */
 .step-body {
@@ -1791,8 +1800,8 @@ pre, code {
   }
 }
 
-:is(.process-details-list, .step-flat) [data-step-trigger]:focus-visible [data-step-chevron],
-:is(.process-details-list, .step-flat) [data-step-card] [data-step-trigger][aria-expanded="true"] [data-step-chevron] {
+:is(.process-details-list, .step-flat) .step-head:has(> [data-step-trigger]:focus-visible) [data-step-chevron],
+:is(.process-details-list, .step-flat) .step-head:has(> [data-step-trigger][aria-expanded="true"]) [data-step-chevron] {
   opacity: 0.6;
 }
 

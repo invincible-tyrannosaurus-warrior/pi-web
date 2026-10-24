@@ -1259,10 +1259,6 @@ function ToolCallBlock({ block, result, duration, startTime, live, cwd, onOpenFi
             <span className="step-preview">{preview.text}</span>
           )}
           {headerExtra}
-          <StepDuration seconds={duration} startTime={startTime} live={live} />
-          <svg data-step-chevron="" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <polyline points="2 3.5 5 6.5 8 3.5" />
-          </svg>
         </button>
         {commandText && (
           <button
@@ -1297,11 +1293,18 @@ function ToolCallBlock({ block, result, duration, startTime, live, cwd, onOpenFi
             onClick={() => onOpenSession(subagent.sessionId)}
             title={t("subagent.open")}
             aria-label={t("subagent.open")}
-            style={{ width: 30, display: "grid", placeItems: "center", border: "none", borderLeft: "1px solid var(--border)", background: "none", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}
+            style={{ width: 30, display: "grid", placeItems: "center", border: "none", background: "none", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></svg>
           </button>
         )}
+        {/* After the actions so every row's duration lines up at the right edge; the trigger stays the focusable control. */}
+        <div className="step-tail" aria-hidden="true" onClick={() => setExpanded((v) => !v)}>
+          <StepDuration seconds={duration} startTime={startTime} live={live} />
+          <svg data-step-chevron="" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="2 3.5 5 6.5 8 3.5" />
+          </svg>
+        </div>
       </div>
 
       {/* ── Expanded: input args ── */}
