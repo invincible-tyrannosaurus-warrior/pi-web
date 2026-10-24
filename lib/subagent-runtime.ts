@@ -7,11 +7,13 @@ import {
   createLocalPowerShellOperations,
   createPowerShellToolDefinition,
   defineTool,
+  formatSkillsForPrompt,
   getAgentDir,
   initTheme,
   SessionManager,
   SettingsManager,
   type ModelRuntime,
+  type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { existsSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -802,6 +804,18 @@ function enqueueSubagentRun(
   return { run: stored.run, completion };
 }
 
+const SUBAGENT_SKILL_CATALOG_TYPE = "pi-web:subagent-skill-catalog";
+
+/** The child's skill catalog as a model-only message, or undefined when it has none it could read. */
+export function subagentSkillCatalogMessage(inner: Pick<AgentSessionLike, "resourceLoader" | "getActiveToolNames">): string | undefined {
+  const tools = inner.getActiveToolNames();
+  const reader = tools.includes("read") ? "read" : tools.includes("bash") ? "bash" : undefined;
+  if (!reader) return undefined;
+  const catalog = formatSkillsForPrompt(inner.resourceLoader.getSkills().skills as Skill[], reader).trim();
+  if (!catalog) return undefined;
+  return "Skill catalog for the task above. When the task matches a skill description, read its <location> file directly; never search for a skill or guess its path.\n\n" + catalog;
+}
+
 async function promptSubagent(
   inner: AgentSessionLike,
   task: string,
@@ -1131,6 +1145,11 @@ export function createSubagentController(
           stored.run = { ...stored.run, status: "running", sessionPath: inner.sessionFile ?? sessionPath };
           request.onUpdate?.(stored.run);
           dependencies.invalidateSessionList();
+          const skillCatalog = profile.loadSkills ? subagentSkillCatalogMessage(inner) : undefined;
+          // Hidden in the chat, but sent with the task: a <skills> section in the system prompt alone is often skipped.
+          if (skillCatalog) {
+            await inner.sendCustomMessage({ customType: SUBAGENT_SKILL_CATALOG_TYPE, content: skillCatalog, display: false }, { deliverAs: "nextTurn" });
+          }
           const outcome = await promptSubagent(inner, delegatedTask, stored, {
             turnLimit,
           });
