@@ -1,6 +1,58 @@
 # Pi Web
 
-这是 [pi](https://github.com/earendil-works/pi) 的本地浏览器界面，基于原版 [agegr/pi-web](https://github.com/agegr/pi-web)。共用本机 `~/.pi/agent` 配置和会话文件。这个分支主要改日常使用：多标签分屏、中文与代码排版、工具过程折叠、对话生图、内置子代理，以及移动端和若干交互修复。
+[pi](https://github.com/earendil-works/pi) coding agent 的本地浏览器界面，和 pi 共用本机 `~/.pi/agent` 下的配置与会话文件：命令行里开的会话可以在浏览器里接着聊，反过来也一样。
+
+本项目最初 fork 自 [agegr/pi-web](https://github.com/agegr/pi-web)，之后独立开发，界面和功能设计都已和原版分开。感谢 agegr 的原始工作。
+
+<!-- 截图：放到 docs/images/ 后取消注释
+![聊天工作区：分屏、过程折叠与中文排版](docs/images/workspace.png)
+-->
+
+## 特点
+
+### 聊天工作区
+
+- **多标签与左右分屏**：标签可拖拽、跨窗口移动，显示未读和等待输入标记；草稿在切换标签时保留。规则见 [docs/chat-tabs.md](./docs/chat-tabs.md)。
+- **过程与回答分开**：思考和工具调用折叠成一条带耗时的步骤时间线，最终回答单独排版；流式输出显示实时耗时和生成速度。
+- **引用与追问**：选中回答或文件内容可作为引用卡片发送，支持多段引用并跳回原处；运行中发送的消息可选择引导（steer）或排队（follow-up）。
+- **长会话导航**：整段会话的提问列表、压缩（compaction）历史、未完成回合一键继续。
+- **分支**：从任意消息 fork 出新会话（侧栏按父子关系展示），或在同一会话内编辑重来、切换分支。
+
+### 中文与代码排版
+
+- 内置更纱黑体 / 更纱等宽（中文恰好占两个英文字符宽），不依赖本机字体。
+- 正文字体方案可选：更纱黑体、衬线（Source Serif + 思源宋体）、霞鹜文楷、系统字体。
+- 默认 / Claude 两套配色，各有浅色和深色；字号、字重、圆角都走统一规范，见 [docs/ui.md](./docs/ui.md)。
+
+### 会话与项目
+
+- 多项目侧栏：项目拖拽排序、重命名，会话置顶、归档、标记已读未读、批量操作。
+- 同一仓库的 Git worktree 归到一个项目下，可从侧栏切换，见 [docs/worktrees.md](./docs/worktrees.md)。
+
+### 文件、终端与浏览器
+
+- 右侧文件面板：多标签预览源码、Markdown（带大纲）、CSV/TSV 表格、图片、PDF、DOCX，文件内查找，Git diff。
+- 拖放文件到目录即可上传；输入栏 `@` 引用文件；文件选区可作为引用发进聊天。
+- 内置终端（[docs/terminal.md](./docs/terminal.md)），以及在面板里打开本机服务的浏览器标签，远程访问时自动代理（[docs/preview.md](./docs/preview.md)）。
+
+### Agent 能力
+
+- **内置子代理**：`Agent` 工具可派发前台或后台子任务，主代理能查看结果、引导或中止；可按项目开关，见 [docs/subagents.md](./docs/subagents.md)。
+- **对话生图**：Agent 调用 `generate_image` 或从输入栏直接生成、改图，支持多种连接，见 [docs/image-generation.md](./docs/image-generation.md)。
+- **工具预设**：全部、默认、只读、仅聊天（不加载工具和扩展）。
+- 默认加载 pi 的 MCP、codemode、工具搜索扩展，并提供 MCP 配置页面。
+
+### 用量与导出
+
+- Usage 页面：按模型 / 日期统计 token、费用、缓存命中率、首 token 延迟（TTFT）和输出速度（TPS），以及星期 × 小时热力图。
+- 会话面板显示上下文构成、费用和子代理用量。
+- 回答可导出为图片（宽表格、Mermaid 图会展开），会话可导出为带 YAML frontmatter 的 Markdown。
+
+### 设置与运维
+
+- 网页内管理 provider 登录与 API key、聊天模型列表、模型请求参数、插件与技能（逐项开关、项目级覆盖）、MCP、子代理配置。
+- 设置页一键更新并重启；可选密码登录；适配手机触摸操作。
+- 界面支持简体中文和英文。
 
 ## 安装与运行
 
@@ -69,4 +121,4 @@ Git 安装用 `npm start --`，npm 全局安装把前面换成 `pi-web` 即可�
 
 ## License
 
-本项目基于 [pi](https://github.com/earendil-works/pi) 与 [agegr/pi-web](https://github.com/agegr/pi-web) 开源生态，遵循 [MIT License](./LICENSE)。
+[MIT License](./LICENSE)。本项目最初 fork 自 [agegr/pi-web](https://github.com/agegr/pi-web)，原作者版权声明保留在 LICENSE 中。
