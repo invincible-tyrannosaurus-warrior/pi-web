@@ -60,6 +60,7 @@ import { contextFilesSystemPrompt, createExactSystemPromptExtension } from "./ch
 import { createImageGenerationExtension, reservePiWebImageTool } from "./image-generation-extension";
 import { IMAGE_ABORT_COMMAND, IMAGE_DIRECT_COMMAND, IMAGE_RESULT_TYPE, MAX_REFERENCE_IMAGES } from "./image-generation";
 import { executeImageGeneration, generatedImagePreview, parseImageGenerationRequest, saveSourceImage } from "./image-generation-runtime";
+import { retryStreamDrops } from "./retry-stream-drops";
 import {
   appendClearedSessionToolSelection,
   appendSessionToolSelection,
@@ -350,6 +351,7 @@ export class AgentSessionWrapper {
     public readonly inner: AgentSessionLike,
     options: AgentSessionWrapperOptions = {},
   ) {
+    retryStreamDrops(inner);
     this.chatOnly = options.chatOnly ?? false;
     this.getExactSystemPrompt = options.getExactSystemPrompt;
     this.beforeAgentRunComplete = options.beforeAgentRunComplete;

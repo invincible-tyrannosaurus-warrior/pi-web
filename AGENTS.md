@@ -62,6 +62,7 @@ Browser                Next.js Server              AgentSession (in-process)
 - One `AgentSessionWrapper` per session id in `globalThis.__piSessions` (`globalThis` survives hot reload; a module-level Map does not). Concurrent `startRpcSession()` calls share one start Promise (`globalThis.__piStartLocks`).
 - Idle timeout 10 min (`PI_WEB_IDLE_TIMEOUT_MS`). Visible-pane SSE subscribes with `onEvent(listener, keepAlive=true)` and keeps the runtime alive (also needed for extension UI dialogs); unviewed idle runtimes are disposed and recreated from `session_start` replay.
 - Stop always aborts work; observer lifetime must not block abort.
+- `lib/retry-stream-drops.ts` wraps pi's private `AgentSession._isRetryableError` to also retry relay HTTP/2 stream drops; `lib/retry-stream-drops.test.mjs` fails if the SDK renames it.
 
 ### Fork must destroy the wrapper immediately
 `AgentSession.fork()` mutates the wrapper in place: afterwards `inner.sessionId` is the *new* id. Left in the registry under the old id, the next request gets forked state and later forks corrupt the `parentSession` chain. `send("fork")` captures `newSessionId`, then calls `this.destroy()`.
