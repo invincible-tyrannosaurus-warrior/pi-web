@@ -90,6 +90,31 @@ function agentTypeDescription(profiles: readonly SubagentProfile[]): string {
   }).join("\n");
 }
 
+/**
+ * Delegation policy, rendered by pi as its own `<delegation>` section instead of bullets in the
+ * shared `<rules>` list. Deliberately moderate: single lookups stay with the parent, and parallel
+ * edits need disjoint files or a worktree.
+ */
+export function subagentDelegationSection(profiles: readonly SubagentProfile[]): string {
+  const names = profiles.filter((profile) => profile.enabled).map((profile) => profile.name);
+  const rules = [
+    "Agent runs a task in a fresh session that does not see this conversation (unless its profile says `Parent context: chat text`): put the goal, known paths and constraints in the prompt.",
+    "Delegate work that needs many reads, long independent effort, or can run in parallel. Do single lookups (one grep or read) yourself.",
+  ];
+  if (names.includes("explore")) rules.push("`explore`: broad questions about existing code, such as how a flow works or which files touch a feature.");
+  if (names.includes("plan")) rules.push("`plan`: before a large change spanning many files or steps.");
+  rules.push(
+    "Use several background Agent calls in one response for independent work. Parallel implementation only on non-overlapping files, or with isolation: \"worktree\".",
+    "Use a foreground call when the next step cannot proceed without the result.",
+    "Unread background results are delivered automatically after your current run settles. Call get_subagent_result with wait=true once only to join within this run; never poll.",
+    "Continue a subagent with resume instead of starting a new one, and do not duplicate work already delegated.",
+    "Use abort_subagent to stop a subagent whose task became obsolete or is going wrong.",
+  );
+  const others = names.filter((name) => name !== "explore" && name !== "plan");
+  if (others.length > 0) rules.push(`Other subagents: ${others.map((name) => `\`${name}\``).join(", ")}.`);
+  return rules.map((rule) => `- ${rule}`).join("\n");
+}
+
 /** Models an agent may pass as `model`: the session's `enabledModels` scope, else every model with auth. */
 export function subagentModelChoices<T extends { provider: string; id: string }>(
   scoped: ReadonlyArray<{ model: T }>,
@@ -207,6 +232,7 @@ export function createSubagentExtension(
       // Tool descriptions are fixed at load time, before the session's model scope exists, so the list rides in the prompt.
       pi.on("before_agent_start", (event, ctx) => {
         if (!event.systemPromptOptions.selectedTools.includes("Agent")) return;
+        event.systemPromptOptions.sections.delegation = subagentDelegationSection(profiles);
         const models = subagentModelChoices(ctx.scopedModels, ctx.modelRegistry.getAvailable());
         if (models.length > 0) event.systemPromptOptions.sections.subagent_models = subagentModelsSection(models);
       });
@@ -215,15 +241,7 @@ export function createSubagentExtension(
         exposure: "model-only",
         label: "Agent",
         description: `Delegate a focused task to a configured subagent. Each subagent runs as a full, inspectable Pi session. Background is the default: the call returns immediately, and unread results notify the parent after its current run settles. Use foreground mode when no useful work can continue without the result.\n\nAvailable agent types:\n${agentTypeDescription(profiles)}`,
-        promptSnippet: "Delegate a focused task to an inspectable subagent session",
-        promptGuidelines: [
-          "Use Agent for a focused task that benefits from an isolated context.",
-          "Use multiple background Agent calls in the same response for independent parallel work.",
-          "Use foreground Agent calls when the next action cannot proceed without their results.",
-          "After useful parallel work is done, use get_subagent_result with wait=true once as the join point; do not repeatedly poll background agents.",
-          "Pass resume with an existing subagent session ID to continue that session instead of creating a new one.",
-          "Do not duplicate work already delegated to a running subagent.",
-        ],
+        promptSnippet: "Delegate a focused task to an inspectable subagent session; see <delegation> for when",
         executionMode: "parallel",
         parameters: Type.Object({
           subagent_type: Type.Optional(Type.String({ description: `Configured agent profile. Available types: ${availableTypes}. ${profileNames.includes("general-purpose") ? "Default: general-purpose." : "Required: general-purpose is disabled."}` })),
@@ -294,7 +312,7 @@ export function createSubagentExtension(
               );
             });
             return {
-              content: [{ type: "text", text: `Subagent started in background. Session ID: ${execution.run.sessionId}. Use get_subagent_result to check it later.` }],
+              content: [{ type: "text", text: `Subagent started in background. Session ID: ${execution.run.sessionId}. Its result will be delivered automatically after your current run settles.` }],
               details: subagentToolDetails(execution.run),
             };
           }
@@ -314,7 +332,7 @@ export function createSubagentExtension(
         name: "get_subagent_result",
         exposure: "model-only",
         label: "Get agent result",
-        description: "Check an inspectable subagent session and retrieve its latest result.",
+        description: "Retrieve a subagent's result, e.g. to re-read an earlier one. Unread background results are delivered automatically after your current run settles; use wait=true once only to join within this run. Do not poll.",
         parameters: Type.Object({
           agent_id: Type.String({ description: "Subagent session ID." }),
           wait: Type.Optional(Type.Boolean({ description: "Wait until the subagent finishes." })),
