@@ -4213,6 +4213,25 @@ span.token.table {
   }
 }
 
+/* Toolbar sub-agent count while any sub-agent runs: same shape as idle, breathing tint. */
+.subagent-badge-running {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  animation: subagent-badge-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes subagent-badge-breathe {
+  50% {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subagent-badge-running {
+    animation: none;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+}
+
 .image-pending-sheen {
   position: absolute;
   inset: 0;

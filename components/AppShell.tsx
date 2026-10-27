@@ -2559,6 +2559,10 @@ export function AppShell() {
     const session = options?.session === undefined ? selectedSession : options.session;
     const sessionFamily = getSessionFamily(sessionsWithSelection, session?.id);
     const hasSubagentSessionsForSession = Boolean(sessionFamily?.subagents.length);
+    const runningSubagentCount = sessionFamily?.subagents.filter((subagent) => runningSessionIds.has(subagent.id)).length ?? 0;
+    const agentsButtonLabel = runningSubagentCount > 0
+      ? `${translate("agentSwitcher.title")} · ${translate("agentSwitcher.runningCount", { count: runningSubagentCount })}`
+      : translate("agentSwitcher.title");
     const branchData = getBranchDataForSession(session);
     const sessionHasBranchesForSession = Boolean(branchData && hasSessionBranches(branchData.tree));
     const toolsUnavailable = mobile && !showChat;
@@ -2596,8 +2600,8 @@ export function AppShell() {
               agentsAnchorRef.current = event.currentTarget;
               toggleTopPanel("agents");
             }}
-            title={translate("agentSwitcher.title")}
-            aria-label={translate("agentSwitcher.title")}
+            title={agentsButtonLabel}
+            aria-label={agentsButtonLabel}
             aria-pressed={interactive && activeTopPanel === "agents"}
             aria-expanded={interactive && activeTopPanel === "agents"}
             aria-controls="workspace-top-panel"
@@ -2619,10 +2623,14 @@ export function AppShell() {
             <SubagentIcon size={13} />
             <span
               aria-hidden="true"
+              className={runningSubagentCount > 0 ? "subagent-badge-running" : undefined}
               style={{
                 position: "absolute", top: 2, right: 2,
                 minWidth: 13, height: 13, padding: "0 3px", display: "grid", placeItems: "center",
-                borderRadius: 4, background: "var(--bg-selected)", color: "var(--accent)",
+                borderRadius: 4,
+                // Running: the class animates the background, so no inline background may override it.
+                background: runningSubagentCount > 0 ? undefined : "var(--bg-selected)",
+                color: runningSubagentCount > 0 ? "var(--accent)" : "var(--text-dim)",
                 fontSize: 10, lineHeight: 1, fontVariantNumeric: "tabular-nums",
               }}
             >
