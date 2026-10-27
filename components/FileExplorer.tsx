@@ -153,6 +153,9 @@ function MentionIcon({ size = 12 }: { size?: number }) {
   );
 }
 
+// How long the new-file dots and an all-success upload summary stay visible.
+const UPLOAD_FEEDBACK_MS = 10_000;
+
 function DismissButton({ onClick, title }: { onClick: () => void; title: string }) {
   return (
     <button
@@ -160,9 +163,8 @@ function DismissButton({ onClick, title }: { onClick: () => void; title: string 
       onClick={onClick}
       title={title}
       aria-label={title}
-      style={{ width: 24, height: 24, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "none", borderRadius: 4, background: "none", color: "var(--text-muted)", cursor: "pointer" }}
-      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; event.currentTarget.style.background = "var(--bg-hover)"; }}
-      onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; event.currentTarget.style.background = "none"; }}
+      className="file-row-action"
+      style={{ flexShrink: 0 }}
     >
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
         <path d="m6 6 12 12" />
@@ -567,7 +569,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   // The "newly uploaded" dot is transient; left on, it reads like a git change marker.
   useEffect(() => {
     if (highlightedPaths.size === 0) return;
-    const timer = setTimeout(() => setHighlightedPaths(new Set()), 5000);
+    const timer = setTimeout(() => setHighlightedPaths(new Set()), UPLOAD_FEEDBACK_MS);
     return () => clearTimeout(timer);
   }, [highlightedPaths]);
   const [revealed, setRevealed] = useState<{ path: string; nonce: number } | null>(null);
@@ -579,6 +581,12 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null);
+  // Skipped or failed files stay listed until dismissed.
+  useEffect(() => {
+    if (!uploadSummary || uploadSummary.skipped.length > 0 || uploadSummary.errors.length > 0) return;
+    const timer = setTimeout(() => setUploadSummary(null), UPLOAD_FEEDBACK_MS);
+    return () => clearTimeout(timer);
+  }, [uploadSummary]);
   const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
   const [fileMenu, setFileMenu] = useState<{ node: FileNode; x: number; y: number; confirm: boolean } | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -1032,9 +1040,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     >
       <input ref={uploadInputRef} type="file" multiple hidden disabled={uploadBlocked} onChange={handleUploadInput} />
       {showUploadFeedback && (
-        <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ padding: "2px 4px 2px 8px", borderBottom: "1px solid var(--border)" }}>
         {uploadBusy && (
-          <div role="status" aria-live="polite" aria-label={uploadPhase === "checking" ? t("files.checking") : t("files.uploading", { progress: uploadProgress })}>
+          <div role="status" aria-live="polite" aria-label={uploadPhase === "checking" ? t("files.checking") : t("files.uploading", { progress: uploadProgress })} style={{ padding: "4px 4px 4px 0" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 14, color: "var(--text-muted)" }}>
               {uploadPhase === "checking" ? (
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true">
@@ -1058,7 +1066,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         )}
 
         {pendingConflict && (
-          <div role="alert" style={{ padding: 7, border: "1px solid color-mix(in srgb, var(--warning) 55%, var(--border))", borderRadius: 4, background: "color-mix(in srgb, var(--warning) 9%, var(--bg-panel))" }}>
+          <div role="alert" style={{ margin: "4px 4px 4px 0", padding: 7, border: "1px solid color-mix(in srgb, var(--warning) 55%, var(--border))", borderRadius: 4, background: "color-mix(in srgb, var(--warning) 9%, var(--bg-panel))" }}>
             <div style={{ fontSize: 11, color: "var(--text)", lineHeight: 1.35, overflowWrap: "anywhere" }}>
               {t("files.conflictSummary", { count: pendingConflict.conflicts.length, countSuffix: pendingConflict.conflicts.length === 1 ? "" : "s", files: pendingConflict.conflicts.join(", ") })}
             </div>
@@ -1082,7 +1090,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         )}
 
         {uploadError && (
-          <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11, lineHeight: 1.35, color: "var(--danger)" }}>
+          <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "3px 0", fontSize: 11, lineHeight: 1.35, color: "var(--danger)" }}>
             <span style={{ minWidth: 0, flex: 1, overflowWrap: "anywhere" }}>{uploadError}</span>
             <DismissButton onClick={() => setUploadError(null)} title={t("files.dismissError")} />
           </div>
@@ -1090,33 +1098,33 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
         {uploadSummary && (
           <div aria-live="polite">
-            <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 22, fontSize: 11 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 2, height: 26, fontSize: 11 }}>
               <div style={{ minWidth: 0, flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
                 {uploadSummary.uploaded.length > 0 && (
-                  <span title={`${uploadSummary.uploaded.length} uploaded`} aria-label={`${uploadSummary.uploaded.length} uploaded`} style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--success)" }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text-muted)" }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="m5 12 4 4L19 6" />
                     </svg>
-                    <span>{uploadSummary.uploaded.length}</span>
+                    <span>{t("files.uploadedCount", { count: uploadSummary.uploaded.length })}</span>
                   </span>
                 )}
                 {uploadSummary.skipped.length > 0 && (
-                  <span title={`${uploadSummary.skipped.length} skipped`} aria-label={`${uploadSummary.skipped.length} skipped`} style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--text-dim)" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text-muted)" }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
                       <circle cx="12" cy="12" r="9" />
                       <path d="M8 12h8" />
                     </svg>
-                    <span>{uploadSummary.skipped.length}</span>
+                    <span>{t("files.skippedCount", { count: uploadSummary.skipped.length })}</span>
                   </span>
                 )}
                 {uploadSummary.errors.length > 0 && (
-                  <span title={`${uploadSummary.errors.length} failed`} aria-label={`${uploadSummary.errors.length} failed`} style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--danger)" }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text-muted)" }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M12 3 2.5 20h19L12 3Z" />
                       <path d="M12 9v4" />
                       <path d="M12 17h.01" />
                     </svg>
-                    <span>{uploadSummary.errors.length}</span>
+                    <span>{t("files.failedCount", { count: uploadSummary.errors.length })}</span>
                   </span>
                 )}
               </div>
@@ -1126,10 +1134,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                   onClick={addUploadedFilesToChat}
                   title={uploadSummary.uploaded.length === 1 ? t("files.addUploadedFile") : t("files.addAllUploadedFiles")}
                   aria-label={uploadSummary.uploaded.length === 1 ? t("files.addUploadedFile") : t("files.addAllUploadedFiles")}
-                  style={{ height: 22, padding: "0 7px", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, flexShrink: 0, border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--accent)", cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}
+                  className="file-row-action"
+                  style={{ flexShrink: 0 }}
                 >
-                  <MentionIcon />
-                  {t("files.mention")}
+                  <MentionIcon size={13} />
                 </button>
               )}
               <DismissButton onClick={() => setUploadSummary(null)} title={t("files.dismissUploadResults")} />
