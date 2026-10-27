@@ -22,7 +22,7 @@ const defaultThinkingResolver = nodes.find((node) => ts.isFunctionDeclaration(no
 const schedule = nodes.find((node) => ts.isVariableDeclaration(node) && node.name.getText(source) === "MODELS_RETRY_DELAYS_MS");
 const effect = nodes.find((node) => ts.isCallExpression(node)
   && node.expression.getText(source) === "useEffect"
-  && node.arguments[1]?.getText(source) === "[loadModels, modelsRefreshKey]");
+  && node.arguments[1]?.getText(source) === "[loadModels, modelsRefreshKey, draftVisible]");
 const retry = effect.arguments[0].body.statements
   .filter(ts.isExpressionStatement)
   .map((statement) => statement.expression)

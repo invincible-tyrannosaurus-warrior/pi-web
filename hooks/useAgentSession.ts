@@ -2638,6 +2638,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [messages.length, agentRunning, scrollToBottom, streamState.streamingMessage]);
 
+  // A draft shows the default model but sends none, so re-read the default when its tab
+  // is shown again: another tab may have changed it meanwhile.
+  const draftVisible = isNew && isVisiblePane;
   // Load the model list with bounded retries; loadModels exposes each failure.
   useEffect(() => {
     const controller = new AbortController();
@@ -2658,7 +2661,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     })();
     return () => controller.abort();
-  }, [loadModels, modelsRefreshKey]);
+  }, [loadModels, modelsRefreshKey, draftVisible]);
 
   useEffect(() => {
     if (!compactResult) return;
