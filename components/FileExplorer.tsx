@@ -731,6 +731,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         const data = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(data.error ?? `HTTP ${res.status}`);
       }
+      // The refresh drops the row well before this; a stale mark would dim a re-created file with the same path.
+      setTimeout(() => setDeletingPath((current) => (current === node.fullPath ? null : current)), 2000);
     } catch (failure) {
       setDeletingPath(null);
       setDeleteError(failure instanceof Error ? failure.message : String(failure));
