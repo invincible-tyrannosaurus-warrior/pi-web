@@ -11,9 +11,9 @@ type Run={id:string;title:string;status:string;stage:string;round:number;model_c
   rounds?:{round:number;path?:string;scores?:number[];stop_reason?:string}[];final_artifact?:string};
 type Snapshot={run:Run;events:{seq:number;at:number;kind:string;message:string}[];records:ResearchRecord[];
   artifacts:{path:string;size:number}[];unavailable:string[];truncated:boolean;read_only:true};
-const names:Record<string,string>={running:"运行中",queued:"排队中",paused:"已暂停",waiting_human:"需要人工处理",failed:"运行失败",
+const names:Record<string,string>={reviewing:"独立 APR 审稿",running:"运行中",queued:"排队中",paused:"已暂停",waiting_human:"需要人工处理",failed:"运行失败",
   completed:"通过质量门槛",validation_completed:"闭环验证完成",benchmark_completed:"实验任务执行结束",budget_exhausted:"达到运行上限",cancelled:"已取消",
-  planning:"设计实验",experiments:"执行实验",approval:"确认研究方向",confirming:"确认研究方向",drafting:"APD 写作与 APR 审稿",evaluating:"归档与反馈分流",verification:"核验论文",packaging:"交付归档",benchmark_packaging:"核验与打包"};
+  planning:"设计实验",experiments:"执行实验",approval:"确认研究方向",confirming:"确认研究方向",drafting:"APD 写作",evaluating:"归档与反馈分流",verification:"核验论文",packaging:"交付归档",benchmark_packaging:"核验与打包"};
 const time=(at:number)=>at?new Date(at*1000).toLocaleTimeString():"";
 export function ResearchObserver({selection}:{selection:string}) {
   const router=useRouter();const [runId,setRunId]=useState(selection==="latest"?null:selection);

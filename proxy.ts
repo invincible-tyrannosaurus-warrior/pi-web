@@ -36,7 +36,7 @@ export function proxy(request: NextRequest) {
 
   // The local worker authenticates this private endpoint with its own token.
   // Route code verifies that token even when the UI password is disabled.
-  if (request.nextUrl.pathname === "/api/research/runtime") return NextResponse.next();
+  if (["/api/research/runtime", "/api/research/figures"].includes(request.nextUrl.pathname)) return NextResponse.next();
 
   const password = process.env.PI_WEB_PASSWORD;
   if (!isWebPasswordEnabled(password)) {

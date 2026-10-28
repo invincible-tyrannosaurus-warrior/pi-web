@@ -21,14 +21,14 @@ type Run = {
   events?: { seq: number; at: number; kind: string; message: string }[];
   artifacts?: { path: string; size: number }[];
 };
-type Health = { ok: boolean; worker_alive: boolean; claude_available: boolean; modules: Record<string, string> };
+type Health = { ok: boolean; worker_alive: boolean; claude_available: boolean; journal_loop_version?: number; modules: Record<string, string> };
 type Model = { id: string; provider: string; name: string };
 type Notice = { id: string; run_id: string; kind: string; body: {title: string; message: string}; ack_at?: number; delivery_state: string };
 const names: Record<string, string> = {
   queued: "排队中", running: "运行中", paused: "已暂停", waiting_human: "需要你处理",
   completed: "已通过质量门槛", validation_completed: "闭环验证完成（论文候选稿）", budget_exhausted: "已达到运行上限", cancelled: "已取消", failed: "运行失败",
   planning: "设计实验", experiments: "执行与改进实验", approval: "检查研究确认", confirming: "确认研究方向",
-  drafting: "APD 写作 · APR 审稿", evaluating: "归档与反馈分流", verification: "复查论文验收证据",
+  drafting: "APD 写作", reviewing: "独立 APR 审稿", evaluating: "归档与反馈分流", verification: "复查论文验收证据",
   packaging: "自动核验与交付", initializing: "准备封存运行环境",
   benchmark_completed: "真实 benchmark 验收完成", benchmark_packaging: "核验任务结果与交付",
   generate_candidate: "生成并冻结模型补丁", eval_started: "官方测试执行中", candidates_frozen: "候选补丁已冻结",
@@ -69,6 +69,7 @@ export default function ResearchPage() {
   const [rescueModel, setRescueModel] = useState("claude-opus-5-5");
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
+  const [paperWorkflow, setPaperWorkflow] = useState("journal");
   const [rounds, setRounds] = useState(3);
   const [retries, setRetries] = useState(2);
   const [timeout, setTimeoutSeconds] = useState(1800);
@@ -83,7 +84,8 @@ export default function ResearchPage() {
   const [notify, setNotify] = useState(false);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [unattended, setUnattended] = useState(false);
-  const [experimentProfile, setExperimentProfile] = useState("cpu_summation");
+  const [experimentProfile, setExperimentProfile] = useState("journal_validation");
+  const effectiveWorkflow = unattended ? experimentProfile === "journal_validation" ? "journal" : "legacy" : paperWorkflow;
   const [permissionProbe, setPermissionProbe] = useState(false);
   const statuses = useRef(new Map<string, string>());
 
@@ -131,18 +133,20 @@ export default function ResearchPage() {
     setError(""); setBusy(true);
     try {
       if (file.size > 10_000_000) throw new Error("Proposal 文件不能超过 10 MB");
+      if (effectiveWorkflow === "journal" && !health?.journal_loop_version) throw new Error("服务器尚未加载 Journal／独立 APR 后台，请先完成配套版本部署。");
       const chosen = models.find(m => `${m.provider}:${m.id}` === model);
       if (writerModel === reviewerModel) throw new Error("论文写作与审稿必须使用不同型号");
       const baseModel = executor === "pi" && chosen ? chosen.id : experimentModel;
       const created = await api<Run>("runs", { title, filename: file.name, content_base64: await encodeFile(file),
         ...(unattended ? {delegated_authorization: true} : {}),
         config: { executor:unattended ? "claude" : executor, max_rounds:unattended ? experimentProfile === "swebench_lite" ? 1 : 2 : rounds, max_retries: retries, stage_timeout_seconds: timeout,
-          max_run_seconds: maxSeconds, max_model_calls: maxCalls,
+          max_run_seconds: maxSeconds, max_model_calls: maxCalls, paper_workflow: effectiveWorkflow,
           role_models: {planning: baseModel, experiment: baseModel, benchmark_solver: baseModel,
             writer: writerModel, reviewer: reviewerModel, rescue: rescueModel, auxiliary: writerModel},
           ...(unattended ? experimentProfile === "swebench_lite" ? {unattended:true,experiment_profile:"swebench_lite",run_goal:"benchmark_validation",min_rounds:1,
             compile_pdf:false,fault_probe:!permissionProbe,benchmark_permission_probe:permissionProbe,
             benchmark_instance_ids:["sympy__sympy-11400","sympy__sympy-11870","sympy__sympy-11897"]} :
+            experimentProfile === "journal_validation" ? {unattended:true,experiment_profile:"journal_validation",run_goal:"journal_validation",paper_workflow:"journal",min_rounds:2,defer_publication_deposit:true} :
             {unattended: true, experiment_profile: "cpu_summation", run_goal: "closed_loop_validation", min_rounds: 2} : {}),
           ...(chosen ? { provider: chosen.provider, model_id: chosen.id } : {}) } });
       setSelected(created.id);
@@ -194,6 +198,8 @@ export default function ResearchPage() {
           <label>项目名称<input value={title} onChange={e => setTitle(e.target.value)} placeholder="例如：检索策略对照实验" /></label>
           <label>Research proposal<input type="file" accept=".pdf,.docx,.md,.txt" aria-label="Research proposal" onChange={e => setFile(e.target.files?.[0] || null)} /></label>
           <p className={styles.muted}>PDF、DOCX、Markdown 或 TXT，最大 10 MB。扫描 PDF 需要先做 OCR。</p>
+          <label>论文工作流<select value={effectiveWorkflow} disabled={unattended} onChange={e => setPaperWorkflow(e.target.value)}><option value="journal">TPAMI 期刊写作 → 独立 APR（默认）</option><option value="legacy">旧版兼容流程</option></select></label>
+          {effectiveWorkflow === "journal" && health && !health.journal_loop_version && <p role="status">当前后台尚未加载 Journal／独立 APR 接口；完成配套部署后才能启动该流程。</p>}
           <label>模型执行方式<select value={executor} onChange={e => setExecutor(e.target.value)}>
             <option value="claude">Claude Code · 本机登录</option><option value="pi">Pi Web · 已配置模型</option>
           </select></label>
@@ -207,7 +213,8 @@ export default function ResearchPage() {
           <p className={styles.muted}>最低 Sonnet 5.5；写作与审稿须不同型号。不可用或实际返回型号不符时停止，不自动降级。Pi 提供商须同时支持所选型号。</p>
           {executor === "pi" && models.length === 0 && <p className={styles.muted}>请先在 Pi Web 设置中添加模型，再刷新此页面。</p>}
           <label><input type="checkbox" checked={unattended} onChange={e => { setUnattended(e.target.checked); if (e.target.checked) { setExecutor("claude"); setRounds(experimentProfile === "swebench_lite" ? 1 : 2); } }} /> 授权限定范围的无人值守验收</label>
-          {unattended && <label>验收档案<select value={experimentProfile} onChange={e => {setExperimentProfile(e.target.value);setRounds(e.target.value === "swebench_lite" ? 1 : 2);}}><option value="cpu_summation">CPU 求和 · 实验与论文两轮</option><option value="swebench_lite">SWE-bench Lite · 三项真实仓库任务</option></select></label>}
+          {unattended && <label>验收档案<select value={experimentProfile} onChange={e => {setExperimentProfile(e.target.value);setRounds(e.target.value === "swebench_lite" ? 1 : 2);}}><option value="journal_validation">Journal → 独立 APR · 两轮真实闭环</option><option value="cpu_summation">CPU 求和 · 实验与论文两轮</option><option value="swebench_lite">SWE-bench Lite · 三项真实仓库任务</option></select></label>}
+          {unattended && experimentProfile === "journal_validation" && <p className={styles.muted}>按上传 Proposal 授权两轮有预算的真实实验、期刊写作和独立 APR。仅本地归档；公开发布／DOI 要求保留为未解决问题并延后。外部权限、伦理与范围变化仍转人工；闭环完成不代表论文达到投稿质量。</p>}
           {unattended && experimentProfile === "cpu_summation" && <p className={styles.muted}>仅适用于约定的本机求和研究。允许范围内的代码、测量和恢复自动进行；外部授权与科研范围变化仍会停下通知你。论文质量门槛保留。</p>}
           {unattended && experimentProfile === "swebench_lite" && <><p className={styles.muted}>固定 SymPy Lite 11400、11870、11897。先冻结模型补丁，再由官方容器评测。默认在第二项中终止所属测试进程，验证独立救火与续跑；不生成论文。</p><label><input type="checkbox" checked={permissionProbe} onChange={e => setPermissionProbe(e.target.checked)} /> 单独验证权限不足通知（会停止等待人工，不产生任务成绩）</label></>}
           <details><summary>运行上限与故障修复</summary><div className={styles.options}>
