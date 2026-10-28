@@ -5,7 +5,7 @@ import {useRouter} from "next/navigation";
 import type {ResearchRecord} from "@/lib/research-observer";
 import styles from "./ResearchObserver.module.css";
 
-type Run={id:string;title:string;status:string;stage:string;round:number;model_calls:number;claude_cost_usd:number;
+type Run={id:string;title:string;status:string;stage:string;round:number;model_calls:number;claude_cost_usd:number;model_activity?:Record<string,{last_progress_at:number}>;
   config:{executor:string;max_rounds:number;role_models?:Record<string,string>};
   human?:{kind?:string;reason?:string;requested_action?:string}|null;
   rounds?:{round:number;path?:string;scores?:number[];stop_reason?:string}[];final_artifact?:string};
@@ -57,6 +57,7 @@ export function ResearchObserver({selection}:{selection:string}) {
         {runs.map(item=><option key={item.id} value={item.id}>{item.title} · {names[item.status] || item.status}</option>)}
       </select></label>
       {run&&<p><span>{names[run.status] || run.status}</span> · 第 {run.round}/{run.config.max_rounds} 轮 · {names[run.stage] || run.stage}</p>}
+      {run?.status === "running" && Object.keys(run.model_activity || {}).length > 0 && <p role="status">模型请求进行中 · 最近活动 {new Date(Math.max(...Object.values(run.model_activity || {}).map(item => item.last_progress_at)) * 1000).toLocaleTimeString()} · 持续输出时继续等待</p>}
       <div role="tablist" aria-label="研究记录类型">{([["execution","执行过程"],["workflow","流程记录"],["artifacts","论文与产物"]] as const).map(([key,title])=><button type="button" role="tab" aria-selected={view===key} key={key} onClick={()=>setView(key)}>{title}{key==="artifacts"?` (${papers.length})`:""}</button>)}</div>
       {view==="execution"&&<label className={styles.follow}><input type="checkbox" checked={follow} onChange={event=>setFollow(event.target.checked)}/>自动滚动</label>}
     </div>

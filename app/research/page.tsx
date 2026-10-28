@@ -10,6 +10,7 @@ type Run = {
   created_at: number; updated_at: number; heartbeat: number; model_calls: number;
   claude_cost_usd: number; last_error?: string; active_log?: string; final_artifact?: string;
   pi_session_id?: string; requested?: string;
+  model_activity?: Record<string, { last_progress_at: number }>;
   sealed?: boolean; recovery_count?: number; operator_interventions?: number;
   config: { executor: string; max_rounds: number; compile_pdf?: boolean; role_models?: Record<string,string>; experiment_profile?: string };
   benchmark_progress?: {phase?:string;instance_id?:string;step?:number};
@@ -212,8 +213,8 @@ export default function ResearchPage() {
           <details><summary>运行上限与故障修复</summary><div className={styles.options}>
             <label>最多实验轮数<input type="number" min={1} max={30} value={rounds} onChange={e => setRounds(Number(e.target.value))} /></label>
             <label>每阶段最多自动修复次数<input type="number" min={0} max={5} value={retries} onChange={e => setRetries(Number(e.target.value))} /></label>
-            <label>单阶段超时（秒）<input type="number" min={30} max={86400} value={timeout} onChange={e => setTimeoutSeconds(Number(e.target.value))} /></label>
-            <label>累计运行时间上限（秒）<input type="number" min={60} max={604800} value={maxSeconds} onChange={e => setMaxSeconds(Number(e.target.value))} /></label>
+            <label>代理无进展超时／计算任务限时（秒）<input type="number" min={30} max={86400} value={timeout} onChange={e => setTimeoutSeconds(Number(e.target.value))} /></label>
+            <label>累计运行预算（秒，当前模型完成后检查）<input type="number" min={60} max={604800} value={maxSeconds} onChange={e => setMaxSeconds(Number(e.target.value))} /></label>
             <label>写作与审稿模型调用上限<input type="number" min={1} max={1000} value={maxCalls} onChange={e => setMaxCalls(Number(e.target.value))} /></label>
           </div></details>
           <button className={styles.primary} type="button" disabled={busy || !file || !health?.worker_alive || (executor === "pi" && !model)} onClick={() => void create()}>{busy ? "正在提交…" : "上传并开始研究"}</button>
@@ -246,6 +247,7 @@ export default function ResearchPage() {
             </dl>
             {run.config.role_models && <p className={styles.muted}>实验 {run.config.role_models.experiment} · 写作 {run.config.role_models.writer}<br />审稿 {run.config.role_models.reviewer} · 救火 {run.config.role_models.rescue}</p>}
             {run.requested && <p role="status">正在处理{run.requested === "pause" ? "暂停" : "停止"}请求…</p>}
+            {run.status === "running" && Object.keys(run.model_activity || {}).length > 0 && <p role="status">模型请求进行中 · 最近活动 {new Date(Math.max(...Object.values(run.model_activity || {}).map(item => item.last_progress_at)) * 1000).toLocaleTimeString()} · 持续输出时继续等待</p>}
             {run.claude_cost_usd > 0 && <p className={styles.muted}>Claude CLI 报告的费用估算：US${run.claude_cost_usd.toFixed(4)}</p>}
             <a href={`/?research=${encodeURIComponent(run.id)}`} target="_blank" rel="noreferrer">在主界面只读观察 ↗</a>
             {(run.pi_session_id || run.human?.session_id) && <a href={`/?session=${encodeURIComponent(run.pi_session_id || run.human?.session_id || "")}`} target="_blank" rel="noreferrer">打开实验 agent 对话</a>}
