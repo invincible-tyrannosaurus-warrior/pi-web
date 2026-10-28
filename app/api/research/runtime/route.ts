@@ -5,6 +5,7 @@ import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
 import { isResearchWorker, researchWorkspace } from "@/lib/research-service";
+import { researchModelBudget, withResearchModelDeadline } from "@/lib/research-model-budget";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,9 +17,12 @@ const sessions = state.__researchSessions ??= new Map<string, RunSession>();
 export async function POST(req: Request) {
   try {
     if (!await isResearchWorker(req)) return Response.json({ error: "Worker authentication required" }, { status: 401 });
-    const body = await req.json() as { action: string; runId: string; sessionId?: string; provider?: string; modelId?: string; prompt?: string; images?: { data: string; mimeType: string }[]; reasoning?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max" };
+    const body = await req.json() as { action: string; runId: string; sessionId?: string; provider?: string; modelId?: string; prompt?: string; images?: { data: string; mimeType: string }[]; modelTimeoutSeconds?: number; reasoning?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max" };
     const cwd = await researchWorkspace(body.runId);
     if (body.action === "complete") {
+      let budget;
+      try { budget = researchModelBudget(body.modelTimeoutSeconds); }
+      catch (error) { return Response.json({ error: String(error) }, { status: 400 }); }
       if (body.reasoning && !["minimal", "low", "medium", "high", "xhigh", "max"].includes(body.reasoning)) return Response.json({ error: "Invalid reasoning level" }, { status: 400 });
       const services = await createModelsConfigServices(cwd);
       const model = body.provider && body.modelId ? services.modelRuntime.getModel(body.provider, body.modelId) : undefined;
@@ -27,13 +31,16 @@ export async function POST(req: Request) {
       if (!resolved?.auth.apiKey) return Response.json({ error: "Selected Pi provider needs authentication" }, { status: 403 });
       if (body.images?.length && !model.input.includes("image")) return Response.json({ error: "Selected Pi model does not accept images" }, { status: 400 });
       const content = [{ type: "text" as const, text: body.prompt || "" }, ...(body.images || []).map(image => ({ type: "image" as const, data: image.data, mimeType: image.mimeType }))];
-      const message = await completeSimple(model, { messages: [{ role: "user", content, timestamp: Date.now() }] }, {
+      const message = await withResearchModelDeadline(req.signal, body.modelTimeoutSeconds, options => completeSimple(model, { messages: [{ role: "user", content, timestamp: Date.now() }] }, {
         apiKey: resolved.auth.apiKey, headers: resolved.auth.headers, maxTokens: 8192,
-        signal: req.signal, timeoutMs: 600_000, maxRetries: 1,
+        ...options,
         ...(body.reasoning ? { reasoning: body.reasoning } : {}),
-      });
+      }));
       if (message.stopReason === "error" || message.stopReason === "aborted") throw new Error(message.errorMessage || "Model call failed");
-      return Response.json({ text: message.content.filter(b => b.type === "text").map(b => b.text).join("\n") });
+      return Response.json({ text: message.content.filter(b => b.type === "text").map(b => b.text).join("\n"),
+        model_metadata: { requested_model: model.id, model: message.model, provider: message.provider,
+          response_model: message.responseModel ?? null, usage: message.usage, source: "pi-sdk",
+          timeout_seconds: budget.timeoutMs / 1000, sdk_retries: 0 } });
     }
     if (body.action === "start") {
       if (!body.provider || !body.modelId || !body.prompt) return Response.json({ error: "Provider, model and prompt are required" }, { status: 400 });
