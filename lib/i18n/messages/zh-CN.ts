@@ -1228,7 +1228,7 @@ export const zhCNLocale: LocalePlugin = {
     "mcp.disabled": "已停用",
     "mcp.signInHint": "需要 OAuth 登录的服务器，在会话中输入 /mcp login <名称>。改动在重新加载会话后生效。",
     "mcp.log": "日志",
-    "mcp.logSummary": "服务器日志（mcp.log 末尾）",
+    "mcp.logSummary": "服务器日志（mcp.log 末尾，最后写入：{time}）",
     "mcp.openSettings": "MCP 设置",
     "chat.nestedCalls": "脚本调用了 {count} 个工具",
     "chat.nestedCallsPartial": "脚本调用了 {count} 个以上的工具（记录不完整）",

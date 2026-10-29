@@ -63,10 +63,10 @@ function toView(server: McpEntry, scope: McpScope, raw: Record<string, unknown>)
   };
 }
 
-/** The last lines of `mcp.log`, where servers' logging notifications go. */
-function readLogTail(path: string, maxBytes = 8192): string {
-  if (!existsSync(path)) return "";
-  const size = statSync(path).size;
+/** The last lines of `mcp.log`, where servers' logging notifications go, and when it was last written. */
+function readLogTail(path: string, maxBytes = 8192): { logTail: string; logModified: string | null } {
+  if (!existsSync(path)) return { logTail: "", logModified: null };
+  const { size, mtime } = statSync(path);
   const length = Math.min(size, maxBytes);
   const buffer = Buffer.alloc(length);
   const fd = openSync(path, "r");
@@ -77,7 +77,11 @@ function readLogTail(path: string, maxBytes = 8192): string {
   }
   const text = buffer.toString("utf8");
   // Drop a partial first line when the tail starts mid-file.
-  return (size > length ? text.slice(text.indexOf("\n") + 1) : text).trimEnd();
+  return {
+    logTail: (size > length ? text.slice(text.indexOf("\n") + 1) : text).trimEnd(),
+    // The log outlives removed servers, so its age tells stale lines from current ones.
+    logModified: mtime.toISOString(),
+  };
 }
 
 export async function readMcpSettings(cwd: string | null, agentDir = getAgentDir()): Promise<McpSettingsResponse> {
@@ -121,7 +125,7 @@ export async function readMcpSettings(cwd: string | null, agentDir = getAgentDir
     project,
     servers,
     errors: loaded.errors,
-    logTail: readLogTail(join(agentDir, "mcp.log")),
+    ...readLogTail(join(agentDir, "mcp.log")),
   };
 }
 

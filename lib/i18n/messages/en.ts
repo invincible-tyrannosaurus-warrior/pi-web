@@ -1228,7 +1228,7 @@ export const enLocale: LocalePlugin = {
     "mcp.disabled": "Disabled",
     "mcp.signInHint": "For servers that need OAuth sign-in, run /mcp login <name> in a session. Changes apply after reloading the session.",
     "mcp.log": "Log",
-    "mcp.logSummary": "Server log (end of mcp.log)",
+    "mcp.logSummary": "Server log (end of mcp.log, last written {time})",
     "mcp.openSettings": "MCP settings",
     "chat.nestedCalls": "Tools called by the script: {count}",
     "chat.nestedCallsPartial": "Tools called by the script: {count}+ (record incomplete)",

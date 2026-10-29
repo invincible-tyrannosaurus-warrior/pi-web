@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useConfirm } from "@/hooks/useConfirm";
 import type { McpCheckResponse, McpServerView, McpSettingsResponse } from "@/lib/api-types";
+import { formatRelativeTime } from "@/lib/i18n/format";
 import { parseMcpDraft } from "@/lib/mcp-draft";
 import { getJson, peekJson, settingsUrls } from "@/lib/settings-cache";
 import { ReloadNotice } from "./ReloadNotice";
@@ -25,7 +26,7 @@ export function McpConfig({ cwd = null, sessionId = null, onReloaded, onChanged 
   /** Built-in switches changed what the Project page shows. */
   onChanged?: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const confirm = useConfirm();
   const url = settingsUrls.mcp(cwd);
   const [settings, setSettings] = useState<McpSettingsResponse | null>(() => {
@@ -311,10 +312,12 @@ export function McpConfig({ cwd = null, sessionId = null, onReloaded, onChanged 
           ))}
         </SettingsGroup>
 
-        {settings.logTail && (
+        {settings.logTail && settings.logModified && (
           <SettingsGroup title={t("mcp.log")}>
             <details className="mcp-log">
-              <summary>{t("mcp.logSummary")}</summary>
+              <summary title={new Date(settings.logModified).toLocaleString(locale)}>
+                {t("mcp.logSummary", { time: formatRelativeTime(settings.logModified, locale) })}
+              </summary>
               <pre>{settings.logTail}</pre>
             </details>
           </SettingsGroup>
