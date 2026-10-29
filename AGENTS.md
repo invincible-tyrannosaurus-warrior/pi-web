@@ -33,7 +33,7 @@ npm run dev   # port 30143 (remote: https://nuc.tailb8ef79.ts.net:10446)
 - A browser-only `Module ... factory is not available` overlay is usually a stale HMR graph in that tab. Reload the page first, then compare the server log and a direct HTTP/API request.
 - Restart only if it reproduces on a fresh page and server-side checks also fail: stop the exact dev process gracefully, move `.next` into a `mktemp -d` backup, `npm run dev`.
 - Never use `next dev --webpack` (fails on `undici` imports such as `node:console`).
-- After editing `app/globals.css`, Turbopack may keep serving a stale CSS chunk (classes renamed without their rules). Confirm with `document.styleSheets`; appending/removing a comment forces a rebuild.
+- After editing `app/globals.css`, Turbopack may keep serving a stale CSS chunk (classes renamed without their rules). Confirm with `document.styleSheets`; appending/removing a comment forces a rebuild. A later `.tsx` edit can revert the chunk to a much older CSS (same URL); if that recurs, restart with a fresh `.next` (below).
 - After an SDK upgrade, restart the dev server: a server started before `npm install` keeps old modules (MCP config helpers then fail with missing-export errors).
 - `next dev` may append a generated `BEGIN:nextjs-agent-rules` block to this file. Do not commit it with unrelated work.
 
