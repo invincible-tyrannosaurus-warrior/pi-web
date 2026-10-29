@@ -326,8 +326,8 @@ function TreeNode({
           display: "flex",
           alignItems: "center",
           gap: 4,
-          paddingLeft: 4 + depth * 14,
-          paddingRight: 8,
+          paddingLeft: 2 + depth * 14,
+          paddingRight: 6,
           height: 26,
           boxSizing: "border-box",
           cursor: "pointer",
@@ -409,7 +409,7 @@ function TreeNode({
         )}
         {hovered && (onAtMention || !node.isDir) && (
           // Quiet icon actions like the session rows; the row's hover fill hides the name beneath.
-          <span style={{ position: "absolute", right: 4, top: 0, height: "100%", display: "flex", alignItems: "center", gap: 2, paddingLeft: 4, background: "var(--bg-hover)", borderRadius: 4 }}>
+          <span style={{ position: "absolute", right: 2, top: 0, height: "100%", display: "flex", alignItems: "center", gap: 2, paddingLeft: 4, background: "var(--bg-hover)", borderRadius: 4 }}>
             {onAtMention && (
               <button
                 type="button"
@@ -467,7 +467,7 @@ function TreeNode({
             />
           ))}
           {children.length === 0 && loaded && (
-            <div style={{ paddingLeft: 4 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
+            <div style={{ paddingLeft: 2 + (depth + 1) * 14, fontSize: 11, color: "var(--text-dim)", height: 22, display: "flex", alignItems: "center" }}>
               empty
             </div>
           )}
@@ -476,7 +476,7 @@ function TreeNode({
               type="button"
               onClick={() => void loadChildren(true)}
               title={loadError}
-              style={{ marginLeft: 2 + (depth + 1) * 14, height: 22, padding: 0, border: 0, background: "none", color: "var(--danger)", cursor: "pointer", fontSize: 11 }}
+              style={{ marginLeft: (depth + 1) * 14, height: 22, padding: 0, border: 0, background: "none", color: "var(--danger)", cursor: "pointer", fontSize: 11 }}
             >
               {t("files.loadFailedRetry")}
             </button>
@@ -515,8 +515,8 @@ function ChangeRow({
         display: "flex",
         alignItems: "center",
         gap: 6,
-        paddingLeft: 10,
-        paddingRight: 8,
+        paddingLeft: 8,
+        paddingRight: 6,
         height: 26,
         boxSizing: "border-box",
         cursor: "pointer",
@@ -1042,7 +1042,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     >
       <input ref={uploadInputRef} type="file" multiple hidden disabled={uploadBlocked} onChange={handleUploadInput} />
       {showUploadFeedback && (
-        <div style={{ padding: "2px 4px 2px 8px", borderBottom: "1px solid var(--border)" }}>
+        <div style={{ padding: "2px 2px", borderBottom: "1px solid var(--border)" }}>
         {uploadBusy && (
           <div role="status" aria-live="polite" aria-label={uploadPhase === "checking" ? t("files.checking") : t("files.uploading", { progress: uploadProgress })} style={{ padding: "4px 4px 4px 0" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 14, color: "var(--text-muted)" }}>
@@ -1301,26 +1301,26 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       )}
 
       {deleteError && (
-        <div role="alert" title={deleteError} onClick={() => setDeleteError(null)} style={{ padding: "6px 12px", fontSize: 11, color: "var(--danger)", cursor: "pointer" }}>
+        <div role="alert" title={deleteError} onClick={() => setDeleteError(null)} style={{ padding: "6px 6px", fontSize: 11, color: "var(--danger)", cursor: "pointer" }}>
           {t("files.deleteFailed", { error: deleteError })}
         </div>
       )}
 
       {gitError && (
-        <div role="alert" title={gitError} style={{ padding: "6px 12px", fontSize: 11, color: "var(--danger)" }}>
+        <div role="alert" title={gitError} style={{ padding: "6px 6px", fontSize: 11, color: "var(--danger)" }}>
           {t("files.gitStatusFailed")}
         </div>
       )}
 
       {!changesCollapsed && gitStatusCwd === cwd && gitFiles.length > 0 && (
-        <div style={{ padding: "0 4px 2px" }}>
+        <div style={{ padding: "0 0 2px" }}>
           <div
             aria-label={t("files.changeStats", {
               count: gitFiles.length,
               additions: gitLineStats.additions,
               deletions: gitLineStats.deletions,
             })}
-            style={{ display: "flex", alignItems: "center", gap: 6, height: 24, padding: "0 10px", fontSize: 12 }}
+            style={{ display: "flex", alignItems: "center", gap: 6, height: 24, padding: "0 8px", fontSize: 12 }}
           >
             <span style={{ color: "var(--text-dim)" }}>
               {t("files.changedCount", { count: gitFiles.length })}
@@ -1335,11 +1335,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       )}
 
       {treeVisible && (
-        <div style={{ padding: "2px 4px" }}>
+        <div style={{ padding: "2px 0" }}>
           {loading ? (
-            <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
+            <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
           ) : error ? (
-            <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--danger)" }}>{error}</div>
+            <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--danger)" }}>{error}</div>
           ) : (
             roots.map((node) => (
               <TreeNode
@@ -1364,7 +1364,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             ))
           )}
           {!loading && !error && roots.length === 0 && (
-            <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>
+            <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>
               {t("files.noFiles")}
             </div>
           )}

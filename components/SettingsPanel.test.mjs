@@ -18,7 +18,7 @@ test("opens settings from a single sidebar text control", () => {
   assert.match(shellSource, /translate\("common\.settings"\)/);
   assert.match(shellSource, /className="sidebar-footer"/);
   assert.match(shellSource, /color: "var\(--text-muted\)"/);
-  assert.match(shellSource, /<SettingsGearIcon/);
+  assert.match(shellSource, /className="sidebar-footer-label"/);
   assert.doesNotMatch(shellSource, /SettingsSectionIcon/);
   assert.doesNotMatch(shellSource, /\["models", translate\("common\.models"\)\]/);
   assert.doesNotMatch(shellSource, /\["skills", translate\("common\.skills"\)\]/);

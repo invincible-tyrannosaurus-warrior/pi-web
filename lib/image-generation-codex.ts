@@ -1,6 +1,6 @@
 import { modelProgressFetch } from "./model-progress-fetch";
 import { Buffer } from "node:buffer";
-import { getPiUserAgent } from "@earendil-works/pi-ai/utils/pi-user-agent";
+import { formatUserAgent } from "@earendil-works/pi-ai";
 import { getBase64DecodedByteLength } from "./image-attachments";
 import { openaiImageSize } from "./image-generation";
 import { readImageResponseBytes } from "./image-generation-response";
@@ -107,7 +107,7 @@ export async function requestCodexImage(
     Authorization: `Bearer ${token}`,
     "chatgpt-account-id": accountId,
     originator: "pi",
-    "User-Agent": getPiUserAgent(),
+    "User-Agent": formatUserAgent(),
     Accept: "application/json",
     "Content-Type": "application/json",
   });

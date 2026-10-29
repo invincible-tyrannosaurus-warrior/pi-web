@@ -15,6 +15,8 @@ import { workspaceKeyOf } from "@/lib/workspace-key";
 import { shouldAdoptSessionCwd } from "@/lib/explorer-cwd";
 import { isSidebarSingleProject, SIDEBAR_SINGLE_PROJECT_EVENT } from "@/lib/sidebar-single-project-preference";
 import { formatCompactRelativeTime } from "@/lib/i18n/format";
+import { interpolateMessage } from "@/lib/i18n/format";
+import { enLocale } from "@/lib/i18n/messages/en";
 import { useI18n } from "@/hooks/useI18n";
 import { AwaitingSessionIndicator, UnreadSessionIndicator } from "./SessionStateBadge";
 import { getFileName } from "@/lib/file-paths";
@@ -56,6 +58,12 @@ function deleteRefusalText(t: ReturnType<typeof useI18n>["t"], data: { code?: st
   if (data.code === "child_running") return t("sidebar.deleteChildRunning");
   if (data.code === "session_running") return t("sidebar.deleteSessionRunning");
   return data.error ?? t("sidebar.deleteFailed");
+}
+
+// Section titles use the Latin-only brand face, so they show the English text in
+// every locale; their buttons carry the translated name as aria-label.
+function sectionTitle(key: string, params?: Record<string, string | number>): string {
+  return interpolateMessage(enLocale.messages[key], params);
 }
 
 function ToolbarIconButton({
@@ -475,7 +483,12 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
     const probe = gutterProbeRef.current;
     if (!probe) return;
     const root = document.documentElement;
-    const update = () => root.style.setProperty("--sidebar-scrollbar-gutter", `${probe.offsetWidth - probe.clientWidth}px`);
+    const update = () => {
+      const gutter = probe.offsetWidth - probe.clientWidth;
+      root.style.setProperty("--sidebar-scrollbar-gutter", `${gutter}px`);
+      // Overlay scrollbars (touch) reserve nothing; keep the fine-pointer 5px edge inset anyway.
+      root.style.setProperty("--sidebar-inset", `${Math.max(gutter, 5)}px`);
+    };
     update();
     const pointer = window.matchMedia("(pointer: coarse)");
     pointer.addEventListener("change", update);
@@ -1971,12 +1984,12 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
       {pinnedFamilies.length > 0 && !archiveView && (
         <div style={{ flexShrink: 0, borderBottom: "1px solid var(--border)" }}>
           <div className="sidebar-section-row">
-            <button type="button" onClick={() => setPinnedOpen((open) => !open)} className="sidebar-section-label" aria-expanded={pinnedOpen}>
-              <span>{t("sidebar.pinned")}</span>
+            <button type="button" onClick={() => setPinnedOpen((open) => !open)} className="sidebar-section-label" aria-label={t("sidebar.pinned")} aria-expanded={pinnedOpen}>
+              <span>{sectionTitle("sidebar.pinned")}</span>
             </button>
           </div>
           {pinnedOpen && (
-            <div className="sidebar-list-scroll" style={{ padding: "0 4px" }}>
+            <div className="sidebar-list-scroll">
               {pinnedFamilies.map((family) => <div key={family.root.id}>{renderSessionFamily(family, true)}</div>)}
             </div>
           )}
@@ -2013,8 +2026,9 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
           onClick={() => archiveView ? setArchiveView(false) : setProjectsOpen((open) => !open)}
           className="sidebar-section-label"
           title={archiveView ? t("sidebar.backToSessions") : undefined}
+          aria-label={archiveView ? t("sidebar.archivedCount", { count: archivedCount }) : t("sidebar.projects")}
         >
-          <span>{archiveView ? t("sidebar.archivedCount", { count: archivedCount }) : t("sidebar.projects")}</span>
+          <span>{archiveView ? sectionTitle("sidebar.archivedCount", { count: archivedCount }) : sectionTitle("sidebar.projects")}</span>
         </button>
         <div className="sidebar-header-actions">
           {projectsOpen && !singleProject && (archiveView
@@ -2287,11 +2301,11 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
         onScroll={handleListScroll}
         onClickCapture={projectDrag.onClickCapture}
         className="sidebar-list-scroll scroll-fade-block"
-        style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", padding: "0", minHeight: 80 }}
+        style={{ flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto", minHeight: 80 }}
       >
-        {error && <div style={{ padding: "12px 14px", color: "var(--danger)", fontSize: 12 }}>{error}</div>}
+        {error && <div style={{ padding: "12px 8px", color: "var(--danger)", fontSize: 12 }}>{error}</div>}
         {!loading && !error && !showSelectProjectPrompt && workspaceProjects.length === 0 && (
-          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>{t("sidebar.noSessions")}</div>
+          <div style={{ padding: "16px 8px", color: "var(--text-muted)", fontSize: 12 }}>{t("sidebar.noSessions")}</div>
         )}
         {workspaceRows.length > 0 && (
           <div ref={listInnerRef} style={{ position: "relative", height: workspaceRows.length * SESSION_LIST_ITEM_HEIGHT }}>
@@ -2318,7 +2332,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                       event.stopPropagation();
                       setProjectMenu({ key: row.project.key, cwd: workspaceCwd, x: event.clientX, y: event.clientY });
                     }}
-                    style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 4, right: 4, height: SESSION_LIST_ITEM_HEIGHT, display: "flex", alignItems: "center", WebkitTouchCallout: "none", userSelect: "none", ...projectDrag.rowStyle(index * SESSION_LIST_ITEM_HEIGHT) }}
+                    style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0, height: SESSION_LIST_ITEM_HEIGHT, display: "flex", alignItems: "center", WebkitTouchCallout: "none", userSelect: "none", ...projectDrag.rowStyle(index * SESSION_LIST_ITEM_HEIGHT) }}
                   >
                     {renamingProjectKey === row.project.key ? (
                       <ProjectNameInput
@@ -2361,7 +2375,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                         });
                       }}
                       title={row.project.root}
-                      style={{ display: "flex", alignItems: "center", gap: 4, flex: "1 1 auto", minWidth: 0, height: "100%", padding: "0 4px", border: "none", background: "none", color: "inherit", cursor: "pointer", textAlign: "left", fontSize: 12 }}
+                      style={{ display: "flex", alignItems: "center", gap: 4, flex: "1 1 auto", minWidth: 0, height: "100%", padding: "0 4px 0 2px", border: "none", background: "none", color: "inherit", cursor: "pointer", textAlign: "left", fontSize: 12 }}
                     >
                       <ProjectFolderIcon open={singleProject ? dropdownOpen : expanded} />
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{projectNames.get(row.project.key) ?? getFileName(row.project.root)}</span>
@@ -2416,7 +2430,7 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                     onClick={() => setWorkspaceSessionLimits((current) => ({ ...current, [row.limitKey]: row.nextLimit }))}
                     style={{
                       position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT,
-                      left: 4, right: 4, height: SESSION_LIST_ITEM_HEIGHT,
+                      left: 0, right: 0, height: SESSION_LIST_ITEM_HEIGHT,
                       ...projectDrag.rowStyle(index * SESSION_LIST_ITEM_HEIGHT),
                     }}
                   >
@@ -2431,12 +2445,12 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                   type="button"
                   className={`workspace-show-more-button${projectDrag.view ? " project-drag-row" : ""}`}
                   onClick={() => setWorkspaceSessionLimits((current) => ({ ...current, [row.limitKey]: WORKSPACE_SESSION_PREVIEW_LIMIT }))}
-                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 4, right: 4, height: SESSION_LIST_ITEM_HEIGHT, ...projectDrag.rowStyle(index * SESSION_LIST_ITEM_HEIGHT) }}
+                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0, height: SESSION_LIST_ITEM_HEIGHT, ...projectDrag.rowStyle(index * SESSION_LIST_ITEM_HEIGHT) }}
                 >{t("sidebar.showLessSessions")}</button>;
               }
               return (
                 <div key={row.family.root.id} className={projectDrag.view ? "project-drag-row" : undefined}
-                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 4, right: 4, ...projectDrag.rowStyle(index * SESSION_LIST_ITEM_HEIGHT) }}>
+                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0, ...projectDrag.rowStyle(index * SESSION_LIST_ITEM_HEIGHT) }}>
                   {renderSessionFamily(row.family)}
                 </div>
               );
@@ -2467,8 +2481,9 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                 return next;
               })}
               className="sidebar-section-label"
+              aria-label={t("files.explorer")}
             >
-              <span>{t("files.explorer")}</span>
+              <span>{sectionTitle("files.explorer")}</span>
             </button>
             <div className="sidebar-header-actions">
             {explorerOpen && explorerCanCollapse && (
@@ -2479,28 +2494,6 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <polyline points="7 20 12 15 17 20" /><polyline points="7 4 12 9 17 4" />
-                </svg>
-              </ToolbarIconButton>
-            )}
-            {onOpenTerminal && (
-              <ToolbarIconButton
-                onClick={() => onOpenTerminal(selectedCwd ?? selectedCwdProp!)}
-                title={t("terminal.open")}
-                color="var(--text-muted)"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
-                </svg>
-              </ToolbarIconButton>
-            )}
-            {onOpenBrowser && (
-              <ToolbarIconButton
-                onClick={onOpenBrowser}
-                title={t("browser.open")}
-                color="var(--text-muted)"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18" />
                 </svg>
               </ToolbarIconButton>
             )}
@@ -2546,6 +2539,30 @@ export function SessionSidebar({ selectedSessionId, visibleSessionIds = [], onSe
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                   <path d="m17 8-5-5-5 5" />
                   <path d="M12 3v12" />
+                </svg>
+              </ToolbarIconButton>
+            )}
+            {/* Always-present actions stay rightmost, so collapsing the explorer only drops
+                the open-only ones on the left. */}
+            {onOpenTerminal && (
+              <ToolbarIconButton
+                onClick={() => onOpenTerminal(selectedCwd ?? selectedCwdProp!)}
+                title={t("terminal.open")}
+                color="var(--text-muted)"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+                </svg>
+              </ToolbarIconButton>
+            )}
+            {onOpenBrowser && (
+              <ToolbarIconButton
+                onClick={onOpenBrowser}
+                title={t("browser.open")}
+                color="var(--text-muted)"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18" />
                 </svg>
               </ToolbarIconButton>
             )}
@@ -2627,7 +2644,7 @@ function ProjectNameInput({ open, initial, onCommit, onCancel }: {
   return (
     // The row's drag gesture and its context menu must not start from the field.
     <div onPointerDown={(event) => event.stopPropagation()} onContextMenu={(event) => event.stopPropagation()}
-      style={{ display: "flex", alignItems: "center", gap: 4, flex: "1 1 auto", minWidth: 0, height: "100%", padding: "0 4px" }}>
+      style={{ display: "flex", alignItems: "center", gap: 4, flex: "1 1 auto", minWidth: 0, height: "100%", padding: "0 4px 0 2px" }}>
       <ProjectFolderIcon open={open} />
       <input
         ref={inputRef}
@@ -2874,8 +2891,8 @@ export function SessionItem({
         position: "relative",
         display: "flex",
         alignItems: "center",
-        paddingLeft: 14 + indent + depth * 14,
-        paddingRight: 8,
+        paddingLeft: 12 + indent + depth * 14,
+        paddingRight: 6,
         cursor: renaming ? "default" : "pointer",
         background: pendingDelete
           ? "color-mix(in srgb, var(--danger) 6%, transparent)"
@@ -3020,7 +3037,7 @@ export function SessionItem({
 
           {/* Action buttons — shown on hover or keyboard focus */}
           {!selection && !session.transient && (
-            <div className="session-row-actions" style={{ display: "flex", alignItems: "center", gap: 2, position: "absolute", right: 6, top: 0, height: "100%", background: isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "var(--bg-panel)", paddingLeft: 4, borderRadius: 4 }}>
+            <div className="session-row-actions" style={{ display: "flex", alignItems: "center", gap: 2, position: "absolute", right: 4, top: 0, height: "100%", background: isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "var(--bg-panel)", paddingLeft: 4, borderRadius: 4 }}>
               {onOpenInNewTab && (
                 <button
                   type="button"

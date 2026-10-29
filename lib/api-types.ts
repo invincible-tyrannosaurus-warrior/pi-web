@@ -277,6 +277,8 @@ export interface McpSettingsResponse {
   servers: McpServerView[];
   errors: string[];
   logTail: string;
+  /** ISO time `mcp.log` was last written; null when it does not exist. */
+  logModified: string | null;
 }
 
 /** `pi mcp list --json`. */

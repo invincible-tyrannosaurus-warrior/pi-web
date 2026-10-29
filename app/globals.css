@@ -104,6 +104,17 @@
   font-display: swap;
 }
 
+/* Brand face: Departure Mono v1.500 (pi.dev's nav font), Latin only. Pixel-exact
+   at multiples of 11px. Block, not swap: a UI-font flash would read as a
+   different label for the moment the 22 KB file takes. */
+@font-face {
+  font-family: "Departure Mono Web";
+  src: url("/fonts/DepartureMono-Regular.woff2?v=1") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+}
+
 /* Kai scheme prose: LXGW WenKai v1.522, CJK + Latin in each face. The family
    tops out at Medium and the Screen cut (body) is already about Medium, so
    there is no real bold. CSS 400 matches Screen; CSS 600 finds no face at or
@@ -296,12 +307,15 @@ html.dark {
 
 /* Sidebar lists (Pinned, Projects, Explorer) reserve the scrollbar gutter on
    both edges, so row highlights keep equal side gaps whether or not a list
-   scrolls. --sidebar-scrollbar-gutter is that measured width (SessionSidebar);
-   chrome outside the lists takes the same inset to stay aligned with them. */
+   scrolls. --sidebar-scrollbar-gutter is that measured width and --sidebar-inset
+   the edge inset, never under 5px (SessionSidebar): where scrollbars overlay
+   (touch) the lists pad the difference, and chrome outside the lists takes the
+   inset to stay aligned with them. */
 .sidebar-list-scroll {
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-gutter: stable both-edges;
+  padding-inline: calc(var(--sidebar-inset, 5px) - var(--sidebar-scrollbar-gutter, 0px));
 }
 
 .sidebar-section-row {
@@ -310,7 +324,7 @@ html.dark {
   flex-shrink: 0;
   box-sizing: border-box;
   height: var(--workspace-header-height, 30px);
-  padding-inline: var(--sidebar-scrollbar-gutter, 0px);
+  padding-inline: var(--sidebar-inset, 5px);
 }
 
 .sidebar-section-label {
@@ -322,23 +336,45 @@ html.dark {
   height: 100%;
   margin: 0;
   /* No leading icon: the text starts where the box-shaped row icons below
-     (folders, gear) put their left ink; see .sidebar-section-gutter. */
-  padding: 0 4px 0 12px;
+     (folders, gear) put their left ink (6px past the gutter); see .sidebar-section-gutter. */
+  padding: 0 4px 0 6px;
   background: none;
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
   line-height: 1;
   text-align: left;
 }
 
+/* Section titles and the footer label share pi.dev's nav type: Departure Mono,
+   uppercase, 0.08em tracking, at the sidebar's 12px text size (the face's native
+   11px read lighter and smaller than the 13px icons; 14px overpowered them). The
+   face is Latin only, so these texts are English in every locale (see
+   sectionTitle in SessionSidebar). */
+.sidebar-section-label,
+.sidebar-footer-label {
+  font-family: var(--font-brand);
+  font-size: 12px;
+  font-variant-ligatures: none;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* A narrow sidebar truncates the title instead of wrapping it under the actions. */
+.sidebar-section-label > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
 .sidebar-section-gutter {
-  /* Every leading sidebar glyph sits centered in this slot, whose center is 18px
-     from the sidebar edge. Icons differ in side bearing and mass (a thin chevron,
-     a boxy folder, padded file icons), so they align by optical center, not by
-     box edge; section titles take the left ink edge of the boxy icons (12px). */
+  /* Every leading sidebar glyph sits centered in this slot, whose center is 12px
+     past the scrollbar gutter: row highlights start right at the gutter.
+     Icons differ in side bearing and mass (a thin chevron, a boxy folder, padded
+     file icons), so they align by optical center, not by box edge; section titles
+     take the left ink edge of the boxy icons (6px). */
   width: 20px;
   height: 16px;
   display: inline-flex;
@@ -348,11 +384,6 @@ html.dark {
   /* Same as the file tree's chevrons; inheriting --text made project rows
      look heavier than file rows at the same font weight. */
   color: var(--text-dim);
-}
-
-/* An icon that labels text takes the label's color (the gutter's dim is for chevrons). */
-.sidebar-footer-item .sidebar-section-gutter {
-  color: inherit;
 }
 
 .sidebar-section-gutter svg,
@@ -365,7 +396,7 @@ html.dark {
   display: flex;
   align-items: center;
   height: 100%;
-  padding-right: 8px;
+  padding-right: 2px;
 }
 
 .sidebar-header-count {
@@ -375,29 +406,28 @@ html.dark {
   color: var(--text-dim);
 }
 
+/* Mirrors a section header: as tall, its label where a title starts. The whole
+   bar is one button. */
 .sidebar-footer {
   flex-shrink: 0;
-  padding: 4px calc(8px + var(--sidebar-scrollbar-gutter, 0px)) 4px var(--sidebar-scrollbar-gutter, 0px);
+  /* 1px border + 2 + 26 + 2: the content is as tall as a section header. */
+  height: calc(var(--workspace-header-height, 30px) + 1px);
+  padding: 2px var(--sidebar-inset, 5px);
   border-top: 1px solid var(--border);
 }
 
 .sidebar-footer-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  box-sizing: border-box;
   width: 100%;
-  height: 28px;
+  height: 26px;
   margin: 0;
-  padding: 0 8px 0 8px;
-  background: none;
+  padding: 0 2px;
   border: none;
   border-radius: var(--ui-radius-sm);
+  background: none;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  text-align: left;
 }
 
 .sidebar-footer-item:hover {
@@ -405,16 +435,22 @@ html.dark {
   background: var(--bg-hover);
 }
 
+/* The label starts where a section title starts. */
+.sidebar-footer-label {
+  margin-left: 4px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .sidebar-search-container {
-  padding: 6px 8px;
-  padding-inline: calc(8px + var(--sidebar-scrollbar-gutter, 0px));
+  padding: 6px var(--sidebar-inset, 5px);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 /* Inside a list the gutter is already reserved by the scroller. */
 .sidebar-list-scroll .sidebar-search-container {
-  padding-inline: 8px;
+  padding-inline: 0;
 }
 
 .sidebar-search-field {
@@ -1224,6 +1260,8 @@ html[data-theme="claude"] .terminal-panel[data-terminal-theme="light"] {
      with explicit CJK families: on systems where the generic monospace face
      has no Chinese glyphs the browser would otherwise pick an arbitrary
      CJK fallback, often a proportional one. */
+  /* Brand labels only (sidebar section titles and footer), never UI or code text. */
+  --font-brand: "Departure Mono Web", var(--font-ui);
   --font-mono: "Sarasa Term SC Web", ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', var(--font-noto-mono), monospace, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif;
 }
 
@@ -3959,7 +3997,7 @@ span.token.table {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 8px 0 24px;
+  padding: 0 6px 0 22px;
   border: none;
   border-radius: var(--ui-radius-sm);
   background: none;

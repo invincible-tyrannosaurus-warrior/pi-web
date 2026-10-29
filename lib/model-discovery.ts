@@ -6,7 +6,7 @@ export interface DiscoveredModel {
   name?: string;
   // Capabilities the upstream list publishes, as models.json fields.
   reasoning?: true;
-  thinkingLevelMap?: Partial<Record<EffortLevel, string | null>>;
+  thinkingLevelMap?: Partial<Record<EffortLevel | "off", string | null>>;
   contextWindow?: number;
   maxTokens?: number;
 }
@@ -20,6 +20,9 @@ const CONTEXT_WINDOW_FIELDS = [
 const MAX_TOKENS_FIELDS = ["max_output_tokens", "maxOutputTokens", "max_completion_tokens", "outputTokenLimit"];
 const REASONING_FIELDS = ["supports_reasoning", "supportsReasoning", "reasoning", "thinking"];
 const EFFORT_LIST_FIELDS = ["supported_efforts", "supportedEfforts"];
+// Cursor-style `parameters: [{ id: "reasoning_effort", values: [{ value }] }]`.
+const EFFORT_PARAMETER_IDS = new Set(["reasoning_effort", "reasoningEffort", "effort"]);
+const CAN_DISABLE_FIELDS = ["can_disable_thinking", "canDisableThinking"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -38,29 +41,60 @@ function firstPositiveInteger(value: Record<string, unknown>, fields: readonly s
   return undefined;
 }
 
-/**
- * An advertised effort list names pi's own levels, which pi sends as the
- * effort when thinkingLevelMap has no entry. Every level it leaves out is
- * marked unsupported (null), and `xhigh` / `max` need an entry to be offered at
- * all. `off` stays unmapped: the list does not say whether thinking can be
- * turned off. A list naming none of pi's levels maps nothing.
- */
-function thinkingLevelMapFromEfforts(value: Record<string, unknown>): DiscoveredModel["thinkingLevelMap"] {
-  const list = EFFORT_LIST_FIELDS.map((field) => value[field]).find(Array.isArray);
-  if (!list) return undefined;
-  const advertised = new Set(list.filter((effort): effort is string => typeof effort === "string"));
-  if (!EFFORT_LEVELS.some((level) => advertised.has(level))) return undefined;
-  const map: NonNullable<DiscoveredModel["thinkingLevelMap"]> = {};
-  for (const level of EFFORT_LEVELS) {
-    if (!advertised.has(level)) map[level] = null;
-    else if (level === "xhigh" || level === "max") map[level] = level;
+function effortSet(list: unknown[]): Set<string> {
+  return new Set(list
+    .map((effort) => isRecord(effort) ? effort.value : effort)
+    .filter((effort): effort is string => typeof effort === "string"));
+}
+
+/** Effort names from a top-level or nested `reasoning` list, else a Cursor-style parameter. */
+function advertisedEfforts(value: Record<string, unknown>): Set<string> | undefined {
+  for (const source of [value, value.reasoning]) {
+    if (!isRecord(source)) continue;
+    const list = EFFORT_LIST_FIELDS.map((field) => source[field]).find((entry) => Array.isArray(entry) && entry.length > 0);
+    if (list) return effortSet(list as unknown[]);
   }
-  return map;
+  if (!Array.isArray(value.parameters)) return undefined;
+  const parameter = value.parameters.find((entry) =>
+    isRecord(entry) && typeof entry.id === "string" && EFFORT_PARAMETER_IDS.has(entry.id) && Array.isArray(entry.values));
+  return parameter ? effortSet(parameter.values as unknown[]) : undefined;
+}
+
+/**
+ * `off` is mapped only when the gateway says whether thinking can be turned
+ * off; a list without none/off does not say it cannot (another parameter may).
+ */
+function offMapping(value: Record<string, unknown>, efforts: Set<string> | undefined): string | null | undefined {
+  const canDisable = CAN_DISABLE_FIELDS.map((field) => value[field]).find((flag) => typeof flag === "boolean");
+  if (canDisable === false) return null;
+  if (efforts?.has("off")) return "off";
+  if (efforts?.has("none") || canDisable) return "none";
+  return undefined;
+}
+
+/**
+ * Advertised pi levels keep no entry, so pi sends the level name; every level
+ * left out is unsupported (null), and `xhigh` / `max` need an entry to be
+ * offered at all. A list naming none of pi's levels maps no level.
+ */
+function thinkingLevelMapFrom(value: Record<string, unknown>, efforts: Set<string> | undefined): DiscoveredModel["thinkingLevelMap"] {
+  const map: NonNullable<DiscoveredModel["thinkingLevelMap"]> = {};
+  if (efforts && EFFORT_LEVELS.some((level) => efforts.has(level))) {
+    for (const level of EFFORT_LEVELS) {
+      if (!efforts.has(level)) map[level] = null;
+      else if (level === "xhigh" || level === "max") map[level] = level;
+    }
+  }
+  const off = offMapping(value, efforts);
+  if (off !== undefined) map.off = off;
+  return Object.keys(map).length ? map : undefined;
 }
 
 function capabilitiesFromValue(value: Record<string, unknown>): Omit<DiscoveredModel, "id" | "name"> {
-  const reasoning = REASONING_FIELDS.some((field) => value[field] === true);
-  const thinkingLevelMap = reasoning ? thinkingLevelMapFromEfforts(value) : undefined;
+  const efforts = advertisedEfforts(value);
+  const reasoning = REASONING_FIELDS.some((field) => value[field] === true)
+    || EFFORT_LEVELS.some((level) => efforts?.has(level));
+  const thinkingLevelMap = reasoning ? thinkingLevelMapFrom(value, efforts) : undefined;
   const contextWindow = firstPositiveInteger(value, CONTEXT_WINDOW_FIELDS);
   const maxTokens = firstPositiveInteger(value, MAX_TOKENS_FIELDS);
   return {
