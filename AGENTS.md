@@ -52,6 +52,7 @@ Browser                Next.js Server              AgentSession (in-process)
 ```
 
 - Session browsing is read-only (`SessionManager` helpers + `lib/session-reader.ts`), no AgentSession created.
+- Next's `compress` skips Route Handler responses (vercel/next.js#98007): large JSON endpoints return `jsonResponse()` (`lib/json-response.ts`), which gzips itself.
 - Layout: `app/api/**/route.ts` endpoints, `lib/` server logic and shared helpers, `components/`, `hooks/`. Key entry points: `lib/rpc-manager.ts` (wrapper/registry/`startRpcSession`), `hooks/useAgentSession.ts` (messages, streaming, SSE, reconciliation), `components/AppShell.tsx` (layout, URL state, tabs), `lib/path-security.ts` (file access boundary).
 
 ---

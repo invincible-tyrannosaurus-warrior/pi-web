@@ -23,6 +23,7 @@ import { readSubagentRun, readSubagentSessionResources } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
 import { updateSidebarState } from "@/lib/sidebar-state";
 import { getSessionFamily, familyHasMemberIn } from "@/lib/session-family";
+import { jsonResponse } from "@/lib/json-response";
 
 /**
  * A live wrapper only reflects appends Pi Web itself made. When another pi process
@@ -145,7 +146,7 @@ export async function GET(
       transient: !filePath || !existsSync(filePath),
     }]))[0] : null;
 
-    return NextResponse.json({
+    return await jsonResponse(req, {
       sessionId: id,
       filePath,
       info,

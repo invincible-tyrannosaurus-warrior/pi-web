@@ -2,6 +2,7 @@ import { deleteSessionById } from "@/lib/session-delete-operation";
 import { parseJsonWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
 import { existsSync } from "node:fs";
 import { NextResponse } from "next/server";
+import { jsonResponse } from "@/lib/json-response";
 import {
   attachSessionProjectInfo,
   getSessionListVersion,
@@ -114,7 +115,8 @@ export async function GET(req: Request) {
     ]);
     const sessions = mergeSessionLists(persistedSessions, runtimeSessions);
     const sidebarState = readSidebarState();
-    return NextResponse.json(
+    return await jsonResponse(
+      req,
       {
         sessions,
         sessionListVersion,
