@@ -1,8 +1,8 @@
 import { isContextOverflow, isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
 
-// shortcut: pi's RETRYABLE_PROVIDER_ERROR_PATTERN (pi-ai utils/retry.ts, 1.3.0) misses a
-// relay's "Upstream HTTP/2 stream failed" and a bare "stream_read_error", so a dropped
-// stream ends the run. Delete this file and its AgentSessionWrapper call once pi's list
+// shortcut: pi's RETRYABLE_PROVIDER_ERROR_PATTERN (pi-ai utils/retry.ts, 1.4.0) covers
+// "HTTP/2 stream failed" but misses a bare "stream_read_error" and other HTTP/2 stream
+// failure words ("dropped", "closed"), so such a dropped stream ends the run. Delete this file and its AgentSessionWrapper call once pi's list
 // covers them. Adds cases only: an HTTP/2 *stream* plus a failure word in one clause.
 const STREAM_DROP = /http\/?2[ _-]?stream(?!ing)[^.\n]{0,24}?(?:fail|reset|clos|terminat|abort|cancel|drop|broken|error)|\bstream_read_error\b/i;
 

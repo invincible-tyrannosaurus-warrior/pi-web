@@ -71,7 +71,8 @@ export function readMcpConfigFile(path: string, projectRoot?: string): {
       length += count;
     }
     if (length > MAX_CONFIG_BYTES) throw new McpConfigError("MCP config exceeds 1 MiB");
-    const text = buffer.subarray(0, length).toString("utf8");
+    // Like the SDK (1.4.0), accept the BOM Windows PowerShell 5.1 writes; edits write it back without one.
+    const text = buffer.subarray(0, length).toString("utf8").replace(/^\uFEFF/, "");
     let document: unknown;
     try { document = JSON.parse(text); } catch { throw new McpConfigError("Cannot parse MCP config: invalid JSON"); }
     if (!isRecord(document) || (document.mcpServers !== undefined && !isRecord(document.mcpServers))) {
